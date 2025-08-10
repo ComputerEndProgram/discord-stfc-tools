@@ -32,55 +32,107 @@ export function generateAsciiTable(data: TableData[], columns: TableColumn[]): s
 	});
 
 	// Generate table parts using Unicode box-drawing characters
-	const horizontalLine = '─';
-	const verticalLine = '│';
-	const topLeft = '┌';
-	const topRight = '┐';
-	const topTee = '┬';
-	const bottomLeft = '└';
-	const bottomRight = '┘';
-	const bottomTee = '┴';
-	const leftTee = '├';
-	const rightTee = '┤';
-	const cross = '┼';
+	// Double-line characters for outer border
+	const doubleHorizontal = '═';
+	const doubleVertical = '║';
+	const doubleTopLeft = '╔';
+	const doubleTopRight = '╗';
+	const doubleBottomLeft = '╚';
+	const doubleBottomRight = '╝';
+	const doubleLeftTee = '╠';
+	const doubleRightTee = '╣';
 	
-	const topBorder = topLeft + processedColumns.map(col => horizontalLine.repeat(col.width + 2)).join(topTee) + topRight;
-	const middleBorder = leftTee + processedColumns.map(col => horizontalLine.repeat(col.width + 2)).join(cross) + rightTee;
-	const bottomBorder = bottomLeft + processedColumns.map(col => horizontalLine.repeat(col.width + 2)).join(bottomTee) + bottomRight;
+	// Single-line characters for inner separators
+	const singleHorizontal = '─';
+	const singleVertical = '│';
+	const singleCross = '┼';
+	const singleLeftTee = '├';
+	const singleRightTee = '┤';
 	
-	const header = verticalLine + processedColumns.map(col => ` ${col.header.padEnd(col.width)} `).join(verticalLine) + verticalLine;
+	// Mixed characters for borders (double horizontal, single vertical)
+	const topTee = '╤'; // double horizontal, single vertical down
+	const bottomTee = '╧'; // double horizontal, single vertical up
+	const headerSeparatorCross = '╪'; // double horizontal, single vertical up/down
 	
-	const rows = data.map(row => 
-		verticalLine + processedColumns.map(col => {
+	// Mixed characters for data separators (single horizontal, double vertical)
+	const dataLeftTee = '╟'; // double vertical, single horizontal right
+	const dataRightTee = '╢'; // double vertical, single horizontal left
+	
+	// Create borders
+	const topBorder = doubleTopLeft + processedColumns.map(col => doubleHorizontal.repeat(col.width + 2)).join(topTee) + doubleTopRight;
+	const headerSeparator = doubleLeftTee + processedColumns.map(col => doubleHorizontal.repeat(col.width + 2)).join(headerSeparatorCross) + doubleRightTee;
+	const dataSeparator = dataLeftTee + processedColumns.map(col => singleHorizontal.repeat(col.width + 2)).join(singleCross) + dataRightTee;
+	const bottomBorder = doubleBottomLeft + processedColumns.map(col => doubleHorizontal.repeat(col.width + 2)).join(bottomTee) + doubleBottomRight;
+	
+	const header = doubleVertical + processedColumns.map(col => ` ${col.header.padEnd(col.width)} `).join(singleVertical) + doubleVertical;
+	
+	const rows = data.map((row, rowIndex) => {
+		// Process multi-line content for this row
+		const rowData: string[][] = processedColumns.map(col => {
 			let value = String(row[col.header] || '');
 			
-			// Truncate overly long values and add ellipsis
-			if (value.length > col.width) {
-				value = value.substring(0, col.width - 3) + '...';
-			}
+			// Handle multi-line content - split on \n or | 
+			let lines = value.includes('\\n') ? value.split('\\n') : value.split('|').map(s => s.trim()).filter(s => s);
+			if (lines.length === 0) lines = [value];
 			
-			const align = col.align || 'left';
-			let paddedValue: string;
+			// Ensure each line fits in the column width
+			lines = lines.map(line => {
+				if (line.length > col.width) {
+					return line.substring(0, col.width - 3) + '...';
+				}
+				return line;
+			});
 			
-			switch (align) {
-				case 'right':
-					paddedValue = value.padStart(col.width);
-					break;
-				case 'center':
-					const totalPadding = col.width - value.length;
-					const leftPadding = Math.floor(totalPadding / 2);
-					const rightPadding = totalPadding - leftPadding;
-					paddedValue = ' '.repeat(leftPadding) + value + ' '.repeat(rightPadding);
-					break;
-				default: // left
-					paddedValue = value.padEnd(col.width);
-			}
+			return lines;
+		});
+		
+		// Find the maximum number of lines in any cell for this row
+		const maxLines = Math.max(...rowData.map(cellLines => cellLines.length));
+		
+		// Generate each line of the row
+		const rowLines: string[] = [];
+		for (let lineIndex = 0; lineIndex < maxLines; lineIndex++) {
+			const line = doubleVertical + processedColumns.map((col, colIndex) => {
+				const cellLines = rowData[colIndex];
+				const lineContent = lineIndex < cellLines.length ? cellLines[lineIndex] : '';
+				
+				const align = col.align || 'left';
+				let paddedValue: string;
+				
+				switch (align) {
+					case 'right':
+						paddedValue = lineContent.padStart(col.width);
+						break;
+					case 'center':
+						const totalPadding = col.width - lineContent.length;
+						const leftPadding = Math.floor(totalPadding / 2);
+						const rightPadding = totalPadding - leftPadding;
+						paddedValue = ' '.repeat(leftPadding) + lineContent + ' '.repeat(rightPadding);
+						break;
+					default: // left
+						paddedValue = lineContent.padEnd(col.width);
+				}
+				
+				return ` ${paddedValue} `;
+			}).join(singleVertical) + doubleVertical;
 			
-			return ` ${paddedValue} `;
-		}).join(verticalLine) + verticalLine
-	);
+			rowLines.push(line);
+		}
+		
+		return rowLines;
+	});
+	
+	// Flatten rows and add separators between data rows (but not after the last row)
+	const flattenedRows: string[] = [];
+	rows.forEach((rowLines, rowIndex) => {
+		flattenedRows.push(...rowLines);
+		// Add separator after each row except the last one
+		if (rowIndex < rows.length - 1) {
+			flattenedRows.push(dataSeparator);
+		}
+	});
 
-	return [topBorder, header, middleBorder, ...rows, bottomBorder].join('\n');
+	return [topBorder, header, headerSeparator, ...flattenedRows, bottomBorder].join('\n');
 }
 
 export function parseCSV(csvText: string): TableData[] {

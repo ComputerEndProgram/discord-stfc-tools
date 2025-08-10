@@ -2,6 +2,8 @@
 import { generateAsciiTable, type TableColumn, type TableData } from './tableUtils';
 import { SYSTEM_DATA_MAP, type SystemData } from './systemData';
 
+export type { SystemData };
+
 export interface CoordinateMatch {
 	alliance: string;
 	player: string;
