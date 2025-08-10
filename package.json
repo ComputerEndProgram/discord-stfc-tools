@@ -1,0 +1,42 @@
+{
+	"name": "stfc-lookup",
+	"version": "1.0.0",
+	"description": "STFC coordinate lookup Discord bot running on Cloudflare Workers",
+	"private": true,
+	"scripts": {
+		"deploy": "wrangler deploy",
+		"dev": "wrangler dev",
+		"start": "wrangler dev",
+		"test": "vitest",
+		"cf-typegen": "wrangler types",
+		"build": "tsc && wrangler deploy --dry-run",
+		"docker:build": "docker build -t stfc-lookup .",
+		"docker:run": "docker-compose up",
+		"migrate-kv": "node migrate-to-kv.js",
+		"register-commands": "node register-command.js",
+		"kv:create": "wrangler kv:namespace create SYSTEM_DATA",
+		"kv:create-preview": "wrangler kv:namespace create SYSTEM_DATA --preview",
+		"kv:upload": "wrangler kv:bulk put --binding SYSTEM_DATA kv-bulk-upload.json"
+	},
+	"dependencies": {
+		"discord-interactions": "^3.4.0"
+	},
+	"devDependencies": {
+		"@cloudflare/vitest-pool-workers": "^0.8.19",
+		"@cloudflare/workers-types": "^4.20241106.0",
+		"@types/node": "^22.10.2",
+		"typescript": "^5.5.2",
+		"vitest": "~3.2.0",
+		"wrangler": "^4.26.1"
+	},
+	"keywords": [
+		"discord",
+		"bot",
+		"stfc",
+		"star-trek-fleet-command",
+		"cloudflare-workers",
+		"typescript"
+	],
+	"author": "",
+	"license": "MIT"
+}

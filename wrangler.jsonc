@@ -1,0 +1,43 @@
+/**
+ * For more details on how to configure Wrangler, refer to:
+ * https://developers.cloudflare.com/workers/wrangler/configuration/
+ */
+{
+	"$schema": "node_modules/wrangler/config-schema.json",
+	"name": "stfc-lookup",
+	"main": "src/index.ts",
+	"compatibility_date": "2025-07-26",
+	"compatibility_flags": [
+		"global_fetch_strictly_public"
+	],
+	"assets": {
+		"directory": "./public"
+	},
+	"observability": {
+		"enabled": true
+	},
+	/**
+	 * Environment Variables
+	 * https://developers.cloudflare.com/workers/wrangler/configuration/#environment-variables
+	 */
+	"vars": {
+		"ENVIRONMENT": "development"
+	},
+	/**
+	 * KV Namespaces for storing system data
+	 * Run: wrangler kv:namespace create "SYSTEM_DATA"
+	 * Run: wrangler kv:namespace create "SYSTEM_DATA" --preview (for local dev)
+	 */
+	"kv_namespaces": [
+		{
+			"binding": "SYSTEM_DATA",
+			"id": "your-production-namespace-id",
+			"preview_id": "your-preview-namespace-id"
+		}
+	]
+	/**
+	 * Note: Use secrets to store sensitive data like Discord public key.
+	 * Run: wrangler secret put DISCORD_PUBLIC_KEY
+	 * https://developers.cloudflare.com/workers/configuration/secrets/
+	 */
+}

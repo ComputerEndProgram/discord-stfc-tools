@@ -1,0 +1,14 @@
+version: '3.8'
+
+services:
+  stfc-lookup-bot:
+    build: .
+    ports:
+      - "8787:8787"
+    environment:
+      - NODE_ENV=development
+      - DISCORD_PUBLIC_KEY=${DISCORD_PUBLIC_KEY}
+    volumes:
+      - .:/app
+      - /app/node_modules
+    command: npm run start
