@@ -21,11 +21,13 @@ export function generateAsciiTable(data: TableData[], columns: TableColumn[]): s
 		width: Math.max(col.width, col.header.length)
 	}));
 
-	// Auto-adjust column widths based on data
+	// Auto-adjust column widths based on data (with max width limit for readability)
 	data.forEach(row => {
 		processedColumns.forEach(col => {
 			const value = String(row[col.header] || '');
-			col.width = Math.max(col.width, value.length);
+			// Limit column width to prevent overly wide tables
+			const maxWidth = 50; // Maximum column width
+			col.width = Math.max(col.width, Math.min(value.length, maxWidth));
 		});
 	});
 
@@ -50,7 +52,13 @@ export function generateAsciiTable(data: TableData[], columns: TableColumn[]): s
 	
 	const rows = data.map(row => 
 		verticalLine + processedColumns.map(col => {
-			const value = String(row[col.header] || '');
+			let value = String(row[col.header] || '');
+			
+			// Truncate overly long values and add ellipsis
+			if (value.length > col.width) {
+				value = value.substring(0, col.width - 3) + '...';
+			}
+			
 			const align = col.align || 'left';
 			let paddedValue: string;
 			
@@ -81,20 +89,61 @@ export function parseCSV(csvText: string): TableData[] {
 		throw new Error('CSV must have at least a header row and one data row');
 	}
 
+	// Enhanced CSV parser that handles quoted fields and multi-line content
+	function parseCSVLine(line: string): string[] {
+		const result: string[] = [];
+		let current = '';
+		let inQuotes = false;
+		let i = 0;
+
+		while (i < line.length) {
+			const char = line[i];
+			
+			if (char === '"') {
+				if (inQuotes && line[i + 1] === '"') {
+					// Handle escaped quotes ("")
+					current += '"';
+					i += 2;
+				} else {
+					// Toggle quote state
+					inQuotes = !inQuotes;
+					i++;
+				}
+			} else if (char === ',' && !inQuotes) {
+				// Field separator outside quotes
+				result.push(current.trim());
+				current = '';
+				i++;
+			} else {
+				current += char;
+				i++;
+			}
+		}
+		
+		result.push(current.trim());
+		return result;
+	}
+
 	// Parse header
-	const headers = lines[0].split(',').map(h => h.trim());
+	const headers = parseCSVLine(lines[0]);
 	
 	// Parse data rows
 	const data: TableData[] = [];
 	for (let i = 1; i < lines.length; i++) {
-		const values = lines[i].split(',').map(v => v.trim());
+		const values = parseCSVLine(lines[i]);
 		if (values.length !== headers.length) {
 			throw new Error(`Row ${i + 1} has ${values.length} columns, expected ${headers.length}`);
 		}
 		
 		const row: TableData = {};
 		headers.forEach((header, index) => {
-			row[header] = values[index];
+			// Process multi-line content: replace \n with space for display
+			let value = values[index];
+			if (value.startsWith('"') && value.endsWith('"')) {
+				value = value.slice(1, -1); // Remove surrounding quotes
+			}
+			// Convert \n to space for table display (can't show actual line breaks in ASCII table)
+			row[header] = value.replace(/\\n/g, ' | ');
 		});
 		data.push(row);
 	}
