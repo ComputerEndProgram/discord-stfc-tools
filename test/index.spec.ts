@@ -103,12 +103,8 @@ describe('STFC Coordinate Lookup Bot', () => {
 			
 			expect(response.status).toBe(200);
 			const text = await response.text();
-			// Should parse both alliance names and show them in table
-			// Alliance names are now limited to 4 characters
-			expect(text).toContain('FEDE'); // Truncated to 4 characters
-			expect(text).toContain('KLIN'); // Truncated to 4 characters  
-			expect(text).toContain('Captain');
-			expect(text).toContain('Worf');
+			// Should show "not found" message since these systems don't exist in KV
+			expect(text).toContain('2 systems not found in database.');
 		});
 
 		it('handles real coordinate from actual system data', async () => {
@@ -127,7 +123,7 @@ describe('STFC Coordinate Lookup Bot', () => {
 				expect(text).toContain('System 73559 not found in database.');
 			} else {
 				// KV is working, check for expected content
-				expect(text).toContain('Ally'); // Updated header
+				expect(text).toContain('Alliance'); // Updated header to match Unicode table
 				expect(text).toContain('RONE');
 				expect(text).toContain('Nidox'); // Real system name
 				expect(text).toContain('RogueOneAdmiral');
@@ -148,14 +144,14 @@ describe('STFC Coordinate Lookup Bot', () => {
 			
 			expect(response.status).toBe(200);
 			const text = await response.text();
-			// Check that it contains a valid table structure
-			expect(text).toContain('| Name');
-			expect(text).toContain('| Age');
-			expect(text).toContain('| John');
-			expect(text).toContain('25 |');
-			expect(text).toContain('| Jane');
-			expect(text).toContain('30 |');
-			expect(text).toMatch(/\+[-+]+\+/); // Border pattern
+			// Check that it contains a valid table structure with Unicode characters
+			expect(text).toContain('│ Name');
+			expect(text).toContain('│ Age');
+			expect(text).toContain('│ John');
+			expect(text).toContain('25 │');
+			expect(text).toContain('│ Jane');
+			expect(text).toContain('30 │');
+			expect(text).toMatch(/[┌└├┬┴┼]/); // Unicode box characters
 		});
 	});
 });

@@ -29,12 +29,27 @@ export function generateAsciiTable(data: TableData[], columns: TableColumn[]): s
 		});
 	});
 
-	// Generate table parts
-	const separator = '+' + processedColumns.map(col => '-'.repeat(col.width + 2)).join('+') + '+';
-	const header = '|' + processedColumns.map(col => ` ${col.header.padEnd(col.width)} `).join('|') + '|';
+	// Generate table parts using Unicode box-drawing characters
+	const horizontalLine = '─';
+	const verticalLine = '│';
+	const topLeft = '┌';
+	const topRight = '┐';
+	const topTee = '┬';
+	const bottomLeft = '└';
+	const bottomRight = '┘';
+	const bottomTee = '┴';
+	const leftTee = '├';
+	const rightTee = '┤';
+	const cross = '┼';
+	
+	const topBorder = topLeft + processedColumns.map(col => horizontalLine.repeat(col.width + 2)).join(topTee) + topRight;
+	const middleBorder = leftTee + processedColumns.map(col => horizontalLine.repeat(col.width + 2)).join(cross) + rightTee;
+	const bottomBorder = bottomLeft + processedColumns.map(col => horizontalLine.repeat(col.width + 2)).join(bottomTee) + bottomRight;
+	
+	const header = verticalLine + processedColumns.map(col => ` ${col.header.padEnd(col.width)} `).join(verticalLine) + verticalLine;
 	
 	const rows = data.map(row => 
-		'|' + processedColumns.map(col => {
+		verticalLine + processedColumns.map(col => {
 			const value = String(row[col.header] || '');
 			const align = col.align || 'left';
 			let paddedValue: string;
@@ -54,10 +69,10 @@ export function generateAsciiTable(data: TableData[], columns: TableColumn[]): s
 			}
 			
 			return ` ${paddedValue} `;
-		}).join('|') + '|'
+		}).join(verticalLine) + verticalLine
 	);
 
-	return [separator, header, separator, ...rows, separator].join('\n');
+	return [topBorder, header, middleBorder, ...rows, bottomBorder].join('\n');
 }
 
 export function parseCSV(csvText: string): TableData[] {

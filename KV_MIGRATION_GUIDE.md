@@ -1,6 +1,6 @@
 # KV Migration Guide
 
-This guide walks you through migrating from the hard-coded CSV data to Cloudflare KV storage.
+This guide walks you through migrating from the hard-coded CSV data to Cloudflare KV storage using environment variables for configuration.
 
 ## Prerequisites
 
@@ -10,65 +10,66 @@ This guide walks you through migrating from the hard-coded CSV data to Cloudflar
 
 ## Step-by-Step Migration
 
-### 1. Create KV Namespaces
+### 1. Set Up Environment Variables
+
+Copy the environment template:
+```bash
+cp .env.template .env
+```
+
+### 2. Create KV Namespaces
 
 Create the production namespace:
 ```bash
-wrangler kv namespace create "SYSTEM_DATA"
+npm run kv:create
 ```
 
-Create the preview namespace for local development:
+Create the preview namespace:
 ```bash
-wrangler kv namespace create "SYSTEM_DATA" --preview
+npm run kv:create-preview
 ```
 
-Save the namespace IDs returned by these commands.
+### 3. Update Environment Configuration
 
-### 2. Update Configuration
+Edit `.env` with the namespace IDs returned from the previous commands:
 
-Edit `wrangler.jsonc` and replace the placeholder IDs:
-
-```jsonc
-"kv_namespaces": [
-  {
-    "binding": "SYSTEM_DATA",
-    "id": "your-actual-production-namespace-id",
-    "preview_id": "your-actual-preview-namespace-id"
-  }
-]
+```env
+# KV Namespace IDs
+KV_NAMESPACE_ID=your-actual-production-namespace-id
+KV_NAMESPACE_PREVIEW_ID=your-actual-preview-namespace-id
 ```
 
-### 3. Migrate Data
+### 4. Generate Wrangler Configuration
+
+Generate the wrangler.json from environment variables:
+```bash
+npm run generate-config
+```
+
+This creates `wrangler.json` with your specific namespace IDs (this file is gitignored).
+
+### 5. Migrate Data
 
 Generate the KV bulk upload file:
 ```bash
 npm run migrate-kv
 ```
 
-This creates `kv-bulk-upload.json` with all system data formatted for KV storage.
-
-### 4. Upload Data
-
 Upload to production:
 ```bash
 npm run kv:upload
 ```
 
-For preview/local development:
-```bash
-wrangler kv bulk put --binding SYSTEM_DATA --preview kv-bulk-upload.json
-```
+### 6. Update Commands
 
-### 5. Update Commands
-
-Register the new Discord commands (including the table command):
+Register the new Discord commands:
 ```bash
 npm run register-commands
 ```
 
-### 6. Deploy
+### 7. Deploy
 
-Deploy the updated worker:
+Deploy the worker (automatically generates config first):
 ```bash
 npm run deploy
 ```

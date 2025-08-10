@@ -1,4 +1,4 @@
-# STFC Coordinate Lookup Discord Bot
+# STFC Tools Discord Bot
 
 A Cloudflare Worker-based Discord bot that parses Star Trek Fleet Command (STFC) coordinate links and returns formatted system information in ASCII tables. Now includes custom ASCII table generation from CSV data.
 
@@ -112,8 +112,8 @@ npm run docker:run
 
 Or using Docker directly:
 ```bash
-docker build -t stfc-lookup .
-docker run -p 8787:8787 -e DISCORD_PUBLIC_KEY=your_key stfc-lookup
+docker build -t stfc-tools .
+docker run -p 8787:8787 -e DISCORD_PUBLIC_KEY=your_key stfc-tools
 ```
 
 ## Discord Setup
@@ -149,6 +149,13 @@ Set your deployed worker URL as the interactions endpoint:
 
 ## Deployment
 
+### Environment Setup
+
+1. Copy the environment template:
+```bash
+cp .env.template .env
+```
+
 ### KV Storage Setup
 
 1. Create KV namespaces:
@@ -157,25 +164,30 @@ npm run kv:create
 npm run kv:create-preview
 ```
 
-2. Update `wrangler.jsonc` with the namespace IDs returned from the previous commands
+2. Update `.env` with the namespace IDs returned from the previous commands
 
-3. Migrate CSV data to KV storage:
+3. Generate wrangler configuration:
+```bash
+npm run generate-config
+```
+
+4. Migrate CSV data to KV storage:
 ```bash
 npm run migrate-kv
 npm run kv:upload
 ```
 
-4. Deploy to Cloudflare Workers:
+5. Deploy to Cloudflare Workers:
 ```bash
 npm run deploy
 ```
 
-5. Register Discord commands:
+6. Register Discord commands:
 ```bash
 npm run register-commands
 ```
 
-The worker will be deployed to: `https://stfc-lookup.your-subdomain.workers.dev`
+The worker will be deployed to: `https://stfc-tools.your-subdomain.workers.dev`
 
 ## System Data
 

@@ -1,8 +1,16 @@
 // Discord slash command registration script
 // Run this once to register the commands
 
-const DISCORD_APPLICATION_ID = '1399692201428258917'; // Replace with your Discord application ID
-const DISCORD_BOT_TOKEN = 'your-discord-bot-token-here'; // Replace with your Discord bot token
+require('dotenv').config();
+
+const DISCORD_APPLICATION_ID = process.env.DISCORD_APPLICATION_ID || 'your-discord-application-id';
+const DISCORD_BOT_TOKEN = process.env.DISCORD_BOT_TOKEN || 'your-discord-bot-token';
+
+if (!process.env.DISCORD_APPLICATION_ID || !process.env.DISCORD_BOT_TOKEN) {
+  console.error('❌ Missing Discord configuration in .env file');
+  console.error('Please add DISCORD_APPLICATION_ID and DISCORD_BOT_TOKEN to your .env file');
+  process.exit(1);
+}
 
 const commands = [
   {
@@ -12,7 +20,7 @@ const commands = [
       {
         type: 3, // STRING type
         name: 'coordinates',
-        description: 'STFC coordinate link to lookup (e.g., [[RONE] Player S:73559 X:628.7 Y:43.3])',
+        description: 'STFC coordinate link to lookup (e.g., [[ALLY] Player S:73559 X:628.7 Y:43.3])',
         required: true
       }
     ]

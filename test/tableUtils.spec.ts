@@ -56,7 +56,7 @@ describe('Table Utils', () => {
 	});
 
 	describe('generateAsciiTable', () => {
-		it('should generate a proper ASCII table', () => {
+		it('should generate a proper ASCII table with Unicode characters', () => {
 			const data = [
 				{ Name: 'John', Age: '25' },
 				{ Name: 'Jane', Age: '30' }
@@ -68,10 +68,11 @@ describe('Table Utils', () => {
 			
 			const result = generateAsciiTable(data, columns);
 			
-			expect(result).toContain('| Name | Age |');
-			expect(result).toContain('| John |  25 |');
-			expect(result).toContain('| Jane |  30 |');
-			expect(result).toContain('+------+-----+');
+			expect(result).toContain('│ Name │ Age │');
+			expect(result).toContain('│ John │  25 │');
+			expect(result).toContain('│ Jane │  30 │');
+			expect(result).toContain('┌──────┬─────┐');
+			expect(result).toContain('└──────┴─────┘');
 		});
 
 		it('should handle empty data', () => {
@@ -92,7 +93,7 @@ describe('Table Utils', () => {
 			
 			// Should expand to fit the longer name
 			expect(result).toContain('VeryLongName');
-			expect(result).toContain('+--------------+-----+');
+			expect(result).toContain('┌──────────────┬─────┐');
 		});
 	});
 });

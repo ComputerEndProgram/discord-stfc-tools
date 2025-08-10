@@ -1,7 +1,7 @@
 version: '3.8'
 
 services:
-  stfc-lookup-bot:
+  stfc-tools:
     build: .
     ports:
       - "8787:8787"
