@@ -1,14 +1,6 @@
 // System lookup utilities for STFC coordinate processing
 import { generateAsciiTable, type TableColumn, type TableData } from './tableUtils';
-
-export interface SystemData {
-	systemName: string;
-	systemId: string;
-	level: string;
-	warpRange: string;
-	warpRangeSH: string;
-	factionId: string;
-}
+import { SYSTEM_DATA_MAP, type SystemData } from './systemData';
 
 export interface CoordinateMatch {
 	alliance: string;
@@ -34,44 +26,13 @@ const FACTION_NAMES: Record<string, string> = {
 	'4153667145': 'Klingon',
 };
 
-// Load system data from KV storage
-export async function loadSystemData(env: Env): Promise<SystemData[]> {
-	try {
-		const systemIds = await env.SYSTEM_DATA.get('system:index');
-		if (!systemIds) {
-			console.error('No system index found in KV');
-			return [];
-		}
-		
-		const ids = JSON.parse(systemIds) as string[];
-		const systems: SystemData[] = [];
-		
-		// Batch load systems (KV supports bulk operations)
-		for (const id of ids) {
-			const systemData = await env.SYSTEM_DATA.get(`system:${id}`);
-			if (systemData) {
-				systems.push(JSON.parse(systemData) as SystemData);
-			}
-		}
-		
-		return systems;
-	} catch (error) {
-		console.error('Error loading system data from KV:', error);
-		return [];
-	}
+// Load system data from in-memory map (no longer needed, but kept for API compatibility)
+export function loadSystemData(): SystemData[] {
+	return Array.from(SYSTEM_DATA_MAP.values());
 }
 
-export async function lookupSystemData(systemId: string, env: Env): Promise<SystemData | null> {
-	try {
-		const systemData = await env.SYSTEM_DATA.get(`system:${systemId}`);
-		if (!systemData) {
-			return null;
-		}
-		return JSON.parse(systemData) as SystemData;
-	} catch (error) {
-		console.error('Error looking up system data:', error);
-		return null;
-	}
+export function lookupSystemData(systemId: string): SystemData | null {
+	return SYSTEM_DATA_MAP.get(systemId) || null;
 }
 
 export function parseCoordinateLink(text: string): CoordinateMatch | null {
@@ -173,7 +134,7 @@ export function formatSystemLookupResults(results: Array<{ coordinate: Coordinat
 	return '```\n' + table + '\n```';
 }
 
-export async function handleCoordinateLookup(message: string, env: Env): Promise<string> {
+export function handleCoordinateLookup(message: string): string {
 	const coordinates = parseMultipleCoordinates(message);
 	
 	if (coordinates.length === 0) {
@@ -185,12 +146,10 @@ export async function handleCoordinateLookup(message: string, env: Env): Promise
 	}
 
 	// Lookup system data for each coordinate
-	const results = await Promise.all(
-		coordinates.map(async (coordinate) => ({
-			coordinate,
-			systemData: await lookupSystemData(coordinate.systemId, env)
-		}))
-	);
+	const results = coordinates.map((coordinate) => ({
+		coordinate,
+		systemData: lookupSystemData(coordinate.systemId)
+	}));
 
 	// Check if any systems were not found
 	const notFoundSystems = results.filter(r => !r.systemData);

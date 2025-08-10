@@ -53,7 +53,7 @@ async function handleDiscordInteraction(request: Request, env: Env): Promise<Res
 				});
 			}
 
-			const result = await handleCoordinateLookup(coordinateLink, env);
+			const result = handleCoordinateLookup(coordinateLink);
 			
 			return Response.json({
 				type: 4,
@@ -125,7 +125,7 @@ export default {
 		// Handle direct API calls for testing
 		if (url.pathname === '/lookup' && request.method === 'POST') {
 			const body = await request.json() as { message: string };
-			const result = await handleCoordinateLookup(body.message, env);
+			const result = handleCoordinateLookup(body.message);
 			
 			return Response.json({ result });
 		}
@@ -137,7 +137,7 @@ export default {
 				return new Response('Missing message parameter', { status: 400 });
 			}
 			
-			const result = await handleCoordinateLookup(message, env);
+			const result = handleCoordinateLookup(message);
 			return new Response(result, { 
 				headers: { 'Content-Type': 'text/plain' }
 			});
