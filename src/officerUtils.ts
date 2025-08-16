@@ -1,5 +1,6 @@
 // Officer lookup utilities for STFC officer information
 import { generateAsciiTable, type TableColumn, type TableData } from './tableUtils';
+import { getAbilityDescription } from './abilityDescriptions';
 import { 
     OFFICER_DATA_ARRAY, 
     OFFICER_NAME_MAP, 
@@ -58,7 +59,16 @@ export function formatOfficerAbility(ability?: OfficerAbility, rank: number = 1)
         formattedValue = value.value.toString();
     }
     
-    return formattedValue;
+    // Include chance information if it's not 100%
+    let chanceInfo = '';
+    if (value.chance < 1) {
+        chanceInfo = ` (${(value.chance * 100).toFixed(0)}% chance)`;
+    }
+    
+    // Try to get ability description, fallback to basic info
+    const description = getAbilityDescription(ability.loca_id);
+    
+    return `${formattedValue}${chanceInfo} - ${description}`;
 }
 
 export function handleOfficerLookup(searchTerm: string, rank: number = 1): string {
@@ -86,19 +96,19 @@ export function handleOfficerLookup(searchTerm: string, rank: number = 1): strin
     // Multiple matches - show a list
     if (searchResults.length <= 10) {
         const tableData: TableData[] = searchResults.map(officer => ({
-            'Name': officer.name.length > 18 ? officer.name.substring(0, 15) + '...' : officer.name,
+            'Name': `</officer name:${officer.name}>`,
             'Class': getOfficerClassName(officer.class),
             'Rarity': `${officer.rarity}⭐`,
             'Faction': getFactionName(officer.faction).substring(0, 12),
-            'Image': `https://stfc-tools-development.adam-57b.workers.dev/officers/${officer.art_id}.png`
+            'Image': `https://stfc-tools.adam-57b.workers.dev/officers/${officer.art_id}.png`
         }));
         
         const columns: TableColumn[] = [
             { header: 'Name', width: 20, align: 'left' },
             { header: 'Class', width: 12, align: 'left' },
-            { header: 'Rarity', width: 8, align: 'center' },
+            { header: 'Rarity', width: 6, align: 'center' },
             { header: 'Faction', width: 12, align: 'left' },
-            { header: 'Image', width: 25, align: 'left' }
+            { header: 'Image', width: 50, align: 'left' }
         ];
         
         return `Found ${searchResults.length} officers matching "${searchTerm}":\n\n\`\`\`\n${generateAsciiTable(tableData, columns)}\n\`\`\``;
@@ -111,53 +121,58 @@ export function formatOfficerDetails(officer: OfficerData, rank: number = 1): st
     // Clamp rank to valid range
     const effectiveRank = Math.min(Math.max(1, rank), officer.max_rank);
     
-    // Get stats for the specified rank's max level
-    const rankData = officer.ranks?.[effectiveRank - 1];
-    const maxLevelForRank = rankData?.max_level || 1;
-    const statsForRank = officer.stats?.find((s: any) => s.level === maxLevelForRank);
+    // Start with officer header info and image
+    let result = `**${officer.name}** (${getOfficerClassName(officer.class)} • ${getFactionName(officer.faction)})\n`;
+    result += `🌟 Rarity: ${officer.rarity}⭐ | Max Rank: ${officer.max_rank}\n`;
+    result += `https://stfc-tools.adam-57b.workers.dev/officers/${officer.art_id}.png\n\n`;
     
-    const tableData: TableData[] = [
-        { 'Property': 'Name', 'Value': officer.name },
-        { 'Property': 'Class', 'Value': getOfficerClassName(officer.class) },
-        { 'Property': 'Rarity', 'Value': `${officer.rarity}⭐` },
-        { 'Property': 'Faction', 'Value': getFactionName(officer.faction) },
-        { 'Property': 'Max Rank', 'Value': officer.max_rank.toString() },
-        { 'Property': 'Current Rank', 'Value': effectiveRank.toString() },
-        { 'Property': 'Max Level (Rank)', 'Value': maxLevelForRank.toString() },
-        { 'Property': '', 'Value': '' }, // Separator
-        { 'Property': 'Captain Ability', 'Value': formatOfficerAbility(officer.captain_ability, effectiveRank) },
-        { 'Property': 'Officer Ability', 'Value': formatOfficerAbility(officer.ability, effectiveRank) },
-        { 'Property': 'Below Decks', 'Value': formatOfficerAbility(officer.below_decks_ability, effectiveRank) },
-    ];
-    
-    // Add stats if available
-    if (statsForRank) {
-        tableData.push({ 'Property': '', 'Value': '' }); // Separator
-        tableData.push({ 'Property': 'Attack', 'Value': Math.round(statsForRank.attack).toString() });
-        tableData.push({ 'Property': 'Defense', 'Value': Math.round(statsForRank.defense).toString() });
-        tableData.push({ 'Property': 'Health', 'Value': Math.round(statsForRank.health).toString() });
+    // Show abilities
+    if (officer.captain_ability) {
+        result += `**Captain Ability (Rank ${effectiveRank}):** ${formatOfficerAbility(officer.captain_ability, effectiveRank)}\n`;
+    }
+    if (officer.ability) {
+        result += `**Officer Ability (Rank ${effectiveRank}):** ${formatOfficerAbility(officer.ability, effectiveRank)}\n`;
+    }
+    if (officer.below_decks_ability) {
+        result += `**Below Decks (Rank ${effectiveRank}):** ${formatOfficerAbility(officer.below_decks_ability, effectiveRank)}\n`;
     }
     
-    // Add shards required info
-    if (effectiveRank < officer.max_rank && officer.ranks) {
-        const nextRankData = officer.ranks[effectiveRank];
-        if (nextRankData) {
-            tableData.push({ 'Property': '', 'Value': '' }); // Separator
-            tableData.push({ 'Property': 'Next Rank Shards', 'Value': nextRankData.shards_required.toString() });
+    // Create stats table for all available ranks
+    if (officer.ranks && officer.stats) {
+        result += `\n**Stats by Rank:**\n`;
+        
+        const statsTableData: TableData[] = [];
+        
+        for (let r = 1; r <= officer.max_rank; r++) {
+            const rankData = officer.ranks[r - 1];
+            if (rankData) {
+                const maxLevelForRank = rankData.max_level;
+                const statsForRank = officer.stats.find((s: any) => s.level === maxLevelForRank);
+                
+                if (statsForRank) {
+                    const isCurrentRank = r === effectiveRank;
+                    statsTableData.push({
+                        'Rank': isCurrentRank ? `→ ${r} ←` : r.toString(),
+                        'Max Level': maxLevelForRank.toString(),
+                        'Attack': Math.round(statsForRank.attack).toString(),
+                        'Defense': Math.round(statsForRank.defense).toString(),
+                        'Health': Math.round(statsForRank.health).toString(),
+                        'Shards': r < officer.max_rank && officer.ranks[r] ? officer.ranks[r].shards_required.toString() : '-'
+                    });
+                }
+            }
         }
-    }
-    
-    const columns: TableColumn[] = [
-        { header: 'Property', width: 18, align: 'left' },
-        { header: 'Value', width: 40, align: 'left' }
-    ];
-    
-    let result = `**${officer.name}** (${getOfficerClassName(officer.class)} • ${getFactionName(officer.faction)})\n\n`;
-    result += generateAsciiTable(tableData, columns);
-    
-    // Add a note about rank
-    if (rank > officer.max_rank) {
-        result += `\n\n*Note: Requested rank ${rank} exceeds max rank ${officer.max_rank}. Showing rank ${effectiveRank}.*`;
+        
+        const statsColumns: TableColumn[] = [
+            { header: 'Rank', width: 8, align: 'center' },
+            { header: 'Max Level', width: 9, align: 'center' },
+            { header: 'Attack', width: 8, align: 'right' },
+            { header: 'Defense', width: 8, align: 'right' },
+            { header: 'Health', width: 8, align: 'right' },
+            { header: 'Shards', width: 8, align: 'right' }
+        ];
+        
+        result += `\`\`\`\n${generateAsciiTable(statsTableData, statsColumns)}\n\`\`\``;
     }
     
     return result;
