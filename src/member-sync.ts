@@ -1,5 +1,5 @@
 import { listAllGuildMembers } from './discord-api';
-import { getKnownMemberIds, listConfiguredGuilds, markMemberInvited, recordGuildMember } from './guild-db';
+import { getKnownMemberIds, getMembersNeedingInvite, listConfiguredGuilds, markMemberInvited, recordGuildMember } from './guild-db';
 import { inviteNewMember } from './verification';
 
 export async function syncGuildMembers(env: Env): Promise<void> {
@@ -15,6 +15,15 @@ export async function syncGuildMembers(env: Env): Promise<void> {
 		if (!config.verification_enabled) continue;
 
 		try {
+			// First retry any previously-uninvited members (DM may have failed earlier).
+			const needingInvite = await getMembersNeedingInvite(env.STFC_DB, config.guild_id);
+			for (const record of needingInvite) {
+				const dm = await inviteNewMember(env, config.guild_id, record.discord_user_id, record.username ?? 'user');
+				if (dm.ok) {
+					await markMemberInvited(env.STFC_DB, config.guild_id, record.discord_user_id);
+				}
+			}
+
 			const knownIds = await getKnownMemberIds(env.STFC_DB, config.guild_id);
 			const members = await listAllGuildMembers(token, config.guild_id);
 
@@ -24,8 +33,10 @@ export async function syncGuildMembers(env: Env): Promise<void> {
 
 				if (!knownIds.has(userId)) {
 					await recordGuildMember(env.STFC_DB, config.guild_id, userId, username);
-					await inviteNewMember(env, config.guild_id, userId, username);
-					await markMemberInvited(env.STFC_DB, config.guild_id, userId);
+					const dm = await inviteNewMember(env, config.guild_id, userId, username);
+					if (dm.ok) {
+						await markMemberInvited(env.STFC_DB, config.guild_id, userId);
+					}
 					console.log(`New member ${username} (${userId}) in guild ${config.guild_id} — verification invited`);
 				}
 			}

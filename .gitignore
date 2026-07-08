@@ -8,6 +8,8 @@ yarn-error.log*
 .env
 .env.local
 .env.production
+.dev.vars
+.secrets.bulk.tmp
 
 # Generated configuration
 wrangler.json

@@ -13,6 +13,7 @@
 		"docker:build": "docker build -t stfc-tools .",
 		"docker:run": "docker-compose up",
 		"generate-config": "node generate-config.js",
+		"push-env": "node scripts/push-env.js",
 		"migrate-kv": "node migrate-to-kv.js",
 		"register-commands": "node register-command.js",
 		"db:migrate": "node scripts/db-migrate.js",

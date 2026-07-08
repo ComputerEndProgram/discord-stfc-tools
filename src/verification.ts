@@ -5,6 +5,7 @@ import {
 	sendDirectMessage,
 	setChannelPermission,
 	setGuildMemberNickname,
+	type DiscordApiError,
 } from './discord-api';
 import { opsLevelToGrade } from './grade-utils';
 import {
@@ -31,6 +32,10 @@ export const VERIFICATION_INVITE_MESSAGE = `Welcome! Please verify your STFC acc
 **Or** use \`/verify link:<url>\` in the server.
 
 We'll check your alliance on stfc.pro and assign roles automatically.`;
+
+export type DmResult =
+	| { ok: true }
+	| { ok: false; errorMessage: string; status?: number };
 
 export async function lookupPlayerFromUrl(
 	url: string,
@@ -80,13 +85,87 @@ function categoryForPlayerName(config: GuildConfig, playerName: string): string 
 	return undefined;
 }
 
+type AllianceRankKey = 'Operative' | 'Agent' | 'Premier' | 'Commodore' | 'Admiral';
+function normalizeAllianceRank(rank: string | undefined): AllianceRankKey | null {
+	if (!rank) return null;
+	const r = rank.trim().toLowerCase();
+	switch (r) {
+		case 'operative':
+			return 'Operative';
+		case 'agent':
+			return 'Agent';
+		case 'premier':
+			return 'Premier';
+		case 'commodore':
+			return 'Commodore';
+		case 'admiral':
+			return 'Admiral';
+		default:
+			return null;
+	}
+}
+
+function getAllMemberRoleIds(config: GuildConfig): string[] {
+	const overlayRoleIds = Object.values(config.overlay_buckets ?? {})
+		.flatMap((b) => b.role_ids ?? []);
+
+	return [
+		...config.member_role_ids,
+		...config.operative_role_ids,
+		...config.agent_role_ids,
+		...config.premier_role_ids,
+		...config.commodore_role_ids,
+		...config.admiral_role_ids,
+		...overlayRoleIds,
+	];
+}
+
+function getOverlayRoleIdsForRank(config: GuildConfig, playerRank: string | undefined): string[] {
+	const rankKey = normalizeAllianceRank(playerRank);
+	if (!rankKey) return [];
+
+	const wanted = rankKey.toLowerCase();
+	const out = new Set<string>();
+	for (const bucket of Object.values(config.overlay_buckets ?? {})) {
+		const ranks = bucket.ranks ?? [];
+		const matches = ranks.some((r) => String(r).trim().toLowerCase() === wanted);
+		if (!matches) continue;
+		for (const id of bucket.role_ids ?? []) out.add(id);
+	}
+	return Array.from(out);
+}
+
+function getMemberRoleIdsForRank(config: GuildConfig, playerRank: string | undefined): string[] {
+	const rankKey = normalizeAllianceRank(playerRank);
+	const rankRoles =
+		rankKey === 'Operative'
+			? config.operative_role_ids
+			: rankKey === 'Agent'
+				? config.agent_role_ids
+				: rankKey === 'Premier'
+					? config.premier_role_ids
+					: rankKey === 'Commodore'
+						? config.commodore_role_ids
+						: rankKey === 'Admiral'
+							? config.admiral_role_ids
+							: [];
+
+	const all = new Set<string>();
+	for (const id of config.member_role_ids) all.add(id);
+	for (const id of rankRoles) all.add(id);
+	for (const id of getOverlayRoleIdsForRank(config, playerRank)) all.add(id);
+	return Array.from(all);
+}
+
 async function applyMemberRoles(
 	token: string,
 	config: GuildConfig,
 	guildId: string,
 	userId: string,
+	playerRank: string | undefined,
 ): Promise<void> {
-	for (const roleId of config.member_role_ids) {
+	const roleIds = getMemberRoleIdsForRank(config, playerRank).filter((id) => /^\d{15,20}$/.test(id));
+	for (const roleId of roleIds) {
 		await addGuildMemberRole(token, guildId, userId, roleId);
 	}
 	if (config.guest_role_id) {
@@ -102,9 +181,8 @@ async function applyGuestRole(
 ): Promise<void> {
 	if (!config.guest_role_id) return;
 	await addGuildMemberRole(token, guildId, userId, config.guest_role_id);
-	for (const roleId of config.member_role_ids) {
-		await removeGuildMemberRole(token, guildId, userId, roleId);
-	}
+	const memberRoleIds = getAllMemberRoleIds(config).filter((id) => /^\d{15,20}$/.test(id));
+	for (const roleId of memberRoleIds) await removeGuildMemberRole(token, guildId, userId, roleId);
 }
 
 async function createPersonalChannel(
@@ -206,7 +284,7 @@ export async function processVerification(
 
 	try {
 		if (tagMatches) {
-			await applyMemberRoles(token, config, guildId, discordUserId);
+			await applyMemberRoles(token, config, guildId, discordUserId, player.rank);
 			await setGuildMemberNickname(token, guildId, discordUserId, player.name);
 
 			if (config.mode === 'single_alliance' && Object.keys(config.channel_category_map).length > 0) {
@@ -228,7 +306,11 @@ export async function processVerification(
 		return `⏳ Verified **${player.name}** but alliance **${player.allianceTag}** does not match **${expected}** — guest role assigned. We'll re-check every ${config.poll_interval_hours}h.\n\n${formatPlayerSummary(player)}`;
 	} catch (err) {
 		console.error('Discord role update failed:', err);
-		return `✅ Verified on stfc.pro but failed to update Discord roles: ${err instanceof Error ? err.message : 'unknown error'}\n\n${formatPlayerSummary(player)}`;
+		const apiErr = err as unknown as { message?: string; status?: number; body?: string };
+		const statusPart = typeof apiErr.status === 'number' ? ` (HTTP ${apiErr.status})` : '';
+		const bodySnippet = typeof apiErr.body === 'string' && apiErr.body.trim() ? `\n\n${apiErr.body.trim().slice(0, 250)}${apiErr.body.trim().length > 250 ? '…' : ''}` : '';
+		const msg = apiErr.message ?? (err instanceof Error ? err.message : 'unknown error');
+		return `✅ Verified on stfc.pro but failed to update Discord roles: ${msg}${statusPart}${bodySnippet}\n\n${formatPlayerSummary(player)}`;
 	}
 }
 
@@ -237,7 +319,7 @@ export async function inviteNewMember(
 	guildId: string,
 	userId: string,
 	username: string,
-): Promise<void> {
+): Promise<DmResult> {
 	await upsertVerifiedPlayer(env.STFC_DB, {
 		guild_id: guildId,
 		discord_user_id: userId,
@@ -246,13 +328,26 @@ export async function inviteNewMember(
 
 	if (!env.DISCORD_BOT_TOKEN) {
 		console.warn('DISCORD_BOT_TOKEN not set — cannot send verification DM');
-		return;
+		return { ok: false, errorMessage: 'DISCORD_BOT_TOKEN not configured' };
 	}
 
 	try {
 		await sendDirectMessage(env.DISCORD_BOT_TOKEN, userId, VERIFICATION_INVITE_MESSAGE);
+		return { ok: true };
 	} catch (error) {
-		console.error(`Failed to DM ${userId}:`, error);
+		// sendDirectMessage ultimately throws DiscordApiError with status/body.
+		const maybeDiscordErr = error as { status?: number; body?: string; message?: string };
+		const status = typeof maybeDiscordErr.status === 'number' ? maybeDiscordErr.status : undefined;
+
+		let errorMessage = error instanceof Error ? error.message : 'Unknown error';
+		if (maybeDiscordErr.body) {
+			// Keep it short so Discord responses aren't overly large.
+			const body = String(maybeDiscordErr.body);
+			errorMessage += `: ${body.slice(0, 180)}${body.length > 180 ? '…' : ''}`;
+		}
+
+		console.error(`Failed to DM ${userId}:`, errorMessage);
+		return { ok: false, errorMessage, status };
 	}
 }
 
@@ -286,7 +381,7 @@ export async function syncVerifiedPlayer(
 	});
 
 	if (tagMatches) {
-		await applyMemberRoles(token, config, guildId, discordUserId);
+		await applyMemberRoles(token, config, guildId, discordUserId, player.rank);
 		await setGuildMemberNickname(token, guildId, discordUserId, player.name);
 	} else {
 		await applyGuestRole(token, config, guildId, discordUserId);

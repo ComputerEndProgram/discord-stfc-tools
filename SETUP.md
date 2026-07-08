@@ -75,6 +75,7 @@ Edit `.env`:
 
 ```env
 DISCORD_APPLICATION_ID=your-application-id
+DISCORD_PUBLIC_KEY=your-public-key
 DISCORD_BOT_TOKEN=your-bot-token
 
 D1_DATABASE_NAME=stfc-db
@@ -91,24 +92,34 @@ KV and R2 are optional (see [Optional components](#optional-components) below).
 npx wrangler login
 ```
 
-### Step 6: Set Worker secrets
+### Step 6: Push `.env` to Cloudflare
 
-Secrets are not stored in `.env` for production — set them on Cloudflare:
+Your `.env` is the local source of truth. One command pushes **secrets** to Cloudflare and regenerates **wrangler.json** (vars + bindings):
+
+```bash
+npm run push-env
+```
+
+This script:
+
+| What | Where it goes |
+|------|----------------|
+| `DISCORD_PUBLIC_KEY`, `DISCORD_BOT_TOKEN` | Encrypted Worker **secrets** (`wrangler secret bulk`) |
+| `DISCORD_APPLICATION_ID`, `WORKER_URL` | Worker **vars** in `wrangler.json` |
+| `D1_DATABASE_*`, `KV_*`, `R2_*` | **Bindings** in `wrangler.json` |
+| Same secrets | `.dev.vars` (for `wrangler dev` locally) |
+
+**Manual alternative** (if you prefer not to use the script):
 
 ```bash
 npx wrangler secret put DISCORD_PUBLIC_KEY
-# Paste the Public Key from Discord Developer Portal
-
 npx wrangler secret put DISCORD_BOT_TOKEN
-# Paste the Bot Token (same value as in .env — needed at runtime for REST API + Gateway)
-```
-
-### Step 7: Generate config and apply database schema
-
-```bash
 npm run generate-config
-npm run db:migrate
 ```
+
+See [Pushing .env to Cloudflare](#pushing-env-to-cloudflare) for details on what goes where.
+
+### Step 7: Apply database schema
 
 `db:migrate` runs `migrations/001_guild_schema.sql` against your remote D1 database. This creates guild/player tables (`guild_configs`, `verified_players`, etc.).
 
@@ -126,7 +137,7 @@ npm run deploy
 
 First deploy registers the **Durable Object** migration (`v1` / `DiscordGateway`). This is automatic via `wrangler.json`.
 
-Note your Worker URL from the deploy output (e.g. `https://stfc-tools.your-name.workers.dev`). Update `WORKER_URL` in `.env` if needed, then `npm run generate-config` again before future deploys.
+Note your Worker URL from the deploy output (e.g. `https://stfc-tools.your-name.workers.dev`). Update `WORKER_URL` in `.env`, then `npm run push-env && npm run deploy` again.
 
 ### Step 9: Configure Discord interactions endpoint
 
@@ -136,6 +147,16 @@ Note your Worker URL from the deploy output (e.g. `https://stfc-tools.your-name.
    https://stfc-tools.your-subdomain.workers.dev/discord
    ```
 3. Discord will send a verification ping — the Worker must already be deployed. Save when verification succeeds.
+
+**Not a separate webhook URL.** Discord only has one application URL field for the bot:
+
+| Discord portal field | Set to? | Purpose |
+|---------------------|---------|---------|
+| **Interactions Endpoint URL** | `https://…/discord` | **Yes — required** for slash commands (`/verify`, `/server`, etc.) |
+| Webhook URL (elsewhere) | — | **No** — channel webhooks are unrelated; this bot does not use them |
+| Gateway URL | — | **No** — Gateway connects outbound via the Durable Object automatically |
+
+Member joins and DM verification use the **Gateway** (WebSocket), not a second URL in the portal. Ensure **Server Members** and **Message Content** intents are enabled on the Bot tab.
 
 ### Step 10: Register slash commands
 
@@ -173,6 +194,29 @@ Check configuration:
 1. **Gateway:** `curl https://your-worker.workers.dev/gateway/status` — should show connection state after a minute.
 2. **Coordinates:** `/lookup [[TAG] Player S:73559 X:628.7 Y:43.3]` in Discord.
 3. **Verification:** Have a test user join the server → they should receive a verification DM. They can reply with a profile screenshot, then their stfc.pro link, or use `/verify link:https://stfc.pro/...`.
+
+### Admin testing (without a new member)
+
+You do **not** need someone to join to test verification. As a server administrator:
+
+```
+/server test-invite          # sends verification DM to you (simulates join)
+/server gateway              # check Gateway WebSocket is connected
+/verify link:https://stfc.pro/player/...   # full verify flow in-channel
+/server test-reset           # clear your verification record and try again
+```
+
+**Recommended test loop:**
+
+1. `/server setup` — configure guild once
+2. `/server test-invite` — bot DMs you with instructions
+3. Reply in DM with screenshot → stfc.pro link **or** run `/verify` in the server
+4. `/server status` — confirm config; check roles/nickname updated
+5. `/server test-reset` — wipe your record to re-test
+
+Optional: `/server test-invite user:@Someone` to test another admin's DMs.
+
+**DM not arriving?** User must allow DMs from server members (Discord privacy). Bot needs `DISCORD_BOT_TOKEN` secret on the Worker. Check `/server gateway` shows `Ready: yes`.
 
 ### Step 13: Run tests (optional)
 
@@ -216,6 +260,7 @@ Add any missing variables (compare with `.env.template`):
 
 ```env
 DISCORD_APPLICATION_ID=...    # already had this
+DISCORD_PUBLIC_KEY=...        # add if only set as Cloudflare secret before
 DISCORD_BOT_TOKEN=...         # required for command registration AND runtime
 
 D1_DATABASE_NAME=stfc-officers   # keep your existing database name
@@ -223,8 +268,6 @@ D1_DATABASE_ID=your-existing-id  # keep your existing ID
 
 WORKER_URL=https://stfc-tools.adam-57b.workers.dev   # your deployed URL
 ```
-
-If you were only using `DISCORD_PUBLIC_KEY` as a secret before, you must now also set `DISCORD_BOT_TOKEN` as a Worker secret (Step 4 below).
 
 ### 3. Enable Discord privileged intents
 
@@ -235,22 +278,16 @@ Discord Developer Portal → Bot → enable:
 
 Without these, Gateway DM verification and `GUILD_MEMBER_ADD` will not work.
 
-### 4. Set the bot token secret
+### 4. Push `.env` to Cloudflare
 
 ```bash
-npx wrangler secret put DISCORD_BOT_TOKEN
-```
-
-### 5. Regenerate config and apply new schema
-
-```bash
-npm run generate-config
+npm run push-env
 npm run db:migrate
 ```
 
-`001_guild_schema.sql` uses `CREATE TABLE IF NOT EXISTS` — safe to run on a database that already has officer tables. It only adds guild/player tables.
+This uploads secrets and regenerates `wrangler.json`. If you already had secrets set manually on Cloudflare, this overwrites them with values from `.env`.
 
-### 6. Deploy (applies Durable Object migration)
+### 5. Deploy (applies Durable Object migration)
 
 ```bash
 npm run deploy
@@ -260,7 +297,7 @@ First deploy after this upgrade creates the `DiscordGateway` Durable Object clas
 
 **Important:** Only one Gateway connection per bot token. Do not run `wrangler dev` and production simultaneously with the same token.
 
-### 7. Re-register slash commands
+### 6. Re-register slash commands
 
 ```bash
 npm run register-commands
@@ -268,7 +305,7 @@ npm run register-commands
 
 This **removes** `/officer` from Discord and registers the new commands (`/verify`, `/server`, `/player`, etc.).
 
-### 8. Re-verify interactions endpoint
+### 7. Re-verify interactions endpoint
 
 Confirm **Interactions Endpoint URL** still points to:
 
@@ -278,7 +315,7 @@ https://your-worker.workers.dev/discord
 
 Discord may re-verify after deploy — check the Developer Portal shows a green checkmark.
 
-### 9. Configure guild(s)
+### 8. Configure guild(s)
 
 Existing servers have no guild config until you run setup:
 
@@ -286,7 +323,7 @@ Existing servers have no guild config until you run setup:
 /server setup server:42 mode:single_alliance region:US alliance_tag:YOURTAG guest_role:... member_roles:...
 ```
 
-### 10. Smoke test
+### 9. Smoke test
 
 ```bash
 curl https://your-worker.workers.dev/gateway/status
@@ -301,7 +338,7 @@ curl https://your-worker.workers.dev/gateway/status
 | DM screenshot + stfc.pro link | Roles assigned per `/server setup` |
 | `/verify` | Still works as fallback |
 
-### 11. Optional cleanup
+### 10. Optional cleanup
 
 These are **not required** for the new bot to work:
 
@@ -339,7 +376,7 @@ Add to `.env`:
 R2_BUCKET_NAME=stfc-verification-assets
 ```
 
-Then `npm run generate-config && npm run deploy`.
+Then `npm run push-env && npm run deploy`.
 
 ### KV — system data (not used at runtime)
 
@@ -355,16 +392,60 @@ npm run dev
 - Discord interactions require a public URL (use `wrangler dev --remote` or deploy to a preview worker for webhook testing).
 - Gateway in local dev will compete with production if using the same bot token — use a separate Discord test application for local Gateway work.
 
+- Gateway in local dev will compete with production if using the same bot token — use a separate Discord test application for local Gateway work.
+- `npm run push-env` writes `.dev.vars` so `wrangler dev` picks up secrets automatically.
+
+---
+
+## Pushing .env to Cloudflare
+
+Cloudflare Workers split configuration into three layers:
+
+| Layer | Examples | How to set |
+|-------|----------|------------|
+| **Secrets** | `DISCORD_PUBLIC_KEY`, `DISCORD_BOT_TOKEN` | Encrypted; `npm run push-env` or `wrangler secret put` |
+| **Vars** | `DISCORD_APPLICATION_ID`, `WORKER_URL` | Plaintext in `wrangler.json`; `generate-config` from `.env` |
+| **Bindings** | D1, KV, R2, Durable Objects | `wrangler.json`; `generate-config` from `.env` |
+
+**`.env` is only on your machine** (gitignored). Production does not read it automatically — you push values explicitly:
+
+```bash
+npm run push-env    # secrets → Cloudflare, vars/bindings → wrangler.json
+npm run deploy      # apply wrangler.json to production
+```
+
+After changing any value in `.env`:
+
+```bash
+npm run push-env && npm run deploy
+```
+
+`register-commands` reads `DISCORD_*` directly from `.env` (local only) — no push needed for that script.
+
+### What `push-env` does
+
+1. Validates `DISCORD_PUBLIC_KEY` and `DISCORD_BOT_TOKEN` exist in `.env`
+2. Writes `.dev.vars` (for `npm run dev`)
+3. Runs `generate-config` → updates `wrangler.json`
+4. Runs `wrangler secret bulk` with those two secrets
+
+### Security notes
+
+- Never commit `.env` or `.dev.vars`
+- Secrets in `.env` are convenient for development; production copies are encrypted on Cloudflare
+- Rotating a token: update `.env`, then `npm run push-env`
+
 ---
 
 ## Environment reference
 
-### `.env` file (local / config generation)
+### `.env` file (local source of truth)
 
 | Variable | Required | Description |
 |----------|----------|-------------|
-| `DISCORD_APPLICATION_ID` | Yes | For `register-commands` |
-| `DISCORD_BOT_TOKEN` | Yes | For `register-commands`; also set as Worker secret |
+| `DISCORD_APPLICATION_ID` | Yes | Vars in wrangler.json; also used by `register-commands` |
+| `DISCORD_PUBLIC_KEY` | Yes | Worker secret (via `push-env`) |
+| `DISCORD_BOT_TOKEN` | Yes | Worker secret + `register-commands` |
 | `D1_DATABASE_NAME` | Yes (fresh) | Wrangler D1 database name |
 | `D1_DATABASE_ID` | Yes (fresh) | Wrangler D1 database UUID |
 | `WORKER_URL` | Recommended | Deployed Worker URL |
@@ -372,12 +453,20 @@ npm run dev
 | `KV_NAMESPACE_PREVIEW_ID` | No | Optional KV preview binding |
 | `R2_BUCKET_NAME` | No | Screenshot archive bucket |
 
-### Worker secrets (`wrangler secret put`)
+### Worker secrets (pushed by `npm run push-env`)
 
 | Secret | Required | Description |
 |--------|----------|-------------|
 | `DISCORD_PUBLIC_KEY` | Yes | Verifies interaction signatures |
 | `DISCORD_BOT_TOKEN` | Yes | REST API (roles, DMs, channels) + Gateway |
+
+### Worker vars (in `wrangler.json` via `generate-config`)
+
+| Var | Purpose |
+|-----|---------|
+| `DISCORD_APPLICATION_ID` | Deferred interaction follow-ups |
+| `WORKER_URL` | Public Worker URL |
+| `ENVIRONMENT` | `development` (default) |
 
 ### Wrangler bindings (generated in `wrangler.json`)
 
@@ -443,18 +532,19 @@ Configured in `generate-config.js` → `wrangler.json`:
 
 ```bash
 # One-time / occasional
-cp .env.template .env
+cp .env.template .env    # fill in all values
 npm install
 npx wrangler login
-npx wrangler secret put DISCORD_PUBLIC_KEY
-npx wrangler secret put DISCORD_BOT_TOKEN
-npm run generate-config
+npm run push-env         # secrets → Cloudflare, wrangler.json from .env
 npm run db:migrate
 npm run deploy
 npm run register-commands
 
+# After .env changes
+npm run push-env && npm run deploy
+
 # Development
-npm run dev
+npm run dev              # uses .dev.vars for secrets
 npm test
 ```
 

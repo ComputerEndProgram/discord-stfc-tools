@@ -35,6 +35,15 @@ export interface GuildConfig {
 	alliance_tag: string | null;
 	guest_role_id: string | null;
 	member_role_ids: string[];
+	operative_role_ids: string[];
+	agent_role_ids: string[];
+	premier_role_ids: string[];
+	commodore_role_ids: string[];
+	admiral_role_ids: string[];
+	// Named buckets (e.g. "leadership") that add additional Discord roles
+	// for a configurable set of in-game ranks.
+	// Shape: { [bucketName]: { ranks: string[]; role_ids: string[] } }
+	overlay_buckets: Record<string, { ranks: string[]; role_ids: string[] }>;
 	alliance_role_prefix: string | null;
 	channel_category_map: Record<string, string>;
 	personal_channel_extra_roles: string[];

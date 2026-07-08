@@ -127,12 +127,124 @@ const commands = [
 						description: 'Comma-separated Discord role IDs to assign on verification',
 						required: false,
 					},
+					{
+						type: 3,
+						name: 'operative_roles',
+						description: 'Comma-separated Discord role IDs for alliance rank Operative',
+						required: false,
+					},
+					{
+						type: 3,
+						name: 'agent_roles',
+						description: 'Comma-separated Discord role IDs for alliance rank Agent',
+						required: false,
+					},
+					{
+						type: 3,
+						name: 'premier_roles',
+						description: 'Comma-separated Discord role IDs for alliance rank Premier',
+						required: false,
+					},
+					{
+						type: 3,
+						name: 'commodore_roles',
+						description: 'Comma-separated Discord role IDs for alliance rank Commodore',
+						required: false,
+					},
+					{
+						type: 3,
+						name: 'admiral_roles',
+						description: 'Comma-separated Discord role IDs for alliance rank Admiral',
+						required: false,
+					},
 				],
 			},
 			{
 				type: 1,
 				name: 'status',
 				description: 'Show current server configuration',
+			},
+			{
+				type: 1,
+				name: 'test-invite',
+				description: 'Admin: send verification DM (simulate new member join)',
+				options: [
+					{
+						type: 6,
+						name: 'user',
+						description: 'User to test (defaults to you)',
+						required: false,
+					},
+				],
+			},
+			{
+				type: 1,
+				name: 'test-reset',
+				description: 'Admin: clear verification so you can test again',
+				options: [
+					{
+						type: 6,
+						name: 'user',
+						description: 'User to reset (defaults to you)',
+						required: false,
+					},
+				],
+			},
+			{
+				type: 1,
+				name: 'gateway',
+				description: 'Admin: show Discord Gateway connection status',
+			},
+			{
+				type: 1,
+				name: 'roles',
+				description: 'Admin: list roles and IDs',
+				options: [
+					{
+						type: 4,
+						name: 'limit',
+						description: 'Max roles to show (5-50)',
+						required: false,
+					},
+				],
+			},
+			{
+				type: 1,
+				name: 'bucket',
+				description: 'Admin: configure named overlay buckets (e.g. leadership)',
+				options: [
+					{
+						type: 3,
+						name: 'name',
+						description: 'Bucket name (e.g. leadership)',
+						required: true,
+					},
+					{
+						type: 3,
+						name: 'ranks',
+						description: 'Comma-separated ranks (Operative,Agent,Premier,Commodore,Admiral)',
+						required: true,
+					},
+					{
+						type: 3,
+						name: 'role_ids',
+						description: 'Comma-separated Discord role IDs or mentions to add',
+						required: false,
+					},
+				],
+			},
+			{
+				type: 1,
+				name: 'rank-roles',
+				description: 'Admin: show resolved Discord roles for a given in-game rank',
+				options: [
+					{
+						type: 3,
+						name: 'rank',
+						description: 'Operative, Agent, Premier, Commodore, Admiral',
+						required: true,
+					},
+				],
 			},
 		],
 	},

@@ -20,6 +20,27 @@ function parseJsonObject(value: string | null | undefined): Record<string, strin
 	}
 }
 
+function parseOverlayBuckets(
+	value: string | null | undefined,
+): Record<string, { ranks: string[]; role_ids: string[] }> {
+	if (!value) return {};
+	try {
+		const parsed = JSON.parse(value) as unknown;
+		if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return {};
+
+		const result: Record<string, { ranks: string[]; role_ids: string[] }> = {};
+		for (const [bucketName, bucketValue] of Object.entries(parsed as Record<string, any>)) {
+			if (!bucketValue || typeof bucketValue !== 'object') continue;
+			const ranks = Array.isArray((bucketValue as any).ranks) ? (bucketValue as any).ranks.map(String).filter(Boolean) : [];
+			const role_ids = Array.isArray((bucketValue as any).role_ids) ? (bucketValue as any).role_ids.map(String).filter(Boolean) : [];
+			result[bucketName] = { ranks, role_ids };
+		}
+		return result;
+	} catch {
+		return {};
+	}
+}
+
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 function mapGuildConfig(row: any): GuildConfig {
 	return {
@@ -30,6 +51,12 @@ function mapGuildConfig(row: any): GuildConfig {
 		alliance_tag: row.alliance_tag ?? null,
 		guest_role_id: row.guest_role_id ?? null,
 		member_role_ids: parseJsonArray(row.member_role_ids),
+		operative_role_ids: parseJsonArray(row.operative_role_ids),
+		agent_role_ids: parseJsonArray(row.agent_role_ids),
+		premier_role_ids: parseJsonArray(row.premier_role_ids),
+		commodore_role_ids: parseJsonArray(row.commodore_role_ids),
+		admiral_role_ids: parseJsonArray(row.admiral_role_ids),
+		overlay_buckets: parseOverlayBuckets(row.overlay_buckets),
 		alliance_role_prefix: row.alliance_role_prefix ?? null,
 		channel_category_map: parseJsonObject(row.channel_category_map),
 		personal_channel_extra_roles: parseJsonArray(row.personal_channel_extra_roles),
@@ -85,8 +112,9 @@ export async function upsertGuildConfig(
 			.prepare(
 				`INSERT INTO guild_configs
 				(guild_id, mode, stfc_server, stfc_region, alliance_tag, guest_role_id,
-				 member_role_ids, verification_enabled, updated_at)
-				VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+				 member_role_ids, operative_role_ids, agent_role_ids, premier_role_ids, commodore_role_ids, admiral_role_ids,
+				 overlay_buckets, verification_enabled, updated_at)
+				VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 			)
 			.bind(
 				config.guild_id,
@@ -96,6 +124,12 @@ export async function upsertGuildConfig(
 				config.alliance_tag ?? null,
 				config.guest_role_id ?? null,
 				JSON.stringify(config.member_role_ids ?? []),
+				JSON.stringify(config.operative_role_ids ?? []),
+				JSON.stringify(config.agent_role_ids ?? []),
+				JSON.stringify(config.premier_role_ids ?? []),
+				JSON.stringify(config.commodore_role_ids ?? []),
+				JSON.stringify(config.admiral_role_ids ?? []),
+				JSON.stringify(config.overlay_buckets ?? {}),
 				config.verification_enabled !== false ? 1 : 0,
 				now,
 			)
@@ -112,6 +146,12 @@ export async function upsertGuildConfig(
 			 alliance_tag = COALESCE(?, alliance_tag),
 			 guest_role_id = COALESCE(?, guest_role_id),
 			 member_role_ids = COALESCE(?, member_role_ids),
+			 operative_role_ids = COALESCE(?, operative_role_ids),
+			 agent_role_ids = COALESCE(?, agent_role_ids),
+			 premier_role_ids = COALESCE(?, premier_role_ids),
+			 commodore_role_ids = COALESCE(?, commodore_role_ids),
+			 admiral_role_ids = COALESCE(?, admiral_role_ids),
+			 overlay_buckets = COALESCE(?, overlay_buckets),
 			 verification_enabled = COALESCE(?, verification_enabled),
 			 updated_at = ?
 			 WHERE guild_id = ?`,
@@ -123,6 +163,12 @@ export async function upsertGuildConfig(
 			config.alliance_tag ?? null,
 			config.guest_role_id ?? null,
 			config.member_role_ids ? JSON.stringify(config.member_role_ids) : null,
+			config.operative_role_ids ? JSON.stringify(config.operative_role_ids) : null,
+			config.agent_role_ids ? JSON.stringify(config.agent_role_ids) : null,
+			config.premier_role_ids ? JSON.stringify(config.premier_role_ids) : null,
+			config.commodore_role_ids ? JSON.stringify(config.commodore_role_ids) : null,
+			config.admiral_role_ids ? JSON.stringify(config.admiral_role_ids) : null,
+			config.overlay_buckets ? JSON.stringify(config.overlay_buckets) : null,
 			config.verification_enabled !== undefined ? (config.verification_enabled ? 1 : 0) : null,
 			now,
 			config.guild_id,
@@ -257,6 +303,31 @@ export async function upsertVerifiedPlayer(
 			data.guild_id,
 			data.discord_user_id,
 		)
+		.run();
+}
+
+export async function resetVerification(
+	db: D1Database,
+	guildId: string,
+	discordUserId: string,
+): Promise<void> {
+	await db
+		.prepare(`DELETE FROM verified_players WHERE guild_id = ? AND discord_user_id = ?`)
+		.bind(guildId, discordUserId)
+		.run();
+
+	await upsertVerifiedPlayer(db, {
+		guild_id: guildId,
+		discord_user_id: discordUserId,
+		verification_status: 'pending_screenshot',
+	});
+
+	await db
+		.prepare(
+			`UPDATE guild_members SET verification_invited_at = NULL
+			 WHERE guild_id = ? AND discord_user_id = ?`,
+		)
+		.bind(guildId, discordUserId)
 		.run();
 }
 

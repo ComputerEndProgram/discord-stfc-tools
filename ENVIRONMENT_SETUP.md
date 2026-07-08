@@ -8,10 +8,14 @@ Configuration is driven by `.env` and `generate-config.js`, which produces `wran
 
 ```bash
 cp .env.template .env    # fill in values — see SETUP.md
-npm run generate-config  # writes wrangler.json
-npm run dev              # local development
+npm run push-env         # secrets → Cloudflare, wrangler.json from .env
+npm run dev              # local development (reads .dev.vars)
 npm run deploy           # production
 ```
+
+**After any `.env` change:** `npm run push-env && npm run deploy`
+
+See [SETUP.md — Pushing .env to Cloudflare](./SETUP.md#pushing-env-to-cloudflare) for what goes where.
 
 ## Environment variables
 

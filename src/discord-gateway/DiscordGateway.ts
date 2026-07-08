@@ -60,7 +60,8 @@ export class DiscordGateway extends DurableObject<Env> {
 	private async identify(): Promise<void> {
 		if (!this.env.DISCORD_BOT_TOKEN) throw new Error('DISCORD_BOT_TOKEN not configured');
 		this.sendOpcode(GatewayOpcode.IDENTIFY, {
-			token: `Bot ${this.env.DISCORD_BOT_TOKEN}`,
+			// Discord Gateway IDENTIFY expects the raw bot token (no "Bot " prefix).
+			token: this.env.DISCORD_BOT_TOKEN,
 			intents: GATEWAY_INTENTS,
 			properties: { os: 'linux', browser: 'cloudflare-workers', device: 'cloudflare-workers' },
 		});
@@ -72,7 +73,8 @@ export class DiscordGateway extends DurableObject<Env> {
 			return;
 		}
 		this.sendOpcode(GatewayOpcode.RESUME, {
-			token: `Bot ${this.env.DISCORD_BOT_TOKEN}`,
+			// Same rule as IDENTIFY: raw bot token.
+			token: this.env.DISCORD_BOT_TOKEN,
 			session_id: this.state.sessionId,
 			seq: this.state.sequence,
 		});
@@ -180,6 +182,12 @@ export class DiscordGateway extends DurableObject<Env> {
 				console.log('Discord Gateway READY');
 				break;
 			}
+			case 'RESUMED': {
+				// On successful RESUME Discord does not re-send READY; mark connection healthy.
+				this.state.ready = true;
+				console.log('Discord Gateway RESUMED');
+				break;
+			}
 			case 'GUILD_MEMBER_ADD':
 				await this.handleGuildMemberAdd(data as { guild_id: string; user: { id: string; username: string } });
 				break;
@@ -197,8 +205,10 @@ export class DiscordGateway extends DurableObject<Env> {
 		if (!config?.verification_enabled) return;
 
 		await recordGuildMember(this.env.STFC_DB, data.guild_id, data.user.id, data.user.username);
-		await inviteNewMember(this.env, data.guild_id, data.user.id, data.user.username);
-		await markMemberInvited(this.env.STFC_DB, data.guild_id, data.user.id);
+		const dm = await inviteNewMember(this.env, data.guild_id, data.user.id, data.user.username);
+		if (dm.ok) {
+			await markMemberInvited(this.env.STFC_DB, data.guild_id, data.user.id);
+		}
 	}
 
 	private async handleMessageCreate(message: DiscordMessage): Promise<void> {
@@ -214,6 +224,19 @@ export class DiscordGateway extends DurableObject<Env> {
 		if (!this.socket || this.socket.readyState !== WebSocket.OPEN) {
 			await this.connect();
 		}
+
+		// If we have an open socket but never observed READY, we likely got stuck in a
+		// resume/reconnect edge case (or the DO instance didn't pick up updated code).
+		// Force a reconnect after a short delay so we can re-identify and receive READY.
+		if (this.socket?.readyState === WebSocket.OPEN && !this.state.ready) {
+			const lastEventMs = this.state.lastEventAt ? Date.parse(this.state.lastEventAt) : NaN;
+			const ageMs = Number.isFinite(lastEventMs) ? Date.now() - lastEventMs : Number.POSITIVE_INFINITY;
+			if (ageMs > 20_000) {
+				console.warn('Gateway socket open but not ready; forcing reconnect', { ageMs });
+				this.socket.close(4003, 'Gateway not ready');
+			}
+		}
+
 		this.scheduleHeartbeat();
 		return { ready: this.state.ready, lastEventAt: this.state.lastEventAt };
 	}

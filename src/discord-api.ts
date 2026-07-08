@@ -40,6 +40,16 @@ export interface DiscordGuildMember {
 	joined_at: string;
 }
 
+export interface DiscordRole {
+	id: string;
+	name: string;
+	position: number;
+	hoist: boolean;
+	managed: boolean;
+	mentionable: boolean;
+	// Not all fields are typed; we keep it minimal for formatting.
+}
+
 export async function listGuildMembers(
 	token: string,
 	guildId: string,
@@ -71,6 +81,16 @@ export async function listAllGuildMembers(token: string, guildId: string): Promi
 export async function getGatewayBotUrl(token: string): Promise<{ url: string }> {
 	const response = await discordFetch(token, '/gateway/bot');
 	return response.json() as Promise<{ url: string }>;
+}
+
+export async function listGuildRoles(
+	token: string,
+	guildId: string,
+): Promise<DiscordRole[]> {
+	const response = await discordFetch(token, `/guilds/${guildId}/roles`, {
+		method: 'GET',
+	});
+	return (await response.json()) as DiscordRole[];
 }
 
 export async function sendChannelMessage(

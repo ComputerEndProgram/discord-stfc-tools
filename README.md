@@ -26,7 +26,7 @@ Cloudflare Worker Discord bot for **Star Trek Fleet Command (STFC)**:
 ```bash
 npm install
 cp .env.template .env   # fill in Discord + D1 IDs — see SETUP.md
-npm run generate-config
+npm run push-env
 npm run db:migrate
 npm run deploy
 npm run register-commands

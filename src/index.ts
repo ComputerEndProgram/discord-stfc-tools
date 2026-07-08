@@ -10,12 +10,16 @@ export default {
 	async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
 		const url = new URL(request.url);
 
-		// Keep Gateway WebSocket alive (Durable Object singleton)
-		if (env.DISCORD_GATEWAY && env.DISCORD_BOT_TOKEN) {
-			ctx.waitUntil(wakeDiscordGateway(env));
-		}
-
 		if (url.pathname === '/discord' && request.method === 'POST') {
+			// Keep Gateway WebSocket alive when Discord interaction traffic arrives.
+			// (Cron also keeps it running; limiting wake reduces cross-test Durable Object noise.)
+			if (env.DISCORD_GATEWAY && env.DISCORD_BOT_TOKEN) {
+				ctx.waitUntil(
+					wakeDiscordGateway(env).catch((err) => {
+						console.error('Gateway wake failed (non-fatal):', err);
+					}),
+				);
+			}
 			return handleDiscordInteraction(request, env, ctx);
 		}
 

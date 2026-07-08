@@ -57,6 +57,10 @@ function generateWranglerConfig() {
     configTemplate.vars.WORKER_URL = process.env.WORKER_URL;
   }
 
+  if (process.env.DISCORD_APPLICATION_ID) {
+    configTemplate.vars.DISCORD_APPLICATION_ID = process.env.DISCORD_APPLICATION_ID;
+  }
+
   if (process.env.KV_NAMESPACE_ID) {
     const kvNamespace = {
       "binding": "SYSTEM_DATA",
