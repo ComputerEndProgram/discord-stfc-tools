@@ -128,6 +128,12 @@ const commands = [
 						required: false,
 					},
 					{
+						type: 5,
+						name: 'create_missing_roles',
+						description: 'If a provided role name does not exist, create it (by name)',
+						required: false,
+					},
+					{
 						type: 3,
 						name: 'operative_roles',
 						description: 'Comma-separated Discord role IDs for alliance rank Operative',
@@ -229,6 +235,12 @@ const commands = [
 						type: 3,
 						name: 'role_ids',
 						description: 'Comma-separated Discord role IDs or mentions to add',
+						required: false,
+					},
+					{
+						type: 5,
+						name: 'create_if_missing',
+						description: 'If a provided role name does not exist, create it (by name)',
 						required: false,
 					},
 				],

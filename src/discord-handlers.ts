@@ -3,20 +3,208 @@ import {
 	deferredResponse,
 	editInteractionResponse,
 	interactionResponse,
+	listGuildRoles,
+	createGuildRole,
 } from './discord-api';
-import { getGuildConfig, upsertGuildConfig } from './guild-db';
+import {
+	getGuildConfig,
+	upsertGuildConfig,
+	recordGuildMember,
+	markMemberInvited,
+	resetVerification,
+} from './guild-db';
 import { findPlayerByIdOrName, formatPlayerSummary } from './stfc-utils';
-import { processVerification } from './verification';
+import { inviteNewMember, processVerification } from './verification';
+import { requireGuildAdmin, resolveTargetUserId } from './discord-admin';
+import { getDiscordGatewayStatus } from './discord-gateway/wake';
 import { parseCSV, autoGenerateColumns, generateAsciiTable } from './tableUtils';
 import {
 	handleCoordinateLookup,
 	parseCoordinateLink,
 	parseMultipleCoordinates,
 } from './systemUtils';
-import type { GuildMode, StfcRegion } from './types';
+import type { GuildMode, StfcRegion, GuildConfig } from './types';
 
 function getOptionValue(options: Array<{ name: string; value?: unknown }> | undefined, name: string): unknown {
 	return options?.find((opt) => opt.name === name)?.value;
+}
+
+type RoleToken =
+	| { type: 'id'; id: string }
+	| { type: 'name'; name: string };
+
+function parseRoleToken(raw: unknown): RoleToken | null {
+	const s = typeof raw === 'string' ? raw.trim() : raw === undefined || raw === null ? '' : String(raw).trim();
+	if (!s) return null;
+
+	const mentionMatch = s.match(/^<@&(\d{15,20})>$/);
+	if (mentionMatch) return { type: 'id', id: mentionMatch[1] };
+
+	if (/^\d{15,20}$/.test(s)) return { type: 'id', id: s };
+
+	// Treat everything else as a role name.
+	return { type: 'name', name: s };
+}
+
+function parseRoleTokensCsv(raw: unknown): RoleToken[] {
+	if (!raw) return [];
+	const s = typeof raw === 'string' ? raw : String(raw);
+	if (!s.trim()) return [];
+	return s
+		.split(',')
+		.map((t) => t.trim())
+		.filter(Boolean)
+		.map((t) => parseRoleToken(t))
+		.filter((t): t is RoleToken => Boolean(t));
+}
+
+type StoredRoleRef = { id: string; name?: string };
+
+type ResolvedRoles = {
+	ids: string[];
+	names: string[];
+	renamed: Array<{ configuredName: string; currentDiscordName: string; id: string }>;
+};
+
+function bucketStoredRefs(bucket?: { role_ids: string[]; role_names?: string[] }): StoredRoleRef[] {
+	if (!bucket) return [];
+	return bucket.role_ids.map((id, index) => ({
+		id,
+		name: bucket.role_names?.[index],
+	}));
+}
+
+async function resolveRoleTokensToIds(
+	env: Env,
+	guildId: string,
+	tokens: RoleToken[],
+	createIfMissing: boolean,
+	previouslyStored: StoredRoleRef[] = [],
+): Promise<ResolvedRoles> {
+	if (tokens.length === 0) {
+		return { ids: [], names: [], renamed: [] };
+	}
+
+	const allIds = tokens.filter((t) => t.type === 'id') as Array<{ type: 'id'; id: string }>;
+	const allNames = tokens.filter((t) => t.type === 'name') as Array<{ type: 'name'; name: string }>;
+
+	// Fast path: snowflakes/mentions only — no Discord API calls needed.
+	if (allNames.length === 0 && previouslyStored.length === 0) {
+		const ids = Array.from(
+			new Set(
+				allIds
+					.map((t) => t.id)
+					.filter((id) => /^\d{15,20}$/.test(id)),
+			),
+		);
+		return { ids, names: ids.map(() => ''), renamed: [] };
+	}
+
+	if (!env.DISCORD_BOT_TOKEN) {
+		throw new Error('DISCORD_BOT_TOKEN not configured (required to resolve role names). Provide role IDs/mentions instead.');
+	}
+
+	const token = env.DISCORD_BOT_TOKEN;
+	const roles = await listGuildRoles(token, guildId);
+	const nameToId = new Map<string, string>();
+	const idToName = new Map<string, string>();
+	for (const role of roles) {
+		const key = role.name.toLowerCase();
+		if (!nameToId.has(key)) nameToId.set(key, role.id);
+		idToName.set(role.id, role.name);
+	}
+
+	const storedByConfiguredName = new Map<string, string>();
+	for (const ref of previouslyStored) {
+		if (!ref.name || !/^\d{15,20}$/.test(ref.id)) continue;
+		const key = ref.name.toLowerCase();
+		if (!storedByConfiguredName.has(key)) storedByConfiguredName.set(key, ref.id);
+	}
+
+	const validStoredIds = new Set(
+		previouslyStored.map((ref) => ref.id).filter((id) => /^\d{15,20}$/.test(id) && idToName.has(id)),
+	);
+
+	const out: string[] = [];
+	const names: string[] = [];
+	const outSet = new Set<string>();
+	const renamed: ResolvedRoles['renamed'] = [];
+
+	for (const t of tokens) {
+		if (t.type === 'id') {
+			if (/^\d{15,20}$/.test(t.id) && !outSet.has(t.id)) {
+				outSet.add(t.id);
+				out.push(t.id);
+				names.push(idToName.get(t.id) ?? '');
+			}
+			continue;
+		}
+
+		const key = t.name.toLowerCase();
+		const existingId = nameToId.get(key);
+		if (existingId) {
+			if (!outSet.has(existingId)) {
+				outSet.add(existingId);
+				out.push(existingId);
+				names.push(t.name);
+			}
+			continue;
+		}
+
+		// Configured name no longer exists in Discord — reuse stored snowflake if it still exists.
+		const storedId = storedByConfiguredName.get(key);
+		if (storedId && validStoredIds.has(storedId) && !outSet.has(storedId)) {
+			const currentDiscordName = idToName.get(storedId)!;
+			outSet.add(storedId);
+			out.push(storedId);
+			names.push(t.name);
+			if (currentDiscordName.toLowerCase() !== key) {
+				renamed.push({
+					configuredName: t.name,
+					currentDiscordName,
+					id: storedId,
+				});
+			}
+			continue;
+		}
+
+		if (!createIfMissing) {
+			throw new Error(`Role not found: "${t.name}". Enable role creation or provide a role ID/mention.`);
+		}
+
+		const created = await createGuildRole(token, guildId, t.name);
+		nameToId.set(key, created.id);
+		idToName.set(created.id, created.name);
+		validStoredIds.add(created.id);
+		if (!outSet.has(created.id)) {
+			outSet.add(created.id);
+			out.push(created.id);
+			names.push(t.name);
+		}
+	}
+
+	return { ids: out, names, renamed };
+}
+
+type AllianceRankKey = 'Operative' | 'Agent' | 'Premier' | 'Commodore' | 'Admiral';
+
+function normalizeAllianceRank(rank: string | undefined): AllianceRankKey | null {
+	if (!rank) return null;
+	const r = rank.trim().toLowerCase();
+	switch (r) {
+		case 'operative':
+			return 'Operative';
+		case 'agent':
+			return 'Agent';
+		case 'premier':
+			return 'Premier';
+		case 'commodore':
+			return 'Commodore';
+		case 'admiral':
+			return 'Admiral';
+		default:
+			return null;
+	}
 }
 
 async function handlePlayerCommand(
@@ -134,8 +322,16 @@ async function handleServerSetupCommand(
 	const server = getOptionValue(data.options, 'server') as number | undefined;
 	const region = (getOptionValue(data.options, 'region') as StfcRegion | undefined) ?? 'US';
 	const allianceTag = getOptionValue(data.options, 'alliance_tag') as string | undefined;
-	const guestRoleId = getOptionValue(data.options, 'guest_role') as string | undefined;
-	const memberRoles = getOptionValue(data.options, 'member_roles') as string | undefined;
+	const createMissingRolesRaw = getOptionValue(data.options, 'create_missing_roles');
+	const createMissingRoles = createMissingRolesRaw === true || createMissingRolesRaw === 'true';
+
+	const guestRoleToken = parseRoleToken(getOptionValue(data.options, 'guest_role'));
+	const memberRoleTokens = parseRoleTokensCsv(getOptionValue(data.options, 'member_roles'));
+	const operativeRoleTokens = parseRoleTokensCsv(getOptionValue(data.options, 'operative_roles'));
+	const agentRoleTokens = parseRoleTokensCsv(getOptionValue(data.options, 'agent_roles'));
+	const premierRoleTokens = parseRoleTokensCsv(getOptionValue(data.options, 'premier_roles'));
+	const commodoreRoleTokens = parseRoleTokensCsv(getOptionValue(data.options, 'commodore_roles'));
+	const admiralRoleTokens = parseRoleTokensCsv(getOptionValue(data.options, 'admiral_roles'));
 
 	if (!server) {
 		return interactionResponse('❌ `server` is required (your STFC server number).', true);
@@ -145,31 +341,105 @@ async function handleServerSetupCommand(
 		return interactionResponse('❌ `alliance_tag` is required for single-alliance mode.', true);
 	}
 
-	const memberRoleIds = memberRoles
-		? memberRoles.split(',').map((r) => r.trim()).filter(Boolean)
-		: [];
+	try {
+		const existingConfig = await getGuildConfig(env.STFC_DB, guildId);
 
-	await upsertGuildConfig(env.STFC_DB, {
-		guild_id: guildId,
-		mode,
-		stfc_server: server,
-		stfc_region: region,
-		alliance_tag: allianceTag ?? null,
-		guest_role_id: guestRoleId ?? null,
-		member_role_ids: memberRoleIds,
-		verification_enabled: true,
-	});
+		const resolvedGuest = guestRoleToken
+			? await resolveRoleTokensToIds(
+					env,
+					guildId,
+					[guestRoleToken],
+					createMissingRoles,
+					existingConfig?.guest_role_id ? [{ id: existingConfig.guest_role_id }] : [],
+				)
+			: { ids: [], names: [], renamed: [] };
 
-	return interactionResponse(
-		`✅ Server configured!\n` +
-			`• Mode: **${mode}**\n` +
-			`• STFC: server **${server}** (${region})\n` +
-			(mode === 'single_alliance' ? `• Alliance tag: **${allianceTag}**\n` : '') +
-			`• Member roles: ${memberRoleIds.length ? memberRoleIds.join(', ') : 'none yet'}\n` +
-			`• Guest role: ${guestRoleId ?? 'not set'}\n\n` +
-			`New members will receive a verification DM. They can also run \`/verify\`.`,
-		true,
-	);
+		const guestRoleId = resolvedGuest.ids[0] ?? null;
+
+		const memberRoles = await resolveRoleTokensToIds(
+			env,
+			guildId,
+			memberRoleTokens,
+			createMissingRoles,
+			existingConfig?.member_role_ids.map((id) => ({ id })) ?? [],
+		);
+		const operativeRoles = await resolveRoleTokensToIds(
+			env,
+			guildId,
+			operativeRoleTokens,
+			createMissingRoles,
+			existingConfig?.operative_role_ids.map((id) => ({ id })) ?? [],
+		);
+		const agentRoles = await resolveRoleTokensToIds(
+			env,
+			guildId,
+			agentRoleTokens,
+			createMissingRoles,
+			existingConfig?.agent_role_ids.map((id) => ({ id })) ?? [],
+		);
+		const premierRoles = await resolveRoleTokensToIds(
+			env,
+			guildId,
+			premierRoleTokens,
+			createMissingRoles,
+			existingConfig?.premier_role_ids.map((id) => ({ id })) ?? [],
+		);
+		const commodoreRoles = await resolveRoleTokensToIds(
+			env,
+			guildId,
+			commodoreRoleTokens,
+			createMissingRoles,
+			existingConfig?.commodore_role_ids.map((id) => ({ id })) ?? [],
+		);
+		const admiralRoles = await resolveRoleTokensToIds(
+			env,
+			guildId,
+			admiralRoleTokens,
+			createMissingRoles,
+			existingConfig?.admiral_role_ids.map((id) => ({ id })) ?? [],
+		);
+
+		const memberRoleIds = memberRoles.ids;
+		const operativeRoleIds = operativeRoles.ids;
+		const agentRoleIds = agentRoles.ids;
+		const premierRoleIds = premierRoles.ids;
+		const commodoreRoleIds = commodoreRoles.ids;
+		const admiralRoleIds = admiralRoles.ids;
+
+		await upsertGuildConfig(env.STFC_DB, {
+			guild_id: guildId,
+			mode,
+			stfc_server: server,
+			stfc_region: region,
+			alliance_tag: allianceTag ?? null,
+			guest_role_id: guestRoleId,
+			member_role_ids: memberRoleIds,
+			operative_role_ids: operativeRoleIds,
+			agent_role_ids: agentRoleIds,
+			premier_role_ids: premierRoleIds,
+			commodore_role_ids: commodoreRoleIds,
+			admiral_role_ids: admiralRoleIds,
+			verification_enabled: true,
+		});
+
+		return interactionResponse(
+			`✅ Server configured!\n` +
+				`• Mode: **${mode}**\n` +
+				`• STFC: server **${server}** (${region})\n` +
+				(mode === 'single_alliance' ? `• Alliance tag: **${allianceTag}**\n` : '') +
+				`• Member roles: ${memberRoleIds.length ? memberRoleIds.join(', ') : 'none yet'}\n` +
+				`• Guest role: ${guestRoleId ?? 'not set'}\n` +
+				`• Operative/Agent/Premier/Commodore/Admiral roles set: ` +
+				`${operativeRoleIds.length}/${agentRoleIds.length}/${premierRoleIds.length}/${commodoreRoleIds.length}/${admiralRoleIds.length}\n\n` +
+				`New members will receive a verification DM. They can also run \`/verify\`.`,
+			true,
+		);
+	} catch (error) {
+		return interactionResponse(
+			`❌ Role resolution failed: ${error instanceof Error ? error.message : 'unknown error'}`,
+			true,
+		);
+	}
 }
 
 async function handleServerStatusCommand(env: Env, guildId: string | undefined): Promise<Response> {
@@ -191,6 +461,212 @@ async function handleServerStatusCommand(env: Env, guildId: string | undefined):
 			`• Poll interval: ${config.poll_interval_hours}h\n` +
 			`• Member roles: ${config.member_role_ids.join(', ') || 'none'}\n` +
 			`• Guest role: ${config.guest_role_id ?? 'none'}`,
+		true,
+	);
+}
+
+async function handleServerRolesCommand(env: Env, interaction: { guild_id?: string; member?: { permissions?: string } }, sub: { options?: Array<{ name: string; value?: unknown }> }): Promise<Response> {
+	const adminError = requireGuildAdmin(interaction);
+	if (adminError) return adminError;
+
+	const guildId = interaction.guild_id!;
+	const limitRaw = getOptionValue(sub.options, 'limit');
+	const limit = typeof limitRaw === 'number' ? limitRaw : limitRaw ? parseInt(String(limitRaw), 10) : 20;
+	const safeLimit = Number.isFinite(limit) ? Math.max(5, Math.min(50, limit)) : 20;
+
+	if (!env.DISCORD_BOT_TOKEN) return interactionResponse('❌ DISCORD_BOT_TOKEN not configured.', true);
+
+	const roles = await listGuildRoles(env.DISCORD_BOT_TOKEN, guildId);
+	const shown = roles.slice(0, safeLimit);
+
+	const lines = shown.map((r) => `• ${r.name} (${r.id})`);
+	const more = roles.length > shown.length ? `\n… and ${roles.length - shown.length} more` : '';
+	return interactionResponse(`📚 Roles (${roles.length})\n${lines.join('\n')}${more}`, true);
+}
+
+async function handleServerBucketCommand(
+	env: Env,
+	interaction: { guild_id?: string; member?: { permissions?: string } },
+	sub: { options?: Array<{ name: string; value?: unknown }> },
+): Promise<Response> {
+	const adminError = requireGuildAdmin(interaction);
+	if (adminError) return adminError;
+
+	const guildId = interaction.guild_id!;
+
+	const bucketName = getOptionValue(sub.options, 'name') as string | undefined;
+	const ranksRaw = getOptionValue(sub.options, 'ranks') as string | undefined;
+	const roleIdsRaw = getOptionValue(sub.options, 'role_ids') as string | undefined;
+	const createIfMissingRaw = getOptionValue(sub.options, 'create_if_missing');
+	const createIfMissing = createIfMissingRaw === true || createIfMissingRaw === 'true';
+
+	if (!bucketName) return interactionResponse('❌ `name` is required.', true);
+	if (!ranksRaw) return interactionResponse('❌ `ranks` is required.', true);
+
+	const ranks = ranksRaw
+		.split(',')
+		.map((r) => r.trim())
+		.filter(Boolean);
+
+	const overlayUpdateTokens = roleIdsRaw ? parseRoleTokensCsv(roleIdsRaw) : [];
+
+	// Preserve existing overlay buckets.
+	const existing = await getGuildConfig(env.STFC_DB, guildId);
+	const overlay_buckets = { ...(existing?.overlay_buckets ?? {}) };
+
+	if (!roleIdsRaw || overlayUpdateTokens.length === 0) {
+		// Clearing the bucket when no role IDs were supplied.
+		delete overlay_buckets[bucketName];
+		await upsertGuildConfig(env.STFC_DB, { guild_id: guildId, overlay_buckets });
+		return interactionResponse(`✅ Bucket \`${bucketName}\` cleared.`, true);
+	}
+
+	try {
+		const existingBucket = existing?.overlay_buckets[bucketName];
+		const resolved = await resolveRoleTokensToIds(
+			env,
+			guildId,
+			overlayUpdateTokens,
+			createIfMissing,
+			bucketStoredRefs(existingBucket),
+		);
+		overlay_buckets[bucketName] = {
+			ranks,
+			role_ids: resolved.ids,
+			role_names: resolved.names,
+		};
+		await upsertGuildConfig(env.STFC_DB, { guild_id: guildId, overlay_buckets });
+
+		const renameNote =
+			resolved.renamed.length > 0
+				? `\n• Renamed in Discord: ${resolved.renamed
+						.map((r) => `"${r.configuredName}" → "${r.currentDiscordName}" (reused ${r.id})`)
+						.join('; ')}`
+				: '';
+
+		return interactionResponse(
+			`✅ Bucket \`${bucketName}\` updated.\n• Ranks: ${ranks.join(', ')}\n• Roles (${resolved.ids.length}): ${resolved.ids.join(', ')}${renameNote}`,
+			true,
+		);
+	} catch (error) {
+		return interactionResponse(
+			`❌ Failed to resolve/create roles for bucket \`${bucketName}\`: ${
+				error instanceof Error ? error.message : 'unknown error'
+			}`,
+			true,
+		);
+	}
+}
+
+async function handleServerRankRolesCommand(
+	env: Env,
+	interaction: { guild_id?: string; member?: { permissions?: string } },
+	sub: { options?: Array<{ name: string; value?: unknown }> },
+): Promise<Response> {
+	const adminError = requireGuildAdmin(interaction);
+	if (adminError) return adminError;
+
+	const guildId = interaction.guild_id!;
+	const rankRaw = getOptionValue(sub.options, 'rank') as string | undefined;
+	if (!rankRaw) return interactionResponse('❌ `rank` is required.', true);
+
+	const config = await getGuildConfig(env.STFC_DB, guildId);
+	if (!config) return interactionResponse('❌ Server not configured. Run `/server setup` first.', true);
+
+	const rankKey = normalizeAllianceRank(rankRaw);
+	if (!rankKey) {
+		return interactionResponse('❌ Rank must be one of: Operative, Agent, Premier, Commodore, Admiral.', true);
+	}
+
+	const rankSpecific =
+		rankKey === 'Operative'
+			? config.operative_role_ids
+			: rankKey === 'Agent'
+				? config.agent_role_ids
+				: rankKey === 'Premier'
+					? config.premier_role_ids
+					: rankKey === 'Commodore'
+						? config.commodore_role_ids
+						: config.admiral_role_ids;
+
+	const wanted = rankKey.toLowerCase();
+	const overlayRoleIds = new Set<string>();
+	for (const bucket of Object.values(config.overlay_buckets ?? {})) {
+		const matches = (bucket.ranks ?? []).some((r) => String(r).trim().toLowerCase() === wanted);
+		if (!matches) continue;
+		for (const id of bucket.role_ids ?? []) overlayRoleIds.add(id);
+	}
+
+	const memberRoleIds = [
+		...config.member_role_ids,
+		...rankSpecific,
+		...Array.from(overlayRoleIds),
+	].filter((id) => /^\d{15,20}$/.test(id));
+
+	if (env.DISCORD_BOT_TOKEN) {
+		const roles = await listGuildRoles(env.DISCORD_BOT_TOKEN, guildId);
+		const idToName = new Map(roles.map((r) => [r.id, r.name]));
+		const pretty = memberRoleIds.map((id) => `${idToName.get(id) ?? 'unknown role'} (${id})`);
+		return interactionResponse(`🔎 Roles for rank ${rankKey}\n${pretty.join('\n')}`, true);
+	}
+
+	return interactionResponse(`🔎 Roles for rank ${rankKey}\n${memberRoleIds.join(', ') || 'none'}`, true);
+}
+
+async function handleServerTestInviteCommand(
+	env: Env,
+	interaction: { guild_id?: string; member?: { permissions?: string; user?: { id: string } } },
+	sub: { options?: Array<{ name: string; value?: unknown; type?: number }> },
+): Promise<Response> {
+	const adminError = requireGuildAdmin(interaction as any);
+	if (adminError) return adminError;
+
+	const guildId = interaction.guild_id!;
+	const userId = resolveTargetUserId(interaction as any, sub.options);
+	if (!userId) return interactionResponse('❌ Could not resolve target user.', true);
+
+	// Minimal test helper: record member + send DM invitation.
+	await recordGuildMember(env.STFC_DB, guildId, userId, null);
+	const dm = await inviteNewMember(env, guildId, userId, 'user');
+	if (dm.ok) {
+		await markMemberInvited(env.STFC_DB, guildId, userId);
+		return interactionResponse('✅ DM sent and verification state reset for this user.', true);
+	}
+
+	return interactionResponse(
+		`❌ Failed to send DM: ${dm.errorMessage}${typeof dm.status === 'number' ? ` (HTTP ${dm.status})` : ''}`,
+		true,
+	);
+}
+
+async function handleServerTestResetCommand(
+	env: Env,
+	interaction: { guild_id?: string; member?: { permissions?: string; user?: { id: string } } },
+	sub: { options?: Array<{ name: string; value?: unknown; type?: number }> },
+): Promise<Response> {
+	const adminError = requireGuildAdmin(interaction as any);
+	if (adminError) return adminError;
+
+	const guildId = interaction.guild_id!;
+	const userId = resolveTargetUserId(interaction as any, sub.options);
+	if (!userId) return interactionResponse('❌ Could not resolve target user.', true);
+
+	await resetVerification(env.STFC_DB, guildId, userId);
+	return interactionResponse(`✅ Verification state reset for user <@${userId}>.`, true);
+}
+
+async function handleServerGatewayCommand(
+	env: Env,
+	interaction: { guild_id?: string; member?: { permissions?: string } },
+): Promise<Response> {
+	const adminError = requireGuildAdmin(interaction);
+	if (adminError) return adminError;
+
+	const status = await getDiscordGatewayStatus(env);
+	return interactionResponse(
+		status
+			? `🛰️ Gateway status\n• Ready: ${status.ready}\n• Last event: ${status.lastEventAt ?? '—'}`
+			: '❌ DISCORD_GATEWAY binding not configured.',
 		true,
 	);
 }
@@ -258,6 +734,24 @@ export async function handleDiscordInteraction(
 			}
 			if (sub?.name === 'status') {
 				return handleServerStatusCommand(env, interaction.guild_id);
+			}
+			if (sub?.name === 'test-invite') {
+				return handleServerTestInviteCommand(env, interaction as any, sub);
+			}
+			if (sub?.name === 'test-reset') {
+				return handleServerTestResetCommand(env, interaction as any, sub);
+			}
+			if (sub?.name === 'gateway') {
+				return handleServerGatewayCommand(env, interaction as any);
+			}
+			if (sub?.name === 'roles') {
+				return handleServerRolesCommand(env, interaction as any, sub);
+			}
+			if (sub?.name === 'bucket') {
+				return handleServerBucketCommand(env, interaction as any, sub);
+			}
+			if (sub?.name === 'rank-roles') {
+				return handleServerRankRolesCommand(env, interaction as any, sub);
 			}
 		}
 

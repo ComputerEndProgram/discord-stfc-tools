@@ -1,4 +1,11 @@
-import type { GuildConfig, GuildMemberRecord, StfcRegion, VerificationStatus, VerifiedPlayer } from './types';
+import type {
+	GuildConfig,
+	GuildMemberRecord,
+	OverlayBucket,
+	StfcRegion,
+	VerificationStatus,
+	VerifiedPlayer,
+} from './types';
 
 function parseJsonArray(value: string | null | undefined): string[] {
 	if (!value) return [];
@@ -20,20 +27,21 @@ function parseJsonObject(value: string | null | undefined): Record<string, strin
 	}
 }
 
-function parseOverlayBuckets(
-	value: string | null | undefined,
-): Record<string, { ranks: string[]; role_ids: string[] }> {
+function parseOverlayBuckets(value: string | null | undefined): Record<string, OverlayBucket> {
 	if (!value) return {};
 	try {
 		const parsed = JSON.parse(value) as unknown;
 		if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return {};
 
-		const result: Record<string, { ranks: string[]; role_ids: string[] }> = {};
+		const result: Record<string, OverlayBucket> = {};
 		for (const [bucketName, bucketValue] of Object.entries(parsed as Record<string, any>)) {
 			if (!bucketValue || typeof bucketValue !== 'object') continue;
 			const ranks = Array.isArray((bucketValue as any).ranks) ? (bucketValue as any).ranks.map(String).filter(Boolean) : [];
 			const role_ids = Array.isArray((bucketValue as any).role_ids) ? (bucketValue as any).role_ids.map(String).filter(Boolean) : [];
-			result[bucketName] = { ranks, role_ids };
+			const role_names = Array.isArray((bucketValue as any).role_names)
+				? (bucketValue as any).role_names.map(String)
+				: undefined;
+			result[bucketName] = { ranks, role_ids, ...(role_names ? { role_names } : {}) };
 		}
 		return result;
 	} catch {

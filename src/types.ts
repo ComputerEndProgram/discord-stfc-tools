@@ -27,6 +27,13 @@ export interface PlayerData {
 	region: string;
 }
 
+export interface OverlayBucket {
+	ranks: string[];
+	role_ids: string[];
+	/** Configured role names (parallel to role_ids) for rename detection. */
+	role_names?: string[];
+}
+
 export interface GuildConfig {
 	guild_id: string;
 	mode: GuildMode;
@@ -42,8 +49,7 @@ export interface GuildConfig {
 	admiral_role_ids: string[];
 	// Named buckets (e.g. "leadership") that add additional Discord roles
 	// for a configurable set of in-game ranks.
-	// Shape: { [bucketName]: { ranks: string[]; role_ids: string[] } }
-	overlay_buckets: Record<string, { ranks: string[]; role_ids: string[] }>;
+	overlay_buckets: Record<string, OverlayBucket>;
 	alliance_role_prefix: string | null;
 	channel_category_map: Record<string, string>;
 	personal_channel_extra_roles: string[];

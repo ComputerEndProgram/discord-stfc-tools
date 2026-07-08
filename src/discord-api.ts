@@ -93,6 +93,27 @@ export async function listGuildRoles(
 	return (await response.json()) as DiscordRole[];
 }
 
+export async function createGuildRole(
+	token: string,
+	guildId: string,
+	name: string,
+): Promise<DiscordRole> {
+	// Minimal role creation: no special permissions by default.
+	// Admins can always edit role permissions afterwards.
+	const response = await discordFetch(token, `/guilds/${guildId}/roles`, {
+		method: 'POST',
+		body: JSON.stringify({
+			name,
+			permissions: '0',
+			color: 0,
+			hoist: false,
+			mentionable: false,
+		}),
+	});
+
+	return (await response.json()) as DiscordRole;
+}
+
 export async function sendChannelMessage(
 	token: string,
 	channelId: string,
