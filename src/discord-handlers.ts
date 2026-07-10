@@ -14,6 +14,7 @@ import {
 	markMemberInvited,
 	resetVerification,
 	upsertVerifiedPlayer,
+	findVerifiedPlayersForLink,
 } from './guild-db';
 import { findPlayerByIdOrName, formatPlayerSummary } from './stfc-utils';
 import { inviteNewMember, processVerification } from './verification';
@@ -29,6 +30,7 @@ import type { GuildMode, StfcRegion, GuildConfig } from './types';
 import { parseCategoryMapInput, formatCategoryMap, personalChannelsEnabled } from './channel-utils';
 import { linkExistingPersonalChannel } from './personal-channels';
 import { defaultNicknameTemplate } from './nickname-utils';
+import { createVerificationLogChannel } from './verification-log';
 
 function getOptionValue(options: Array<{ name: string; value?: unknown }> | undefined, name: string): unknown {
 	return options?.find((opt) => opt.name === name)?.value;
@@ -476,6 +478,7 @@ async function handleServerStatusCommand(env: Env, guildId: string | undefined):
 			`• Alliance tag: ${config.alliance_tag ?? '—'}\n` +
 			`• Nickname template: \`${config.nickname_template?.trim() || defaultNicknameTemplate(config.mode)}\`` +
 			`${config.nickname_template?.trim() ? '' : ' (default)'}\n` +
+			`• Verification log: ${config.verification_log_channel_id ? `<#${config.verification_log_channel_id}>` : 'not set'}\n` +
 			`• Verification: ${config.verification_enabled ? 'enabled' : 'disabled'}\n` +
 			`• Poll interval: ${config.poll_interval_hours}h\n` +
 			`• Member roles: ${config.member_role_ids.join(', ') || 'none'}\n` +
@@ -737,8 +740,79 @@ async function handleServerChannelsCommand(
 				`• Enabled: ${personalChannelsEnabled(config) ? 'yes' : 'no (set category map)'}\n` +
 				`• Category map: ${formatCategoryMap(config.channel_category_map)}\n` +
 				`• Extra roles: ${config.personal_channel_extra_roles.join(', ') || 'none'}\n` +
+				`• Verification log: ${config.verification_log_channel_id ? `<#${config.verification_log_channel_id}>` : 'not set'}\n` +
 				`• Linked member channels: ${players?.count ?? 0}\n\n` +
-				`Buckets use the member's first letter (e.g. A-F, G-M). Run \`/server categories\` for IDs.`,
+				`Buckets use the member's first letter (e.g. A-F, G-M). Run \`/server categories\` for IDs.\n` +
+				`Set log with \`/server channels log\`.`,
+			true,
+		);
+	}
+
+	if (sub.name === 'log') {
+		const clearRaw = getOptionValue(sub.options, 'clear');
+		const clear = clearRaw === true || clearRaw === 'true';
+		const createRaw = getOptionValue(sub.options, 'create');
+		const create = createRaw === true || createRaw === 'true';
+		const channelOpt = getOptionValue(sub.options, 'channel');
+		const nameOpt = (getOptionValue(sub.options, 'name') as string | undefined)?.trim();
+
+		if (clear) {
+			await upsertGuildConfig(env.STFC_DB, {
+				guild_id: guildId,
+				verification_log_channel_id: null,
+			});
+			return interactionResponse('✅ Verification log channel cleared.', true);
+		}
+
+		if (!env.DISCORD_BOT_TOKEN) {
+			return interactionResponse('❌ DISCORD_BOT_TOKEN not configured.', true);
+		}
+
+		if (create) {
+			try {
+				const channelId = await createVerificationLogChannel(
+					env.DISCORD_BOT_TOKEN,
+					guildId,
+					config,
+					nameOpt || 'verification-log',
+				);
+				await upsertGuildConfig(env.STFC_DB, {
+					guild_id: guildId,
+					verification_log_channel_id: channelId,
+				});
+				const viewerNote = config.personal_channel_extra_roles.length
+					? `Viewer roles (from channel extra-roles): ${config.personal_channel_extra_roles.map((id) => `<@&${id}>`).join(', ')}`
+					: 'No extra viewer roles yet — set `/server channels extra-roles` then recreate, or edit channel permissions manually.';
+				return interactionResponse(
+					`✅ Created private verification log <#${channelId}>.\n` +
+						`• @everyone cannot view\n` +
+						`• ${viewerNote}\n\n` +
+						`Successful verifications will post a summary + screenshot here.`,
+					true,
+				);
+			} catch (error) {
+				return interactionResponse(
+					`❌ Failed to create log channel: ${error instanceof Error ? error.message : 'unknown error'}`,
+					true,
+				);
+			}
+		}
+
+		const channelId = channelOpt != null ? String(channelOpt) : '';
+		if (!/^\d{15,20}$/.test(channelId)) {
+			return interactionResponse(
+				'❌ Provide `channel:` (existing), `create:true`, or `clear:true`.',
+				true,
+			);
+		}
+
+		await upsertGuildConfig(env.STFC_DB, {
+			guild_id: guildId,
+			verification_log_channel_id: channelId,
+		});
+		return interactionResponse(
+			`✅ Verification log channel set to <#${channelId}>.\n` +
+				`Make sure the bot can **View Channel**, **Send Messages**, and **Attach Files** there.`,
 			true,
 		);
 	}
@@ -819,19 +893,64 @@ async function handleServerChannelsCommand(
 	if (sub.name === 'link') {
 		if (!env.DISCORD_BOT_TOKEN) return interactionResponse('❌ DISCORD_BOT_TOKEN not configured.', true);
 
-		const userId = resolveTargetUserId(interaction as any, sub.options);
 		const channelId = getOptionValue(sub.options, 'channel') as string | undefined;
-		if (!userId) return interactionResponse('❌ Could not resolve user.', true);
 		if (!channelId || !/^\d{15,20}$/.test(channelId)) {
-			return interactionResponse('❌ Provide a valid text channel.', true);
+			return interactionResponse('❌ Provide a valid text `channel:`.', true);
+		}
+
+		const playerQuery = (getOptionValue(sub.options, 'player') as string | undefined)?.trim();
+		const userOpt = getOptionValue(sub.options, 'user');
+		const applyPermsRaw = getOptionValue(sub.options, 'apply_permissions');
+		const applyPermissions =
+			applyPermsRaw === undefined || applyPermsRaw === null
+				? true
+				: applyPermsRaw === true || applyPermsRaw === 'true';
+
+		let discordUserId: string | undefined;
+		let matchLabel = '';
+
+		if (playerQuery) {
+			const matches = await findVerifiedPlayersForLink(env.STFC_DB, guildId, playerQuery);
+			if (matches.length === 0) {
+				return interactionResponse(
+					`❌ No verified player matching \`${playerQuery}\`. Use in-game name, STFC player ID, or Discord user ID — or pass \`user:@Member\`.`,
+					true,
+				);
+			}
+			if (matches.length > 1) {
+				const list = matches
+					.slice(0, 8)
+					.map(
+						(m) =>
+							`• ${m.player_name ?? '—'} (ID ${m.player_id ?? '—'}) → <@${m.discord_user_id}>`,
+					)
+					.join('\n');
+				return interactionResponse(
+					`❌ Multiple matches for \`${playerQuery}\`. Be more specific or use \`user:@Member\`:\n${list}`,
+					true,
+				);
+			}
+			discordUserId = matches[0].discord_user_id;
+			matchLabel = matches[0].player_name
+				? `**${matches[0].player_name}** (<@${discordUserId}>)`
+				: `<@${discordUserId}>`;
+		} else if (userOpt != null) {
+			discordUserId = String(userOpt);
+			matchLabel = `<@${discordUserId}>`;
+		} else {
+			return interactionResponse(
+				'❌ Provide `player:` (in-game name or STFC ID) and/or `user:@Member`, plus `channel:`.',
+				true,
+			);
 		}
 
 		const result = await linkExistingPersonalChannel(
 			env.DISCORD_BOT_TOKEN,
 			config,
 			guildId,
-			userId,
+			discordUserId,
 			channelId,
+			{ applyPermissions },
 		);
 		if (!result.ok) {
 			return interactionResponse(`❌ Failed to link channel: ${result.error}`, true);
@@ -839,12 +958,15 @@ async function handleServerChannelsCommand(
 
 		await upsertVerifiedPlayer(env.STFC_DB, {
 			guild_id: guildId,
-			discord_user_id: userId,
+			discord_user_id: discordUserId,
 			personal_channel_id: channelId,
 		});
 
 		return interactionResponse(
-			`✅ Linked <#${channelId}> to <@${userId}> and applied channel permissions.`,
+			`✅ Linked <#${channelId}> to ${matchLabel}.` +
+				(applyPermissions
+					? ' Applied bot channel permissions (member + extra-roles).'
+					: ' Left existing channel permissions unchanged.'),
 			true,
 		);
 	}

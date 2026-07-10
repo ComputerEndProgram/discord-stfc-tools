@@ -17,6 +17,7 @@ import { buildMemberNickname, normalizeAllianceRank } from './nickname-utils';
 import { parseStfcProUrl, resolveSearchTerm } from './stfc-url';
 import { findPlayerByIdOrName, formatPlayerSummary } from './stfc-utils';
 import { ensurePersonalChannel } from './personal-channels';
+import { postVerificationLog } from './verification-log';
 import type { GuildConfig, PlayerData } from './types';
 
 export const VERIFICATION_INVITE_MESSAGE = `Welcome! Please verify your STFC account to access member channels.
@@ -212,18 +213,20 @@ export async function processVerification(
 		return '❌ This server is not configured yet. An admin must run `/server setup` first.';
 	}
 
+	let archivedR2Key: string | undefined;
 	if (screenshotUrl) {
-		let r2Key: string | undefined;
 		if (env.VERIFICATION_ASSETS) {
-			r2Key = `verifications/${guildId}/${discordUserId}/${Date.now()}.png`;
+			archivedR2Key = `verifications/${guildId}/${discordUserId}/${Date.now()}.png`;
 			const imageResponse = await fetch(screenshotUrl);
 			if (imageResponse.ok) {
-				await env.VERIFICATION_ASSETS.put(r2Key, await imageResponse.arrayBuffer(), {
+				await env.VERIFICATION_ASSETS.put(archivedR2Key, await imageResponse.arrayBuffer(), {
 					httpMetadata: { contentType: imageResponse.headers.get('content-type') ?? 'image/png' },
 				});
+			} else {
+				archivedR2Key = undefined;
 			}
 		}
-		await recordScreenshot(env.STFC_DB, guildId, discordUserId, screenshotUrl, r2Key);
+		await recordScreenshot(env.STFC_DB, guildId, discordUserId, screenshotUrl, archivedR2Key);
 	}
 
 	const { player, error } = await lookupPlayerFromUrl(stfcProUrl, config);
@@ -271,20 +274,31 @@ export async function processVerification(
 	const token = env.DISCORD_BOT_TOKEN;
 	const notes: string[] = [];
 
+	const postLog = async (status: 'active' | 'guest', logNotes: string[]) => {
+		await postVerificationLog(env, config, {
+			guildId,
+			discordUserId,
+			player,
+			stfcProUrl,
+			status,
+			screenshotUrl,
+			r2Key: archivedR2Key,
+			notes: logNotes,
+		});
+	};
+
 	try {
 		if (tagMatches) {
 			await applyMemberRoles(token, config, guildId, discordUserId, player.rank);
-			notes.push('• Roles: updated');
+			notes.push('Roles updated');
 
 			const nick = nicknameForPlayer(config, player);
 			try {
 				await setGuildMemberNickname(token, guildId, discordUserId, nick);
-				notes.push(`• Nickname: \`${nick}\``);
+				notes.push(`Nick: ${nick}`);
 			} catch (nickErr) {
 				console.error('Nickname update failed:', nickErr);
-				notes.push(
-					`• Nickname: failed — ${formatDiscordApiFailure(nickErr)}${nicknamePermissionHint(nickErr)}`,
-				);
+				notes.push('Nick failed (hierarchy/owner?)');
 			}
 
 			const channelId = await applyPersonalChannelForMember(
@@ -302,20 +316,26 @@ export async function processVerification(
 					personal_channel_id: channelId,
 					verification_status: 'active',
 				});
-				notes.push(`• Personal channel: <#${channelId}>`);
+				notes.push(`Channel <#${channelId}>`);
 			}
+
+			await postLog('active', notes);
 
 			return (
 				`✅ Verified and activated **${player.name}** (${player.allianceTag}, Ops ${player.level}).\n` +
-				`${notes.join('\n')}\n\n${formatPlayerSummary(player)}`
+				notes.map((n) => `• ${n}`).join('\n') +
+				`\n\n${formatPlayerSummary(player)}`
 			);
 		}
 
 		await applyGuestRole(token, config, guildId, discordUserId);
+		notes.push('Guest role assigned');
+		await postLog('guest', notes);
 		const expected = config.alliance_tag ?? 'the configured alliance';
 		return `⏳ Verified **${player.name}** but alliance **${player.allianceTag}** does not match **${expected}** — guest role assigned. We'll re-check every ${config.poll_interval_hours}h.\n\n${formatPlayerSummary(player)}`;
 	} catch (err) {
 		console.error('Discord role update failed:', err);
+		await postLog(tagMatches ? 'active' : 'guest', ['Discord role update failed']);
 		return (
 			`✅ Verified on stfc.pro but failed to update Discord roles: ${formatDiscordApiFailure(err)}` +
 			`${nicknamePermissionHint(err)}\n\n${formatPlayerSummary(player)}`

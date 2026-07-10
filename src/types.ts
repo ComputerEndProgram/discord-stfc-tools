@@ -53,6 +53,8 @@ export interface GuildConfig {
 	alliance_role_prefix: string | null;
 	/** Discord nick pattern; null = mode default. See nickname-utils.ts placeholders. */
 	nickname_template: string | null;
+	/** Channel for admin verification audit posts (summary + screenshot). */
+	verification_log_channel_id: string | null;
 	channel_category_map: Record<string, string>;
 	personal_channel_extra_roles: string[];
 	poll_interval_hours: number;

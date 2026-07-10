@@ -16,13 +16,16 @@ async function discordFetch(
 	path: string,
 	init: RequestInit = {},
 ): Promise<Response> {
+	const headers = new Headers(init.headers);
+	headers.set('Authorization', `Bot ${token}`);
+	// Let the runtime set multipart boundary when body is FormData.
+	if (!(init.body instanceof FormData) && !headers.has('Content-Type')) {
+		headers.set('Content-Type', 'application/json');
+	}
+
 	const response = await fetch(`${DISCORD_API}${path}`, {
 		...init,
-		headers: {
-			Authorization: `Bot ${token}`,
-			'Content-Type': 'application/json',
-			...init.headers,
-		},
+		headers,
 	});
 
 	if (!response.ok) {
@@ -158,6 +161,63 @@ export async function sendChannelMessage(
 	});
 }
 
+export interface DiscordEmbed {
+	title?: string;
+	description?: string;
+	color?: number;
+	fields?: Array<{ name: string; value: string; inline?: boolean }>;
+	footer?: { text: string };
+	timestamp?: string;
+	image?: { url: string };
+}
+
+export async function sendChannelMessageWithEmbed(
+	token: string,
+	channelId: string,
+	opts: {
+		content?: string;
+		embeds?: DiscordEmbed[];
+		file?: { bytes: ArrayBuffer | Uint8Array; filename: string; contentType?: string };
+	},
+): Promise<{ id: string }> {
+	if (opts.file) {
+		const form = new FormData();
+		const payload: Record<string, unknown> = {};
+		if (opts.content) payload.content = opts.content;
+		if (opts.embeds?.length) {
+			payload.embeds = opts.embeds.map((e) => ({
+				...e,
+				image: e.image ?? { url: `attachment://${opts.file!.filename}` },
+			}));
+		}
+		form.append('payload_json', JSON.stringify(payload));
+		const blob = new Blob([opts.file.bytes], {
+			type: opts.file.contentType ?? 'image/png',
+		});
+		form.append('files[0]', blob, opts.file.filename);
+		const response = await discordFetch(token, `/channels/${channelId}/messages`, {
+			method: 'POST',
+			body: form,
+		});
+		return response.json() as Promise<{ id: string }>;
+	}
+
+	const response = await discordFetch(token, `/channels/${channelId}/messages`, {
+		method: 'POST',
+		body: JSON.stringify({
+			content: opts.content,
+			embeds: opts.embeds,
+		}),
+	});
+	return response.json() as Promise<{ id: string }>;
+}
+
+export async function getBotUserId(token: string): Promise<string> {
+	const response = await discordFetch(token, '/users/@me');
+	const user = (await response.json()) as { id: string };
+	return user.id;
+}
+
 export async function sendDirectMessage(
 	token: string,
 	userId: string,
@@ -210,17 +270,37 @@ export async function setGuildMemberNickname(
 	});
 }
 
+export type ChannelPermissionOverwrite = {
+	id: string;
+	type: 0 | 1;
+	allow: string;
+	deny: string;
+};
+
 export async function createGuildTextChannel(
 	token: string,
 	guildId: string,
 	name: string,
-	parentId?: string,
+	parentIdOrOpts?: string | {
+		parentId?: string;
+		topic?: string;
+		permissionOverwrites?: ChannelPermissionOverwrite[];
+	},
 ): Promise<{ id: string }> {
+	const opts =
+		typeof parentIdOrOpts === 'string'
+			? { parentId: parentIdOrOpts }
+			: parentIdOrOpts ?? {};
+
 	const body: Record<string, unknown> = {
 		name,
 		type: 0,
 	};
-	if (parentId) body.parent_id = parentId;
+	if (opts.parentId) body.parent_id = opts.parentId;
+	if (opts.topic) body.topic = opts.topic;
+	if (opts.permissionOverwrites?.length) {
+		body.permission_overwrites = opts.permissionOverwrites;
+	}
 
 	const response = await discordFetch(token, `/guilds/${guildId}/channels`, {
 		method: 'POST',

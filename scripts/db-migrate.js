@@ -111,6 +111,8 @@ function syncAppliedFromSchema(migrationIds, applied) {
 		'002_guild_rank_roles.sql': () => columnExists('guild_configs', 'operative_role_ids'),
 		'003_guild_overlay_buckets.sql': () => columnExists('guild_configs', 'overlay_buckets'),
 		'004_nickname_template.sql': () => columnExists('guild_configs', 'nickname_template'),
+		'005_verification_log_channel.sql': () =>
+			columnExists('guild_configs', 'verification_log_channel_id'),
 	};
 
 	for (const id of migrationIds) {

@@ -67,6 +67,7 @@ function mapGuildConfig(row: any): GuildConfig {
 		overlay_buckets: parseOverlayBuckets(row.overlay_buckets),
 		alliance_role_prefix: row.alliance_role_prefix ?? null,
 		nickname_template: row.nickname_template ?? null,
+		verification_log_channel_id: row.verification_log_channel_id ?? null,
 		channel_category_map: parseJsonObject(row.channel_category_map),
 		personal_channel_extra_roles: parseJsonArray(row.personal_channel_extra_roles),
 		poll_interval_hours: row.poll_interval_hours ?? 6,
@@ -120,6 +121,10 @@ export async function upsertGuildConfig(
 	const nicknameTemplateValue = nicknameTemplateProvided
 		? (config.nickname_template?.trim() || null)
 		: null;
+	const logChannelProvided = Object.prototype.hasOwnProperty.call(config, 'verification_log_channel_id');
+	const logChannelValue = logChannelProvided
+		? (config.verification_log_channel_id?.trim() || null)
+		: null;
 
 	if (!existing) {
 		await db
@@ -127,8 +132,9 @@ export async function upsertGuildConfig(
 				`INSERT INTO guild_configs
 				(guild_id, mode, stfc_server, stfc_region, alliance_tag, guest_role_id,
 				 member_role_ids, operative_role_ids, agent_role_ids, premier_role_ids, commodore_role_ids, admiral_role_ids,
-				 overlay_buckets, nickname_template, channel_category_map, personal_channel_extra_roles, verification_enabled, updated_at)
-				VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+				 overlay_buckets, nickname_template, verification_log_channel_id,
+				 channel_category_map, personal_channel_extra_roles, verification_enabled, updated_at)
+				VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 			)
 			.bind(
 				config.guild_id,
@@ -145,6 +151,7 @@ export async function upsertGuildConfig(
 				JSON.stringify(config.admiral_role_ids ?? []),
 				JSON.stringify(config.overlay_buckets ?? {}),
 				nicknameTemplateProvided ? nicknameTemplateValue : null,
+				logChannelProvided ? logChannelValue : null,
 				JSON.stringify(config.channel_category_map ?? {}),
 				JSON.stringify(config.personal_channel_extra_roles ?? []),
 				config.verification_enabled !== false ? 1 : 0,
@@ -170,6 +177,7 @@ export async function upsertGuildConfig(
 			 admiral_role_ids = COALESCE(?, admiral_role_ids),
 			 overlay_buckets = COALESCE(?, overlay_buckets),
 			 nickname_template = CASE WHEN ? = 1 THEN ? ELSE nickname_template END,
+			 verification_log_channel_id = CASE WHEN ? = 1 THEN ? ELSE verification_log_channel_id END,
 			 channel_category_map = COALESCE(?, channel_category_map),
 			 personal_channel_extra_roles = COALESCE(?, personal_channel_extra_roles),
 			 verification_enabled = COALESCE(?, verification_enabled),
@@ -191,6 +199,8 @@ export async function upsertGuildConfig(
 			config.overlay_buckets ? JSON.stringify(config.overlay_buckets) : null,
 			nicknameTemplateProvided ? 1 : 0,
 			nicknameTemplateValue,
+			logChannelProvided ? 1 : 0,
+			logChannelValue,
 			config.channel_category_map ? JSON.stringify(config.channel_category_map) : null,
 			config.personal_channel_extra_roles ? JSON.stringify(config.personal_channel_extra_roles) : null,
 			config.verification_enabled !== undefined ? (config.verification_enabled ? 1 : 0) : null,
@@ -383,6 +393,44 @@ export async function listActiveVerifiedPlayers(db: D1Database, guildId: string)
 			 WHERE guild_id = ? AND verification_status IN ('verified', 'active', 'guest')`,
 		)
 		.bind(guildId)
+		.all();
+	return (results ?? []).map(mapVerifiedPlayer);
+}
+
+/**
+ * Resolve a verified player for channel linking by Discord user ID, STFC player ID,
+ * or in-game player name (exact, case-insensitive).
+ */
+export async function findVerifiedPlayersForLink(
+	db: D1Database,
+	guildId: string,
+	query: string,
+): Promise<VerifiedPlayer[]> {
+	const q = query.trim();
+	if (!q) return [];
+
+	if (/^\d{15,20}$/.test(q)) {
+		const byDiscord = await getVerifiedPlayer(db, guildId, q);
+		return byDiscord ? [byDiscord] : [];
+	}
+
+	if (/^\d+$/.test(q)) {
+		const { results } = await db
+			.prepare(
+				`SELECT * FROM verified_players
+				 WHERE guild_id = ? AND player_id = ?`,
+			)
+			.bind(guildId, Number(q))
+			.all();
+		return (results ?? []).map(mapVerifiedPlayer);
+	}
+
+	const { results } = await db
+		.prepare(
+			`SELECT * FROM verified_players
+			 WHERE guild_id = ? AND LOWER(player_name) = LOWER(?)`,
+		)
+		.bind(guildId, q)
 		.all();
 	return (results ?? []).map(mapVerifiedPlayer);
 }

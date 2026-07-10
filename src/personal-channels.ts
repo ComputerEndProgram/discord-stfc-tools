@@ -8,9 +8,7 @@ import { categoryForPlayerName, personalChannelsEnabled, slugPersonalChannelName
 import type { GuildConfig } from './types';
 
 const VIEW_CHANNEL = '1024';
-const SEND_MESSAGES = '2048';
-const READ_HISTORY = '65536';
-const MEMBER_PERMS = VIEW_CHANNEL | SEND_MESSAGES | READ_HISTORY;
+const MEMBER_PERMS = String(0x400 | 0x800 | 0x10000); // view + send + read history
 
 export type PersonalChannelResult =
 	| { ok: true; channelId: string; created: boolean; moved: boolean; renamed: boolean }
@@ -81,13 +79,14 @@ export async function ensurePersonalChannel(
 	}
 }
 
-/** Link an existing guild text channel to a member and apply permissions. */
+/** Link an existing guild text channel to a member (optional permission rewrite). */
 export async function linkExistingPersonalChannel(
 	token: string,
 	config: GuildConfig,
 	guildId: string,
 	userId: string,
 	channelId: string,
+	opts?: { applyPermissions?: boolean },
 ): Promise<PersonalChannelResult> {
 	const channel = await getGuildChannel(token, channelId);
 	if (!channel || channel.type !== 0) {
@@ -95,7 +94,9 @@ export async function linkExistingPersonalChannel(
 	}
 
 	try {
-		await applyPersonalChannelPermissions(token, guildId, channelId, userId, config);
+		if (opts?.applyPermissions !== false) {
+			await applyPersonalChannelPermissions(token, guildId, channelId, userId, config);
+		}
 		return { ok: true, channelId, created: false, moved: false, renamed: false };
 	} catch (error) {
 		const message = error instanceof Error ? error.message : 'unknown error';

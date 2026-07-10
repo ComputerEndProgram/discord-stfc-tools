@@ -2,7 +2,8 @@
 
 How to deploy **discord-stfc-tools** — a Cloudflare Worker Discord bot for STFC alliance verification, coordinate lookup, and tables.
 
-For architecture and development context, see [AGENTS.md](./AGENTS.md).
+- **Discord admins (configure the bot in-server):** see **[docs/ADMIN_GUIDE.md](./docs/ADMIN_GUIDE.md)** — nicknames, roles, personal channels, verification log, linking existing channels.
+- **Architecture / development:** see [AGENTS.md](./AGENTS.md).
 
 ---
 
@@ -168,7 +169,9 @@ This uses `PUT` to replace all global commands (removes any stale commands like 
 
 ### Step 11: Configure your Discord server
 
-In Discord, as an administrator:
+In Discord, as an administrator, run `/server setup` then follow the full admin checklist in **[docs/ADMIN_GUIDE.md](./docs/ADMIN_GUIDE.md)** (nicknames, rank roles, personal channels, verification log, linking existing member channels).
+
+Minimal example:
 
 ```
 /server setup server:42 mode:single_alliance region:US alliance_tag:YOURTAG guest_role:123456789 member_roles:111,222
@@ -182,13 +185,24 @@ In Discord, as an administrator:
 | `alliance_tag` | Required for single-alliance mode |
 | `guest_role` | Role ID for unverified / wrong-alliance members |
 | `member_roles` | Comma-separated role IDs granted on verification |
+| `nickname_template` | Optional nick pattern (see admin guide) |
+| `operative_roles` … `admiral_roles` | Optional rank roles |
+
+Typical follow-ups:
+
+```
+/server channels extra-roles roles:@Officer
+/server channels map category_map:A-F=…,G-M=…
+/server channels log create:true
+/server channels link channel:#existing-member player:PlayerName apply_permissions:false
+/server status
+```
 
 Check configuration:
 
 ```
 /server status
 ```
-
 ### Step 12: Verify it works
 
 1. **Gateway:** `curl https://your-worker.workers.dev/gateway/status` — should show connection state after a minute.

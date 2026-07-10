@@ -8,6 +8,8 @@ Cloudflare Worker Discord bot for **Star Trek Fleet Command (STFC)**:
 
 **Setup:** see **[SETUP.md](./SETUP.md)** for fresh install and migration from older versions.
 
+**Discord admins:** see **[docs/ADMIN_GUIDE.md](./docs/ADMIN_GUIDE.md)** for in-server configuration (roles, nicknames, channels, verification log).
+
 **Development context:** see [AGENTS.md](./AGENTS.md).
 
 ## Commands
@@ -20,6 +22,7 @@ Cloudflare Worker Discord bot for **Star Trek Fleet Command (STFC)**:
 | `/verify` | Verify STFC account with stfc.pro link |
 | `/server setup` | Configure guild (admin) |
 | `/server status` | Show guild configuration |
+| `/server channels …` | Personal channels, link existing, verification log |
 
 ## Quick start
 

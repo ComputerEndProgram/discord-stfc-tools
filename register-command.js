@@ -336,19 +336,31 @@ const commands = [
 					{
 						type: 1,
 						name: 'link',
-						description: 'Link an existing channel to a verified member',
+						description: 'Link an existing member/diplomacy channel to a verified player',
 						options: [
-							{
-								type: 6,
-								name: 'user',
-								description: 'Member to link',
-								required: true,
-							},
 							{
 								type: 7,
 								name: 'channel',
-								description: 'Existing text channel',
+								description: 'Existing text channel to link',
 								required: true,
+							},
+							{
+								type: 3,
+								name: 'player',
+								description: 'In-game name, STFC player ID, or Discord user ID',
+								required: false,
+							},
+							{
+								type: 6,
+								name: 'user',
+								description: 'Discord member (alternative to player)',
+								required: false,
+							},
+							{
+								type: 5,
+								name: 'apply_permissions',
+								description: 'Rewrite channel perms for member+extra-roles (default true)',
+								required: false,
 							},
 						],
 					},
@@ -356,6 +368,37 @@ const commands = [
 						type: 1,
 						name: 'status',
 						description: 'Show personal channel configuration',
+					},
+					{
+						type: 1,
+						name: 'log',
+						description: 'Set or create the admin verification log channel',
+						options: [
+							{
+								type: 7,
+								name: 'channel',
+								description: 'Existing text channel for verification archives',
+								required: false,
+							},
+							{
+								type: 5,
+								name: 'create',
+								description: 'Create a private verification-log channel',
+								required: false,
+							},
+							{
+								type: 3,
+								name: 'name',
+								description: 'Name when create:true (default verification-log)',
+								required: false,
+							},
+							{
+								type: 5,
+								name: 'clear',
+								description: 'Disable verification log posting',
+								required: false,
+							},
+						],
 					},
 				],
 			},

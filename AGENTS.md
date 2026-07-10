@@ -570,6 +570,7 @@ Mock Discord REST and stfc.pro in Worker tests; use D1 local binding for integra
 | File | Status |
 |------|--------|
 | `SETUP.md` | **Fresh install and migration guide** |
+| `docs/ADMIN_GUIDE.md` | **Discord admin configuration** (roles, nicks, channels, log) |
 | `AGENTS.md` | Architecture, roadmap, coding guidelines |
 | `ENVIRONMENT_SETUP.md` | `.env` and `generate-config.js` overview |
 | `FACTION_MAPPING.md` | System faction IDs (for `/lookup`) |
