@@ -32,9 +32,11 @@ import {
 	applyGuestRole,
 	applyMemberRoles,
 	applyPersonalChannelForMember,
+	demotePlayerToGuest,
 	formatDiscordApiFailure,
 	formatRoleChangeNote,
 	nicknameForPlayer,
+	playerMatchesGuildAlliance,
 } from './verification-access';
 import type { GuildConfig, PlayerData } from './types';
 
@@ -177,9 +179,7 @@ export async function processVerification(
 
 	const grade = opsLevelToGrade(player.level);
 	const now = new Date().toISOString();
-	const tagMatches =
-		config.mode === 'multi_alliance' ||
-		(config.alliance_tag && player.allianceTag.toUpperCase() === config.alliance_tag.toUpperCase());
+	const tagMatches = playerMatchesGuildAlliance(config, player.allianceTag);
 
 	const status = tagMatches ? 'active' : 'guest';
 	await upsertVerifiedPlayer(env.STFC_DB, {
@@ -431,12 +431,7 @@ export async function inviteNewMember(
 			existing.verification_status === 'pending_link' ||
 			existing.verification_status === 'pending_invite');
 	if (clobbered && existing) {
-		const tagMatches =
-			!config ||
-			config.mode === 'multi_alliance' ||
-			(config.alliance_tag &&
-				existing.alliance_tag &&
-				existing.alliance_tag.toUpperCase() === config.alliance_tag.toUpperCase());
+		const tagMatches = !config || playerMatchesGuildAlliance(config, existing.alliance_tag);
 		await upsertVerifiedPlayer(env.STFC_DB, {
 			guild_id: guildId,
 			discord_user_id: userId,
@@ -525,24 +520,63 @@ export async function syncVerifiedPlayer(
 	guildId: string,
 	discordUserId: string,
 	player: PlayerData,
-): Promise<void> {
-	if (!env.DISCORD_BOT_TOKEN || !player.allianceTag) return;
+	opts?: { autoDemoteOnMismatch?: boolean },
+): Promise<{ outcome: 'synced' | 'demoted' | 'mismatch_deferred' }> {
+	if (!env.DISCORD_BOT_TOKEN) return { outcome: 'synced' };
 
 	const token = env.DISCORD_BOT_TOKEN;
 	const previous = await getVerifiedPlayer(env.STFC_DB, guildId, discordUserId);
-	const tagMatches =
-		config.mode === 'multi_alliance' ||
-		(config.alliance_tag && player.allianceTag.toUpperCase() === config.alliance_tag.toUpperCase());
+	const allianceTag = (player.allianceTag ?? '').trim();
+	const tagMatches = playerMatchesGuildAlliance(config, allianceTag);
+	const autoDemote = opts?.autoDemoteOnMismatch !== false;
 
 	const grade = opsLevelToGrade(player.level);
 	const now = new Date().toISOString();
 	const nextStatus = tagMatches ? 'active' : 'guest';
 
+	if (!tagMatches) {
+		if (!autoDemote) {
+			await upsertVerifiedPlayer(env.STFC_DB, {
+				guild_id: guildId,
+				discord_user_id: discordUserId,
+				player_name: player.name,
+				alliance_tag: allianceTag || null,
+				alliance_rank: player.rank || null,
+				ops_level: player.level,
+				power: player.power,
+				grade,
+				last_synced_at: now,
+			});
+			return { outcome: 'mismatch_deferred' };
+		}
+
+		const demote = await demotePlayerToGuest(env, config, guildId, discordUserId, {
+			reason: 'alliance_mismatch',
+			player,
+			source: 'cron',
+			skipAudit: true,
+		});
+		const changes: string[] = [...demote.notes];
+		if (previous?.verification_status && previous.verification_status !== 'guest') {
+			changes.unshift(`status ${previous.verification_status} → guest`);
+		}
+		if (changes.length > 0) {
+			await postAuditLog(env, config, {
+				title: 'Player sync update',
+				description: `<@${discordUserId}> **${player.name}**`,
+				source: 'cron',
+				color: AuditColor.warn,
+				fields: [{ name: 'Changes', value: changes.join('\n').slice(0, 1000), inline: false }],
+			});
+		}
+		return { outcome: 'demoted' };
+	}
+
 	await upsertVerifiedPlayer(env.STFC_DB, {
 		guild_id: guildId,
 		discord_user_id: discordUserId,
 		player_name: player.name,
-		alliance_tag: player.allianceTag,
+		alliance_tag: allianceTag || null,
 		alliance_rank: player.rank || null,
 		ops_level: player.level,
 		power: player.power,
@@ -555,70 +589,65 @@ export async function syncVerifiedPlayer(
 	if (previous?.verification_status && previous.verification_status !== nextStatus) {
 		changes.push(`status ${previous.verification_status} → ${nextStatus}`);
 	}
-	if (previous?.alliance_tag && previous.alliance_tag !== player.allianceTag) {
-		changes.push(`alliance ${previous.alliance_tag} → ${player.allianceTag}`);
+	if (previous?.alliance_tag && previous.alliance_tag !== allianceTag) {
+		changes.push(`alliance ${previous.alliance_tag} → ${allianceTag || '(none)'}`);
 	}
 	if (previous?.alliance_rank && player.rank && previous.alliance_rank !== player.rank) {
 		changes.push(`rank ${previous.alliance_rank} → ${player.rank}`);
 	}
 
-	if (tagMatches) {
-		const current = await getVerifiedPlayer(env.STFC_DB, guildId, discordUserId);
-		if (needsAgreementBeforeFullAccess(config, current)) {
-			const roleChanges = await applyGuestRole(token, config, guildId, discordUserId);
-			changes.push(formatRoleChangeNote(roleChanges));
-			if (changes.length > 0) {
-				changes.push('held at guest until agreement');
-			}
-		} else {
-			const roleChanges = await applyMemberRoles(token, config, guildId, discordUserId, player.rank);
-			const roleNote = formatRoleChangeNote(roleChanges);
-			if (roleChanges.added.length > 0 || roleChanges.removed.length > 0) {
-				changes.push(roleNote);
-			}
-			try {
-				await setGuildMemberNickname(token, guildId, discordUserId, nicknameForPlayer(config, player));
-			} catch (nickErr) {
-				console.error('Nickname sync failed:', nickErr);
-			}
-
-			if (previous?.player_name && previous.player_name !== player.name) {
-				changes.push(`name ${previous.player_name} → ${player.name}`);
-			}
-
-			const existing = await getVerifiedPlayer(env.STFC_DB, guildId, discordUserId);
-			const channelResult = await applyPersonalChannelForMember(
-				token,
-				config,
-				guildId,
-				discordUserId,
-				player.name,
-				existing?.personal_channel_id,
-			);
-			if (channelResult) {
-				await upsertVerifiedPlayer(env.STFC_DB, {
-					guild_id: guildId,
-					discord_user_id: discordUserId,
-					personal_channel_id: channelResult.channelId,
-				});
-				if (channelResult.created || !previous?.personal_channel_id) {
-					changes.push(`channel <#${channelResult.channelId}>`);
-				} else {
-					if (channelResult.renamed) {
-						changes.push(`channel renamed <#${channelResult.channelId}>`);
-					}
-					if (channelResult.moved) {
-						changes.push(`channel moved <#${channelResult.channelId}>`);
-					}
-				}
-			}
-
-			await applyDiplomacyForAlliance(env, token, config, guildId, player.allianceTag);
+	const current = await getVerifiedPlayer(env.STFC_DB, guildId, discordUserId);
+	if (needsAgreementBeforeFullAccess(config, current)) {
+		const roleChanges = await applyGuestRole(token, config, guildId, discordUserId);
+		changes.push(formatRoleChangeNote(roleChanges));
+		if (changes.length > 0) {
+			changes.push('held at guest until agreement');
 		}
 	} else {
-		const roleChanges = await applyGuestRole(token, config, guildId, discordUserId);
+		const roleChanges = await applyMemberRoles(token, config, guildId, discordUserId, player.rank);
+		const roleNote = formatRoleChangeNote(roleChanges);
 		if (roleChanges.added.length > 0 || roleChanges.removed.length > 0) {
-			changes.push(formatRoleChangeNote(roleChanges));
+			changes.push(roleNote);
+		}
+		try {
+			await setGuildMemberNickname(token, guildId, discordUserId, nicknameForPlayer(config, player));
+		} catch (nickErr) {
+			console.error('Nickname sync failed:', nickErr);
+		}
+
+		if (previous?.player_name && previous.player_name !== player.name) {
+			changes.push(`name ${previous.player_name} → ${player.name}`);
+		}
+
+		const existing = await getVerifiedPlayer(env.STFC_DB, guildId, discordUserId);
+		const channelResult = await applyPersonalChannelForMember(
+			token,
+			config,
+			guildId,
+			discordUserId,
+			player.name,
+			existing?.personal_channel_id,
+		);
+		if (channelResult) {
+			await upsertVerifiedPlayer(env.STFC_DB, {
+				guild_id: guildId,
+				discord_user_id: discordUserId,
+				personal_channel_id: channelResult.channelId,
+			});
+			if (channelResult.created || !previous?.personal_channel_id) {
+				changes.push(`channel <#${channelResult.channelId}>`);
+			} else {
+				if (channelResult.renamed) {
+					changes.push(`channel renamed <#${channelResult.channelId}>`);
+				}
+				if (channelResult.moved) {
+					changes.push(`channel moved <#${channelResult.channelId}>`);
+				}
+			}
+		}
+
+		if (allianceTag) {
+			await applyDiplomacyForAlliance(env, token, config, guildId, allianceTag);
 		}
 	}
 
@@ -633,4 +662,5 @@ export async function syncVerifiedPlayer(
 			fields: [{ name: 'Changes', value: changes.join('\n'), inline: false }],
 		});
 	}
+	return { outcome: 'synced' };
 }

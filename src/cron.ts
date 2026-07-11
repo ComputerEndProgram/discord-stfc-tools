@@ -1,6 +1,17 @@
-import { listConfiguredGuilds, listActiveVerifiedPlayers, recordPlayerStats } from './guild-db';
-import { findPlayerByIdOrName } from './stfc-utils';
+import {
+	listConfiguredGuilds,
+	listActiveVerifiedPlayers,
+	recordPlayerStats,
+	cancelDemotionQueueEntry,
+} from './guild-db';
+import { lookupPlayerByIdOrName } from './stfc-utils';
 import { syncVerifiedPlayer } from './verification';
+import { playerMatchesGuildAlliance } from './verification-access';
+import {
+	handleAutomatedDemotionCandidate,
+	postDemotionApprovalDigest,
+	runDemotionRecheck,
+} from './demotion-policy';
 import { syncGuildMembers } from './member-sync';
 import { wakeDiscordGateway } from './discord-gateway/wake';
 import { AuditColor, postAuditLog } from './audit-log';
@@ -8,7 +19,6 @@ import { AuditColor, postAuditLog } from './audit-log';
 export async function runMemberPoll(env: Env): Promise<void> {
 	console.log('Cron: member poll starting');
 	await wakeDiscordGateway(env);
-	// REST poll remains as fallback when Gateway is disconnected
 	await syncGuildMembers(env);
 	try {
 		const { cleanupStaleDmSessions } = await import('./guild-db');
@@ -35,12 +45,27 @@ export async function runPendingVerificationPoll(env: Env): Promise<void> {
 			if (record.verification_status !== 'guest' || !record.player_id) continue;
 
 			try {
-				const player = await findPlayerByIdOrName(record.player_id, config.stfc_server, config.stfc_region);
-				if (!player) continue;
+				const lookup = await lookupPlayerByIdOrName(
+					record.player_id,
+					config.stfc_server,
+					config.stfc_region,
+				);
+				if (lookup.status !== 'ok') continue;
 
-				const matches = player.allianceTag.toUpperCase() === config.alliance_tag!.toUpperCase();
-				if (matches) {
-					await syncVerifiedPlayer(env, config, config.guild_id, record.discord_user_id, player);
+				if (playerMatchesGuildAlliance(config, lookup.player.allianceTag)) {
+					await syncVerifiedPlayer(
+						env,
+						config,
+						config.guild_id,
+						record.discord_user_id,
+						lookup.player,
+						{ autoDemoteOnMismatch: false },
+					);
+					await cancelDemotionQueueEntry(
+						env.STFC_DB,
+						config.guild_id,
+						record.discord_user_id,
+					);
 					promoted++;
 					console.log(`Guest ${record.discord_user_id} now matches alliance ${config.alliance_tag}`);
 				}
@@ -71,20 +96,82 @@ export async function runDailyPlayerSync(env: Env): Promise<void> {
 		const players = await listActiveVerifiedPlayers(env.STFC_DB, config.guild_id);
 		let synced = 0;
 		let failed = 0;
+		let demoted = 0;
+		let queued = 0;
+		let unavailable = 0;
+		let missing = 0;
 		let tagChanges = 0;
 
 		for (const record of players) {
 			if (!record.player_id) continue;
 
 			try {
-				const player = await findPlayerByIdOrName(record.player_id, config.stfc_server, config.stfc_region);
-				if (!player) continue;
+				const lookup = await lookupPlayerByIdOrName(
+					record.player_id,
+					config.stfc_server,
+					config.stfc_region,
+				);
 
+				if (lookup.status === 'error') {
+					unavailable++;
+					continue;
+				}
+
+				if (lookup.status === 'not_found') {
+					missing++;
+					if (config.mode === 'single_alliance') {
+						const result = await handleAutomatedDemotionCandidate(
+							env,
+							config,
+							record,
+							'player_missing',
+							null,
+						);
+						if (result === 'demoted') demoted++;
+						else if (result === 'queued') queued++;
+					}
+					continue;
+				}
+
+				const player = lookup.player;
 				const prevTag = record.alliance_tag;
 				const tagChanged = prevTag && player.allianceTag && prevTag !== player.allianceTag;
+				const matches = playerMatchesGuildAlliance(config, player.allianceTag);
 
-				await syncVerifiedPlayer(env, config, config.guild_id, record.discord_user_id, player);
-				await recordPlayerStats(env.STFC_DB, record.id, player.level, player.power, player.allianceTag);
+				if (!matches && config.mode === 'single_alliance') {
+					const result = await handleAutomatedDemotionCandidate(
+						env,
+						config,
+						record,
+						'alliance_mismatch',
+						player,
+					);
+					if (result === 'demoted') demoted++;
+					else if (result === 'queued') queued++;
+					if (tagChanged) tagChanges++;
+					continue;
+				}
+
+				await syncVerifiedPlayer(
+					env,
+					config,
+					config.guild_id,
+					record.discord_user_id,
+					player,
+					{ autoDemoteOnMismatch: false },
+				);
+				await recordPlayerStats(
+					env.STFC_DB,
+					record.id,
+					player.level,
+					player.power,
+					player.allianceTag,
+				);
+				await cancelDemotionQueueEntry(
+					env.STFC_DB,
+					config.guild_id,
+					record.discord_user_id,
+				);
 				synced++;
 
 				if (tagChanged) {
@@ -99,14 +186,22 @@ export async function runDailyPlayerSync(env: Env): Promise<void> {
 			}
 		}
 
-		if (synced > 0 || failed > 0) {
+		await postDemotionApprovalDigest(env, config);
+
+		if (synced > 0 || failed > 0 || demoted > 0 || queued > 0 || unavailable > 0 || missing > 0) {
 			await postAuditLog(env, config, {
 				title: 'Daily player sync complete',
-				description: `Synced **${synced}** player(s)` +
+				description:
+					`Synced **${synced}**` +
 					(failed ? ` · **${failed}** failed` : '') +
-					(tagChanges ? ` · **${tagChanges}** alliance change(s)` : ''),
+					(demoted ? ` · **${demoted}** demoted` : '') +
+					(queued ? ` · **${queued}** queued for demotion` : '') +
+					(missing ? ` · **${missing}** missing` : '') +
+					(unavailable ? ` · **${unavailable}** stfc.pro unavailable (skipped)` : '') +
+					(tagChanges ? ` · **${tagChanges}** alliance change(s)` : '') +
+					` · policy **${config.demotion_policy}**`,
 				source: 'cron',
-				color: failed ? AuditColor.warn : AuditColor.info,
+				color: failed || demoted || unavailable ? AuditColor.warn : AuditColor.info,
 			});
 		}
 	}
@@ -126,6 +221,9 @@ export async function handleScheduledEvent(env: Env, cron: string): Promise<void
 			break;
 		case '0 6 * * *':
 			await runDailyPlayerSync(env);
+			break;
+		case '30 * * * *':
+			await runDemotionRecheck(env);
 			break;
 		default:
 			console.log(`Unknown cron: ${cron}`);

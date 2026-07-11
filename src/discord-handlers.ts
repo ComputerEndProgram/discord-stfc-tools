@@ -531,6 +531,60 @@ async function handleServerStatusCommand(env: Env, guildId: string | undefined):
 	return interactionResponse(formatServerStatus(config), true);
 }
 
+async function handleServerDemotionCommand(
+	env: Env,
+	interaction: { guild_id?: string; member?: { permissions?: string; user?: { id: string } } },
+	sub: { options?: Array<{ name: string; value?: unknown }> },
+): Promise<Response> {
+	const adminError = requireGuildAdmin(interaction);
+	if (adminError) return adminError;
+
+	const guildId = interaction.guild_id!;
+	const config = await getGuildConfig(env.STFC_DB, guildId);
+	if (!config) {
+		return interactionResponse('❌ Server not configured. Run `/server setup` first.', true);
+	}
+
+	const policyRaw = getOptionValue(sub.options, 'policy') as string | undefined;
+	const listRaw = getOptionValue(sub.options, 'list');
+	const list = listRaw === true || listRaw === 'true';
+
+	if (policyRaw === 'approval' || policyRaw === 'yolo') {
+		await upsertGuildConfig(env.STFC_DB, {
+			guild_id: guildId,
+			demotion_policy: policyRaw,
+		});
+		await postAuditLog(env, { ...config, demotion_policy: policyRaw }, {
+			title: 'Demotion policy updated',
+			description: `Policy set to **${policyRaw}**.`,
+			actorId: interaction.member?.user?.id,
+			source: 'admin',
+			color: AuditColor.info,
+		});
+		const note =
+			policyRaw === 'approval'
+				? 'Confirmed leaves and missing players go to the urgent channel for Approve/Reject.'
+				: 'Confirmed mismatches demote immediately; missing players recheck after 1 hour, then demote if still gone.';
+		return interactionResponse(`✅ Demotion policy: **${policyRaw}**\n${note}`, true);
+	}
+
+	if (list) {
+		const { formatDemotionQueueList } = await import('./demotion-policy');
+		return interactionResponse(await formatDemotionQueueList(env, guildId), true);
+	}
+
+	return interactionResponse(
+		`🛡 **Demotion policy:** **${config.demotion_policy}**\n` +
+			`• \`approval\` (default) — queue confirmed leaves / missing players for urgent-channel approval\n` +
+			`• \`yolo\` — auto-demote confirmed mismatches; missing players wait 1h then demote if still gone\n` +
+			`• Transport errors never demote\n` +
+			`• Multi-alliance empty tags are never demotion candidates\n\n` +
+			`Set: \`/server demotion policy:approval\` or \`policy:yolo\`\n` +
+			`Queue: \`/server demotion list:true\``,
+		true,
+	);
+}
+
 async function handleServerAssistantCommand(
 	env: Env,
 	interaction: { guild_id?: string; member?: { permissions?: string } },
@@ -2574,6 +2628,10 @@ export async function handleDiscordInteraction(
 			const { handleAgreeComponent } = await import('./agreement');
 			return handleAgreeComponent(env, interaction);
 		}
+		if (customId?.startsWith('demote:')) {
+			const { handleDemoteComponent } = await import('./demotion-policy');
+			return handleDemoteComponent(env, interaction);
+		}
 		return interactionResponse('❌ Unknown button.', true);
 	}
 
@@ -2626,7 +2684,7 @@ export async function handleDiscordInteraction(
 		}
 
 		if (data.name === 'roster') {
-			return handleRosterCommand(env, interaction as any, data);
+			return handleRosterCommand(env, ctx, interaction as any, data);
 		}
 
 		if (data.name === 'verify') {
@@ -2640,6 +2698,9 @@ export async function handleDiscordInteraction(
 			}
 			if (sub?.name === 'status') {
 				return handleServerStatusCommand(env, interaction.guild_id);
+			}
+			if (sub?.name === 'demotion') {
+				return handleServerDemotionCommand(env, interaction as any, sub);
 			}
 			if (sub?.name === 'assistant') {
 				return handleServerAssistantCommand(env, interaction as any, sub);

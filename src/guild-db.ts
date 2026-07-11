@@ -1,6 +1,10 @@
 import type {
 	AgreementMode,
 	AgreementTiming,
+	DemotionPolicy,
+	DemotionQueueReason,
+	DemotionQueueRow,
+	DemotionQueueStatus,
 	GuildConfig,
 	GuildExcludedUser,
 	GuildMemberRecord,
@@ -12,6 +16,9 @@ import type {
 } from './types';
 import { parsePersonalChannelPermTemplate } from './personal-channel-perm-template';
 
+function parseDemotionPolicy(value: string | null | undefined): DemotionPolicy {
+	return value === 'yolo' ? 'yolo' : 'approval';
+}
 function parseJsonArray(value: string | null | undefined): string[] {
 	if (!value) return [];
 	try {
@@ -116,6 +123,7 @@ function mapGuildConfig(row: any): GuildConfig {
 		agreement_channel_id: row.agreement_channel_id ?? null,
 		agreement_message_id: row.agreement_message_id ?? null,
 		agreement_version: row.agreement_version ?? null,
+		demotion_policy: parseDemotionPolicy(row.demotion_policy),
 		poll_interval_hours: row.poll_interval_hours ?? 6,
 		verification_enabled: Boolean(row.verification_enabled ?? 1),
 		created_at: row.created_at,
@@ -216,6 +224,7 @@ export async function upsertGuildConfig(
 		await upsertPersonalChannelPermTemplateField(db, config);
 		await upsertDmAssistantConfigFields(db, config);
 		await upsertAgreementConfigFields(db, config);
+		await upsertDemotionPolicyField(db, config);
 		return;
 	}
 
@@ -469,6 +478,24 @@ async function upsertDiplomacyConfigFields(
 
 	await upsertDmAssistantConfigFields(db, config);
 	await upsertAgreementConfigFields(db, config);
+	await upsertDemotionPolicyField(db, config);
+}
+
+async function upsertDemotionPolicyField(
+	db: D1Database,
+	config: Partial<GuildConfig> & { guild_id: string },
+): Promise<void> {
+	if (!Object.prototype.hasOwnProperty.call(config, 'demotion_policy')) return;
+	const policy = config.demotion_policy === 'yolo' ? 'yolo' : 'approval';
+	await db
+		.prepare(
+			`UPDATE guild_configs SET
+			 demotion_policy = ?,
+			 updated_at = datetime('now')
+			 WHERE guild_id = ?`,
+		)
+		.bind(policy, config.guild_id)
+		.run();
 }
 
 async function upsertAgreementConfigFields(
@@ -1239,4 +1266,226 @@ export async function getVerifiedDiscordUserIds(db: D1Database, guildId: string)
 		.bind(guildId)
 		.all();
 	return new Set((results ?? []).map((r) => String((r as { discord_user_id: string }).discord_user_id)));
+}
+
+function mapDemotionQueueRow(row: Record<string, unknown>): DemotionQueueRow {
+	return {
+		id: Number(row.id),
+		guild_id: String(row.guild_id),
+		discord_user_id: String(row.discord_user_id),
+		player_id: row.player_id == null ? null : Number(row.player_id),
+		player_name: row.player_name == null ? null : String(row.player_name),
+		reason: row.reason as DemotionQueueReason,
+		status: row.status as DemotionQueueStatus,
+		detect_count: Number(row.detect_count ?? 1),
+		first_detected_at: String(row.first_detected_at ?? ''),
+		next_recheck_at: row.next_recheck_at == null ? null : String(row.next_recheck_at),
+		resolved_at: row.resolved_at == null ? null : String(row.resolved_at),
+		urgent_message_id: row.urgent_message_id == null ? null : String(row.urgent_message_id),
+		observed_alliance_tag:
+			row.observed_alliance_tag == null ? null : String(row.observed_alliance_tag),
+	};
+}
+
+export async function upsertDemotionQueueEntry(
+	db: D1Database,
+	entry: {
+		guild_id: string;
+		discord_user_id: string;
+		player_id?: number | null;
+		player_name?: string | null;
+		reason: DemotionQueueReason;
+		status: DemotionQueueStatus;
+		next_recheck_at?: string | null;
+		observed_alliance_tag?: string | null;
+		urgent_message_id?: string | null;
+	},
+): Promise<DemotionQueueRow> {
+	const existing = await db
+		.prepare(
+			`SELECT * FROM demotion_queue WHERE guild_id = ? AND discord_user_id = ?`,
+		)
+		.bind(entry.guild_id, entry.discord_user_id)
+		.first();
+
+	if (existing) {
+		const prev = mapDemotionQueueRow(existing as Record<string, unknown>);
+		const bumpDetect =
+			prev.status === 'pending_recheck' ||
+			prev.status === 'pending_approval' ||
+			entry.status === 'pending_recheck' ||
+			entry.status === 'pending_approval';
+		await db
+			.prepare(
+				`UPDATE demotion_queue SET
+				 player_id = COALESCE(?, player_id),
+				 player_name = COALESCE(?, player_name),
+				 reason = ?,
+				 status = ?,
+				 detect_count = CASE WHEN ? = 1 THEN detect_count + 1 ELSE detect_count END,
+				 next_recheck_at = CASE WHEN ? = 1 THEN ? ELSE next_recheck_at END,
+				 observed_alliance_tag = COALESCE(?, observed_alliance_tag),
+				 urgent_message_id = COALESCE(?, urgent_message_id),
+				 resolved_at = CASE WHEN ? IN ('completed','rejected','cancelled') THEN datetime('now') ELSE resolved_at END
+				 WHERE guild_id = ? AND discord_user_id = ?`,
+			)
+			.bind(
+				entry.player_id ?? null,
+				entry.player_name ?? null,
+				entry.reason,
+				entry.status,
+				bumpDetect &&
+					(entry.status === 'pending_recheck' || entry.status === 'pending_approval')
+					? 1
+					: 0,
+				entry.next_recheck_at !== undefined ? 1 : 0,
+				entry.next_recheck_at ?? null,
+				entry.observed_alliance_tag ?? null,
+				entry.urgent_message_id ?? null,
+				entry.status,
+				entry.guild_id,
+				entry.discord_user_id,
+			)
+			.run();
+	} else {
+		await db
+			.prepare(
+				`INSERT INTO demotion_queue
+				 (guild_id, discord_user_id, player_id, player_name, reason, status,
+				  next_recheck_at, observed_alliance_tag, urgent_message_id)
+				 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			)
+			.bind(
+				entry.guild_id,
+				entry.discord_user_id,
+				entry.player_id ?? null,
+				entry.player_name ?? null,
+				entry.reason,
+				entry.status,
+				entry.next_recheck_at ?? null,
+				entry.observed_alliance_tag ?? null,
+				entry.urgent_message_id ?? null,
+			)
+			.run();
+	}
+
+	const row = await db
+		.prepare(
+			`SELECT * FROM demotion_queue WHERE guild_id = ? AND discord_user_id = ?`,
+		)
+		.bind(entry.guild_id, entry.discord_user_id)
+		.first();
+	return mapDemotionQueueRow(row as Record<string, unknown>);
+}
+
+export async function listPendingDemotions(
+	db: D1Database,
+	guildId: string,
+): Promise<DemotionQueueRow[]> {
+	const { results } = await db
+		.prepare(
+			`SELECT * FROM demotion_queue
+			 WHERE guild_id = ?
+			   AND status IN ('pending_recheck', 'pending_approval')
+			 ORDER BY first_detected_at ASC`,
+		)
+		.bind(guildId)
+		.all();
+	return (results ?? []).map((r) => mapDemotionQueueRow(r as Record<string, unknown>));
+}
+
+export async function listPendingApprovalDemotions(
+	db: D1Database,
+	guildId: string,
+): Promise<DemotionQueueRow[]> {
+	const { results } = await db
+		.prepare(
+			`SELECT * FROM demotion_queue
+			 WHERE guild_id = ? AND status = 'pending_approval'
+			 ORDER BY first_detected_at ASC`,
+		)
+		.bind(guildId)
+		.all();
+	return (results ?? []).map((r) => mapDemotionQueueRow(r as Record<string, unknown>));
+}
+
+export async function listDueDemotionRechecks(db: D1Database): Promise<DemotionQueueRow[]> {
+	const { results } = await db
+		.prepare(
+			`SELECT * FROM demotion_queue
+			 WHERE status = 'pending_recheck'
+			   AND next_recheck_at IS NOT NULL
+			   AND next_recheck_at <= datetime('now')
+			 ORDER BY next_recheck_at ASC
+			 LIMIT 200`,
+		)
+		.all();
+	return (results ?? []).map((r) => mapDemotionQueueRow(r as Record<string, unknown>));
+}
+
+export async function cancelDemotionQueueEntry(
+	db: D1Database,
+	guildId: string,
+	discordUserId: string,
+): Promise<void> {
+	await db
+		.prepare(
+			`UPDATE demotion_queue SET
+			 status = 'cancelled',
+			 resolved_at = datetime('now')
+			 WHERE guild_id = ? AND discord_user_id = ?
+			   AND status IN ('pending_recheck', 'pending_approval')`,
+		)
+		.bind(guildId, discordUserId)
+		.run();
+}
+
+export async function resolveDemotionQueueEntries(
+	db: D1Database,
+	guildId: string,
+	status: 'completed' | 'rejected' | 'cancelled',
+	discordUserIds?: string[],
+): Promise<number> {
+	if (discordUserIds && discordUserIds.length > 0) {
+		let n = 0;
+		for (const userId of discordUserIds) {
+			const r = await db
+				.prepare(
+					`UPDATE demotion_queue SET
+					 status = ?,
+					 resolved_at = datetime('now')
+					 WHERE guild_id = ? AND discord_user_id = ?
+					   AND status IN ('pending_recheck', 'pending_approval')`,
+				)
+				.bind(status, guildId, userId)
+				.run();
+			n += r.meta?.changes ?? 0;
+		}
+		return n;
+	}
+	const r = await db
+		.prepare(
+			`UPDATE demotion_queue SET
+			 status = ?,
+			 resolved_at = datetime('now')
+			 WHERE guild_id = ?
+			   AND status IN ('pending_recheck', 'pending_approval')`,
+		)
+		.bind(status, guildId)
+		.run();
+	return r.meta?.changes ?? 0;
+}
+
+export async function setDemotionQueueUrgentMessage(
+	db: D1Database,
+	guildId: string,
+	messageId: string,
+): Promise<void> {
+	await db
+		.prepare(
+			`UPDATE demotion_queue SET urgent_message_id = ?
+			 WHERE guild_id = ? AND status = 'pending_approval'`,
+		)
+		.bind(messageId, guildId)
+		.run();
 }

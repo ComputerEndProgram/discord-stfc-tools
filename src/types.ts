@@ -6,6 +6,16 @@ export type StfcRegion = 'US' | 'EU';
 export type AgreementTiming = 'before_verify' | 'after_verify';
 /** How the member accepts. `channel_react` reserved for a follow-up. */
 export type AgreementMode = 'dm_button' | 'channel_react';
+/** Automated leave demotion: approval (default) vs yolo with recheck queue. */
+export type DemotionPolicy = 'approval' | 'yolo';
+export type DemotionQueueReason = 'alliance_mismatch' | 'player_missing';
+export type DemotionQueueStatus =
+	| 'pending_recheck'
+	| 'pending_approval'
+	| 'approved'
+	| 'rejected'
+	| 'completed'
+	| 'cancelled';
 
 export type { PersonalChannelPermTemplate };
 export type VerificationStatus =
@@ -124,10 +134,31 @@ export interface GuildConfig {
 	agreement_message_id: string | null;
 	/** Bump to force re-accept after CoC changes. */
 	agreement_version: string | null;
+	/**
+	 * Automated demotion on leave / missing player (single_alliance).
+	 * approval = urgent buttons; yolo = auto after recheck for not-found.
+	 */
+	demotion_policy: DemotionPolicy;
 	poll_interval_hours: number;
 	verification_enabled: boolean;
 	created_at: string;
 	updated_at: string;
+}
+
+export interface DemotionQueueRow {
+	id: number;
+	guild_id: string;
+	discord_user_id: string;
+	player_id: number | null;
+	player_name: string | null;
+	reason: DemotionQueueReason;
+	status: DemotionQueueStatus;
+	detect_count: number;
+	first_detected_at: string;
+	next_recheck_at: string | null;
+	resolved_at: string | null;
+	urgent_message_id: string | null;
+	observed_alliance_tag: string | null;
 }
 
 /** Active DM assistant conversation (wizard / guild pick). */

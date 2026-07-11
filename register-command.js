@@ -111,6 +111,33 @@ const commands = [
 				type: 1,
 				name: 'unverified',
 				description: 'Discord members not linked to a verified player (excludes bots + exclude list)',
+				options: [
+					{
+						type: 5,
+						name: 'demote',
+						description: 'Admin: assign guest role and strip member/rank roles for all listed',
+						required: false,
+					},
+				],
+			},
+			{
+				type: 1,
+				name: 'demote',
+				description: 'Admin: demote a member to guest (strip member roles; set status guest if linked)',
+				options: [
+					{
+						type: 6,
+						name: 'user',
+						description: 'Discord member to demote',
+						required: true,
+					},
+					{
+						type: 3,
+						name: 'reason',
+						description: 'Optional note for the response',
+						required: false,
+					},
+				],
 			},
 			{
 				type: 1,
@@ -244,6 +271,29 @@ const commands = [
 				type: 1,
 				name: 'status',
 				description: 'Show current server configuration',
+			},
+			{
+				type: 1,
+				name: 'demotion',
+				description: 'Admin: leave-detection policy (approval vs YOLO) and pending queue',
+				options: [
+					{
+						type: 3,
+						name: 'policy',
+						description: 'approval = urgent buttons (default); yolo = auto-demote with 1h recheck',
+						required: false,
+						choices: [
+							{ name: 'Approval (confirm in urgent channel)', value: 'approval' },
+							{ name: 'YOLO (auto-demote; missing → 1h recheck)', value: 'yolo' },
+						],
+					},
+					{
+						type: 5,
+						name: 'list',
+						description: 'Show pending demotion queue',
+						required: false,
+					},
+				],
 			},
 			{
 				type: 1,

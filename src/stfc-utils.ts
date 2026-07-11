@@ -208,19 +208,37 @@ function mapInitialPlayerFromHtml(initialPlayer: any, fallbackServer: number, fa
 }
 
 async function fetchPlayersPage(url: string): Promise<Record<string, unknown>[]> {
-	const response = await fetch(url, { headers: STFC_HEADERS });
-	if (response.status === 429) {
-		await new Promise((r) => setTimeout(r, 30_000));
-		return fetchPlayersPage(url);
+	const result = await fetchPlayersPageResult(url);
+	return result.ok ? result.players : [];
+}
+
+type FetchPageResult =
+	| { ok: true; players: Record<string, unknown>[] }
+	| { ok: false; error: string };
+
+async function fetchPlayersPageResult(url: string): Promise<FetchPageResult> {
+	try {
+		const response = await fetch(url, { headers: STFC_HEADERS });
+		if (response.status === 429) {
+			await new Promise((r) => setTimeout(r, 30_000));
+			return fetchPlayersPageResult(url);
+		}
+		if (!response.ok) {
+			return { ok: false, error: `stfc.pro API HTTP ${response.status}` };
+		}
+
+		const data = (await response.json()) as { data?: string; players?: string };
+		const compressed = data.data || data.players;
+		if (!compressed) return { ok: true, players: [] };
+
+		const pageData = decompressStfcPayload(compressed);
+		return { ok: true, players: extractPlayerArray(pageData) };
+	} catch (error) {
+		return {
+			ok: false,
+			error: error instanceof Error ? error.message : 'stfc.pro API fetch failed',
+		};
 	}
-	if (!response.ok) return [];
-
-	const data = await response.json() as { data?: string; players?: string };
-	const compressed = data.data || data.players;
-	if (!compressed) return [];
-
-	const pageData = decompressStfcPayload(compressed);
-	return extractPlayerArray(pageData);
 }
 
 export async function fetchAllianceByTag(
@@ -248,31 +266,47 @@ export async function fetchAllianceByTag(
 	return allPlayers;
 }
 
-export async function findPlayerByIdOrName(
+export type StfcLookupResult =
+	| { status: 'ok'; player: PlayerData }
+	| { status: 'not_found' }
+	| { status: 'error'; error: string };
+
+/**
+ * Lookup with explicit not_found vs transport/API error (for demotion resilience).
+ */
+export async function lookupPlayerByIdOrName(
 	playerIdOrName: string | number,
 	server: number,
 	region: string,
-): Promise<PlayerData | null> {
+): Promise<StfcLookupResult> {
 	const asNumberId = typeof playerIdOrName === 'number' ? playerIdOrName : Number.NaN;
 	const searchTerm = Number.isFinite(asNumberId) ? String(asNumberId) : String(playerIdOrName);
 	const upperRegion = region.toUpperCase();
 
-	// Primary path: try the documented stfc.pro API.
-	try {
-		const url =
-			`https://stfc.pro/api/players?type=player_data_power&page=1&pageCount=50` +
-			`&region=${upperRegion}&server=${server}&search=${encodeURIComponent(searchTerm)}` +
-			`&level=&searchMatch=true&tag=&sortBy=rank&sortOrder=asc&rankMatch=false`;
+	let apiError: string | null = null;
+	let apiSucceeded = false;
 
-		const players = await fetchPlayersPage(url);
+	const url =
+		`https://stfc.pro/api/players?type=player_data_power&page=1&pageCount=50` +
+		`&region=${upperRegion}&server=${server}&search=${encodeURIComponent(searchTerm)}` +
+		`&level=&searchMatch=true&tag=&sortBy=rank&sortOrder=asc&rankMatch=false`;
 
+	const api = await fetchPlayersPageResult(url);
+	if (api.ok) {
+		apiSucceeded = true;
+		const players = api.players;
 		if (players.length > 0) {
 			if (Number.isFinite(asNumberId)) {
 				const exact = players.find((p) => {
 					const id = p.playerid || p.player_id || p.playerId;
 					return Number(id) === asNumberId;
 				});
-				if (exact) return mapRawPlayer(exact, server, region, String(exact.tag || ''));
+				if (exact) {
+					return {
+						status: 'ok',
+						player: mapRawPlayer(exact, server, region, String(exact.tag || '')),
+					};
+				}
 			}
 
 			const nameLower = typeof playerIdOrName === 'string' ? playerIdOrName.toLowerCase() : '';
@@ -281,14 +315,18 @@ export async function findPlayerByIdOrName(
 					const name = String(p.owner || p.name || p.player_name || '').toLowerCase();
 					return name === nameLower || name.includes(nameLower);
 				});
-				if (nameMatch) return mapRawPlayer(nameMatch, server, region, String(nameMatch.tag || ''));
+				if (nameMatch) {
+					return {
+						status: 'ok',
+						player: mapRawPlayer(nameMatch, server, region, String(nameMatch.tag || '')),
+					};
+				}
 			}
 		}
-	} catch {
-		// Ignore API failures and fall back to HTML scraping below.
+	} else {
+		apiError = api.error;
 	}
 
-	// Fallback: for numeric IDs, scrape the player page HTML (`initialPlayer` JSON).
 	if (Number.isFinite(asNumberId)) {
 		try {
 			const playerUrl = `https://stfc.pro/players/${asNumberId}`;
@@ -296,14 +334,44 @@ export async function findPlayerByIdOrName(
 			if (pageRes.ok) {
 				const html = await pageRes.text();
 				const mapped = extractInitialPlayerFromHtml(html, server, region);
-				if (mapped && mapped.playerId) return mapped;
+				if (mapped && mapped.playerId) return { status: 'ok', player: mapped };
+				if (apiSucceeded) return { status: 'not_found' };
+			} else if (pageRes.status === 404 && apiSucceeded) {
+				return { status: 'not_found' };
+			} else if (!apiSucceeded) {
+				return {
+					status: 'error',
+					error: apiError
+						? `${apiError}; HTML HTTP ${pageRes.status}`
+						: `HTML HTTP ${pageRes.status}`,
+				};
 			}
-		} catch {
-			// swallow and return null below
+		} catch (error) {
+			const htmlErr = error instanceof Error ? error.message : 'HTML fetch failed';
+			if (!apiSucceeded) {
+				return {
+					status: 'error',
+					error: apiError ? `${apiError}; ${htmlErr}` : htmlErr,
+				};
+			}
 		}
 	}
 
-	return null;
+	if (!apiSucceeded && !Number.isFinite(asNumberId)) {
+		return { status: 'error', error: apiError ?? 'stfc.pro API unavailable' };
+	}
+
+	return { status: 'not_found' };
+}
+
+/** Convenience wrapper — null means not found or error (legacy callers). */
+export async function findPlayerByIdOrName(
+	playerIdOrName: string | number,
+	server: number,
+	region: string,
+): Promise<PlayerData | null> {
+	const result = await lookupPlayerByIdOrName(playerIdOrName, server, region);
+	return result.status === 'ok' ? result.player : null;
 }
 
 export function formatPlayerSummary(player: PlayerData): string {

@@ -28,7 +28,8 @@ function generateWranglerConfig() {
       "crons": [
         "*/5 * * * *",
         "0 */6 * * *",
-        "0 6 * * *"
+        "0 6 * * *",
+        "30 * * * *"
       ]
     },
     "kv_namespaces": [],

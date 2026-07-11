@@ -5,7 +5,9 @@
 import {
 	addGuildMemberRole,
 	DiscordApiError,
+	getGuildChannel,
 	getGuildMember,
+	patchGuildChannel,
 	removeGuildMemberRole,
 	setGuildMemberNickname,
 } from './discord-api';
@@ -14,8 +16,180 @@ import { ensurePersonalChannel } from './personal-channels';
 import { ensureDiplomacyChannel, diplomacyChannelsEnabled } from './diplomacy-channels';
 import { buildMemberNickname, normalizeAllianceRank } from './nickname-utils';
 import { resolveLocale, t } from './i18n';
+import { AuditColor, postAuditLog } from './audit-log';
+import { opsLevelToGrade } from './grade-utils';
 import type { GuildConfig, PlayerData, VerifiedPlayer } from './types';
 import { findPlayerByIdOrName } from './stfc-utils';
+
+export type DemoteReason = 'alliance_mismatch' | 'player_missing' | 'admin' | 'unverified_bulk';
+
+/** Multi-alliance always matches; single-alliance requires non-empty tag equal to config.alliance_tag. */
+export function playerMatchesGuildAlliance(
+	config: Pick<GuildConfig, 'mode' | 'alliance_tag'>,
+	allianceTag: string | null | undefined,
+): boolean {
+	if (config.mode === 'multi_alliance') return true;
+	const tag = (allianceTag ?? '').trim();
+	return Boolean(
+		config.alliance_tag && tag && tag.toUpperCase() === config.alliance_tag.toUpperCase(),
+	);
+}
+
+export interface DemoteToGuestOptions {
+	reason: DemoteReason;
+	/** When set, refresh linked player fields on an existing verified_players row. */
+	player?: PlayerData | null;
+	actorId?: string | null;
+	source?: 'automated' | 'admin' | 'member' | 'cron' | 'system';
+	skipAudit?: boolean;
+	/**
+	 * When true (admin / bulk demote), fail if guest_role_id is not configured.
+	 * Cron mismatch demotions still strip member roles even without a guest role.
+	 */
+	requireGuestRole?: boolean;
+}
+
+export interface DemoteToGuestResult {
+	ok: boolean;
+	error?: string;
+	roleChanges?: RoleChangeResult;
+	channelArchived: boolean;
+	hadVerifiedRow: boolean;
+	notes: string[];
+}
+
+/** Move a personal channel into the configured archive category (no-op if unset / already there). */
+export async function archivePersonalChannelOnDemotion(
+	token: string,
+	config: GuildConfig,
+	channelId: string | null | undefined,
+): Promise<boolean> {
+	const archiveId = config.personal_channel_archive_category_id?.trim();
+	if (!channelId || !archiveId || !/^\d{15,20}$/.test(archiveId)) return false;
+	try {
+		const ch = await getGuildChannel(token, channelId);
+		if (!ch || ch.parent_id === archiveId) return false;
+		await patchGuildChannel(token, channelId, { parent_id: archiveId });
+		return true;
+	} catch (error) {
+		console.error('Archive personal channel on demotion failed:', error);
+		return false;
+	}
+}
+
+/**
+ * Demote a Discord member to guest: strip managed member/rank/overlay roles, assign guest_role,
+ * set verification_status=guest when a linked row exists, optionally archive personal channel.
+ * Never-verified users: roles only (no new verified_players row).
+ */
+export async function demotePlayerToGuest(
+	env: Env,
+	config: GuildConfig,
+	guildId: string,
+	discordUserId: string,
+	opts: DemoteToGuestOptions,
+): Promise<DemoteToGuestResult> {
+	const notes: string[] = [];
+	const requireGuest =
+		opts.requireGuestRole === true ||
+		opts.reason === 'admin' ||
+		opts.reason === 'unverified_bulk';
+
+	if (requireGuest && (!config.guest_role_id || !/^\d{15,20}$/.test(config.guest_role_id))) {
+		return {
+			ok: false,
+			error: 'guest_role is not configured. Set it with `/server setup guest_role:…`.',
+			channelArchived: false,
+			hadVerifiedRow: false,
+			notes,
+		};
+	}
+
+	if (!env.DISCORD_BOT_TOKEN) {
+		return {
+			ok: false,
+			error: 'DISCORD_BOT_TOKEN not configured.',
+			channelArchived: false,
+			hadVerifiedRow: false,
+			notes,
+		};
+	}
+
+	const token = env.DISCORD_BOT_TOKEN;
+	const existing = await getVerifiedPlayer(env.STFC_DB, guildId, discordUserId);
+	const hadVerifiedRow = Boolean(existing);
+
+	if (existing) {
+		const player = opts.player;
+		const now = new Date().toISOString();
+		await upsertVerifiedPlayer(env.STFC_DB, {
+			guild_id: guildId,
+			discord_user_id: discordUserId,
+			verification_status: 'guest',
+			...(player
+				? {
+						player_name: player.name,
+						alliance_tag: player.allianceTag || null,
+						alliance_rank: player.rank || null,
+						ops_level: player.level,
+						power: player.power,
+						grade: opsLevelToGrade(player.level),
+						last_synced_at: now,
+					}
+				: {}),
+		});
+		notes.push('status → guest');
+		if (player?.allianceTag != null) {
+			notes.push(`alliance ${existing.alliance_tag ?? '—'} → ${player.allianceTag || '(none)'}`);
+		}
+	}
+
+	const roleChanges = await applyGuestRole(token, config, guildId, discordUserId);
+	notes.push(formatRoleChangeNote(roleChanges));
+
+	const channelArchived = await archivePersonalChannelOnDemotion(
+		token,
+		config,
+		existing?.personal_channel_id,
+	);
+	if (channelArchived && existing?.personal_channel_id) {
+		notes.push(`channel archived <#${existing.personal_channel_id}>`);
+	}
+
+	if (!opts.skipAudit) {
+		const reasonLabel =
+			opts.reason === 'alliance_mismatch'
+				? 'Alliance mismatch'
+				: opts.reason === 'player_missing'
+					? 'Player missing on stfc.pro'
+					: opts.reason === 'unverified_bulk'
+						? 'Bulk demote unverified'
+						: 'Admin demote';
+		await postAuditLog(env, config, {
+			title: 'Demoted to guest',
+			description: `<@${discordUserId}>` +
+				(existing?.player_name ? ` **${existing.player_name}**` : '') +
+				(opts.player?.name && opts.player.name !== existing?.player_name
+					? ` → **${opts.player.name}**`
+					: ''),
+			actorId: opts.actorId,
+			source: opts.source ?? (opts.reason === 'admin' || opts.reason === 'unverified_bulk' ? 'admin' : 'cron'),
+			color: AuditColor.warn,
+			fields: [
+				{ name: 'Reason', value: reasonLabel, inline: true },
+				{ name: 'Changes', value: notes.join('\n').slice(0, 1000) || '—', inline: false },
+			],
+		});
+	}
+
+	return {
+		ok: true,
+		roleChanges,
+		channelArchived,
+		hadVerifiedRow,
+		notes,
+	};
+}
 
 export interface RoleChangeResult {
 	/** Role IDs newly granted. */

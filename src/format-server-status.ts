@@ -15,6 +15,11 @@ export function formatServerStatus(config: GuildConfig): string {
 		`• Verification log: ${config.verification_log_channel_id ? `<#${config.verification_log_channel_id}>` : 'not set'}\n` +
 		`• Audit log: ${config.audit_log_channel_id ? `<#${config.audit_log_channel_id}>` : 'not set'}\n` +
 		`• Urgent alerts: ${config.urgent_notify_channel_id ? `<#${config.urgent_notify_channel_id}>` : 'not set'}\n` +
+		`• Demotion policy: **${config.demotion_policy}**` +
+		(config.demotion_policy === 'approval'
+			? ' (confirm leaves in urgent channel)'
+			: ' (auto-demote; missing players recheck after 1h)') +
+		`\n` +
 		`• Diplomacy channels: ${diplomacyChannelsEnabled(config) ? 'enabled' : 'disabled'}` +
 		(diplomacyChannelsEnabled(config)
 			? ` (${formatDiplomacyChannelMap(config.diplomacy_channel_map)})`

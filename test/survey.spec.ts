@@ -60,6 +60,7 @@ function baseConfig(overrides: Partial<GuildConfig> = {}): GuildConfig {
 		agreement_channel_id: null,
 		agreement_message_id: null,
 		agreement_version: null,
+		demotion_policy: 'approval',
 		poll_interval_hours: 6,
 		verification_enabled: true,
 		created_at: '',

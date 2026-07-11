@@ -615,7 +615,37 @@ Requires Administrator. Set the archive channel first (`/server channels log`) s
 
 ### Guest re-check (single-alliance)
 
-Wrong alliance → guest role. Cron re-checks periodically; when the tag matches, they are promoted like a normal verify.
+Wrong alliance (or empty alliance tag on stfc.pro) → **guest** candidate. Behavior depends on **demotion policy**:
+
+| Policy | Confirmed mismatch / empty tag | Player missing on stfc.pro | API / network error |
+|--------|--------------------------------|----------------------------|---------------------|
+| **approval** (default) | Queue → urgent channel Approve/Reject | Queue → urgent Approve/Reject | Skip (never demote) |
+| **yolo** | Demote immediately | Queue 1h recheck; demote only if still missing | Skip (never demote) |
+
+If a personal-channel archive category is configured, demotion moves their channel there.
+
+```
+/server demotion                          # show policy
+/server demotion policy:approval
+/server demotion policy:yolo
+/server demotion list:true
+/roster demote user:@Member reason:left alliance
+```
+
+Urgent digest buttons: **Approve all demotions** / **Reject all**. Individuals: `/roster demote`.
+
+**Multi-alliance:** empty alliance tags are normal — never auto-queued or demoted for “no tag.” Use `/roster demote` manually if needed.
+
+### Unverified members (any mode)
+
+```
+/roster unverified                 # list (Admin or assistant roles)
+/roster unverified demote:true     # Admin: assign guest_role + strip member/rank roles for everyone listed
+```
+
+Bulk demote requires `guest_role` from `/server setup`. Never-verified users are roles-only (no new `verified_players` row). Excluded users and bots are skipped.
+
+On **multi-alliance**, alliance tag/rank changes on daily sync update nick + rank roles; they are **not** auto-demoted to guest (use `/roster demote` if needed).
 
 ---
 
@@ -811,7 +841,7 @@ Verified members (and admins) can **DM the bot** outside of verification:
 | `menu` / `admin` / `help` | Admin button wizard (Administrator or Manage Server required) |
 | Roster questions (e.g. “how many G6?”) | Allowed for admins, or roles set below |
 
-Prefer slash commands for listings: `/roster grades`, `/roster grade grade:6`, `/roster ops min:50`, `/roster unverified`.
+Prefer slash commands for listings: `/roster grades`, `/roster grade grade:6`, `/roster ops min:50`, `/roster unverified`, `/roster demote`, `/roster status`.
 
 Admin wizards (DM → `menu`): **Server status**, **Server setup** (core fields), **Verification log**, **Audit log**.
 

@@ -92,6 +92,7 @@ Scheduled jobs:
 - */5 * * * * — wake Gateway + member poll fallback
 - 0 */6 * * * — re-check guest verifications (alliance tag polling)
 - 0 6 * * * — daily ops/power/alliance sync
+- 30 * * * * — demotion recheck queue (YOLO missing-player delay)
 `,
 			{ headers: { 'Content-Type': 'text/plain' } },
 		);
