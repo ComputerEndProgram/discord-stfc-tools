@@ -16,54 +16,70 @@ import {
 } from './guild-db';
 import { buildMemberNickname, normalizeAllianceRank } from './nickname-utils';
 import { parseStfcProUrl, resolveSearchTerm } from './stfc-url';
-import { findPlayerByIdOrName, formatPlayerSummary } from './stfc-utils';
+import { findPlayerByIdOrName } from './stfc-utils';
 import { ensurePersonalChannel } from './personal-channels';
 import { ensureDiplomacyChannel, diplomacyChannelsEnabled } from './diplomacy-channels';
 import { postVerificationLog } from './verification-log';
 import { AuditColor, postAuditLog } from './audit-log';
+import { DEFAULT_LOCALE, resolveLocale, t } from './i18n';
+import { ensureLocaleAfterVerify, sendLanguagePickerDm } from './i18n/language-picker';
 import type { GuildConfig, PlayerData } from './types';
-
-export const VERIFICATION_INVITE_MESSAGE = `Welcome! Please verify your STFC account to access member channels.
-
-**Verify via DM (recommended):**
-1. Send a **screenshot** of your in-game profile
-2. Then send your **stfc.pro profile link**
-
-**Or** use \`/verify link:<url>\` in the server.
-
-We'll check your alliance on stfc.pro and assign roles automatically.`;
 
 export type DmResult =
 	| { ok: true }
 	| { ok: false; errorMessage: string; status?: number };
 
+async function playerLocale(env: Env, guildId: string, discordUserId: string): Promise<string> {
+	const row = await getVerifiedPlayer(env.STFC_DB, guildId, discordUserId);
+	return resolveLocale(row?.preferred_locale);
+}
+
+function localizedPlayerSummary(locale: string, player: PlayerData): string {
+	const power = player.power ? player.power.toLocaleString() : player.rss;
+	const rank = player.rank?.trim() ? player.rank.trim() : '—';
+	return t(locale, 'verify.player_summary', {
+		name: player.name,
+		id: player.playerId,
+		alliance: player.allianceTag || '—',
+		rank,
+		ops: player.level,
+		power,
+		server: player.server,
+		region: player.region,
+	});
+}
+
 export async function lookupPlayerFromUrl(
 	url: string,
 	config: GuildConfig,
+	locale: string = DEFAULT_LOCALE,
 ): Promise<{ player: PlayerData | null; error?: string }> {
 	const parsed = parseStfcProUrl(url);
 	if (!parsed) {
-		return { player: null, error: 'Invalid stfc.pro URL. Example: https://stfc.pro/player/12345?region=US&server=1' };
+		return { player: null, error: t(locale, 'verify.error.invalid_url') };
 	}
 
 	const server = parsed.server ?? config.stfc_server;
 	const region = parsed.region ?? config.stfc_region;
 	if (!server) {
-		return { player: null, error: 'Could not determine STFC server. Include server in the URL or configure the guild with `/server setup`.' };
+		return { player: null, error: t(locale, 'verify.error.no_server') };
 	}
 
 	const searchTerm = resolveSearchTerm(parsed);
 	if (!searchTerm) {
-		return { player: null, error: 'Could not extract a player ID or name from that URL.' };
+		return { player: null, error: t(locale, 'verify.error.no_player_id') };
 	}
 
 	const player = await findPlayerByIdOrName(searchTerm, server, region);
 	if (!player) {
-		return { player: null, error: `No player found on server ${server} (${region}) for that link.` };
+		return {
+			player: null,
+			error: t(locale, 'verify.error.player_not_found', { server, region }),
+		};
 	}
 
 	if (!player.allianceTag) {
-		return { player: null, error: 'Player found but has no alliance — you must be in an alliance to verify.' };
+		return { player: null, error: t(locale, 'verify.error.no_alliance') };
 	}
 
 	return { player };
@@ -217,17 +233,14 @@ function formatDiscordApiFailure(err: unknown): string {
 	return err instanceof Error ? err.message : 'unknown error';
 }
 
-function nicknamePermissionHint(err: unknown): string {
+function nicknamePermissionHint(err: unknown, locale: string): string {
 	const body = err instanceof DiscordApiError ? err.body ?? '' : '';
 	const isMissingPerms =
 		(err instanceof DiscordApiError && err.status === 403) ||
 		body.includes('50013') ||
 		body.includes('Missing Permissions');
 	if (!isMissingPerms) return '';
-	return (
-		'\n  ↳ Usually: bot needs **Manage Nicknames**, its role must be **above** the member ' +
-		'(and above roles it assigns), and it cannot rename the **server owner**.'
-	);
+	return t(locale, 'verify.hint.nickname_permissions');
 }
 
 export interface ProcessVerificationOpts {
@@ -243,9 +256,10 @@ export async function processVerification(
 	screenshotUrl?: string,
 	opts?: ProcessVerificationOpts,
 ): Promise<string> {
+	const locale = await playerLocale(env, guildId, discordUserId);
 	const config = await getGuildConfig(env.STFC_DB, guildId);
 	if (!config) {
-		return '❌ This server is not configured yet. An admin must run `/server setup` first.';
+		return t(locale, 'verify.result.not_configured');
 	}
 
 	let archivedR2Key: string | undefined;
@@ -264,7 +278,7 @@ export async function processVerification(
 		await recordScreenshot(env.STFC_DB, guildId, discordUserId, screenshotUrl, archivedR2Key);
 	}
 
-	const { player, error } = await lookupPlayerFromUrl(stfcProUrl, config);
+	const { player, error } = await lookupPlayerFromUrl(stfcProUrl, config, locale);
 	if (!player || error) {
 		await upsertVerifiedPlayer(env.STFC_DB, {
 			guild_id: guildId,
@@ -272,7 +286,7 @@ export async function processVerification(
 			stfc_pro_url: stfcProUrl,
 			verification_status: 'failed',
 		});
-		return `❌ ${error ?? 'Player lookup failed.'}`;
+		return `❌ ${error ?? t(locale, 'verify.error.lookup_failed')}`;
 	}
 
 	const grade = opsLevelToGrade(player.level);
@@ -303,14 +317,18 @@ export async function processVerification(
 		await recordPlayerStats(env.STFC_DB, verified.id, player.level, player.power, player.allianceTag);
 	}
 
+	const summary = localizedPlayerSummary(locale, player);
+
 	if (!env.DISCORD_BOT_TOKEN) {
-		return `✅ Verified **${player.name}** on stfc.pro, but bot token is not configured — roles were not updated.\n\n${formatPlayerSummary(player)}`;
+		return t(locale, 'verify.result.verified_no_token', { name: player.name, summary });
 	}
 
 	const token = env.DISCORD_BOT_TOKEN;
 	const notes: string[] = [];
+	const auditNotes: string[] = [];
 	if (opts?.manualByUserId) {
-		notes.push(`Manual by <@${opts.manualByUserId}>`);
+		notes.push(t(locale, 'verify.note.manual', { userId: opts.manualByUserId }));
+		auditNotes.push(`Manual by <@${opts.manualByUserId}>`);
 	}
 
 	const postLog = async (status: 'active' | 'guest', logNotes: string[]) => {
@@ -326,18 +344,25 @@ export async function processVerification(
 		});
 	};
 
+	const finishLocale = async () => {
+		await ensureLocaleAfterVerify(env, guildId, discordUserId);
+	};
+
 	try {
 		if (tagMatches) {
 			await applyMemberRoles(token, config, guildId, discordUserId, player.rank);
-			notes.push('Roles updated');
+			notes.push(t(locale, 'verify.note.roles_updated'));
+			auditNotes.push('Roles updated');
 
 			const nick = nicknameForPlayer(config, player);
 			try {
 				await setGuildMemberNickname(token, guildId, discordUserId, nick);
-				notes.push(`Nick: ${nick}`);
+				notes.push(t(locale, 'verify.note.nick', { nick }));
+				auditNotes.push(`Nick: ${nick}`);
 			} catch (nickErr) {
 				console.error('Nickname update failed:', nickErr);
-				notes.push('Nick failed (hierarchy/owner?)');
+				notes.push(t(locale, 'verify.note.nick_failed'));
+				auditNotes.push('Nick failed (hierarchy/owner?)');
 			}
 
 			const channelId = await applyPersonalChannelForMember(
@@ -355,7 +380,8 @@ export async function processVerification(
 					personal_channel_id: channelId,
 					verification_status: 'active',
 				});
-				notes.push(`Channel <#${channelId}>`);
+				notes.push(t(locale, 'verify.note.channel', { channelId }));
+				auditNotes.push(`Channel <#${channelId}>`);
 			}
 
 			const diplomacyId = await applyDiplomacyForAlliance(
@@ -365,9 +391,12 @@ export async function processVerification(
 				guildId,
 				player.allianceTag,
 			);
-			if (diplomacyId) notes.push(`Diplomacy <#${diplomacyId}>`);
+			if (diplomacyId) {
+				notes.push(t(locale, 'verify.note.diplomacy', { channelId: diplomacyId }));
+				auditNotes.push(`Diplomacy <#${diplomacyId}>`);
+			}
 
-			await postLog('active', notes);
+			await postLog('active', auditNotes);
 			await postAuditLog(env, config, {
 				title: 'Member verified (active)',
 				description: `<@${discordUserId}> → **${player.name}** [${player.allianceTag}]`,
@@ -376,30 +405,41 @@ export async function processVerification(
 				color: AuditColor.success,
 				fields: [
 					{ name: 'Ops', value: String(player.level), inline: true },
-					{ name: 'Notes', value: notes.join(' · ') || '—', inline: false },
+					{ name: 'Notes', value: auditNotes.join(' · ') || '—', inline: false },
 				],
 			});
 
-			return (
-				`✅ Verified and activated **${player.name}** (${player.allianceTag}, Ops ${player.level}).\n` +
-				notes.map((n) => `• ${n}`).join('\n') +
-				`\n\n${formatPlayerSummary(player)}`
-			);
+			await finishLocale();
+			const notesBlock = notes.map((n) => `• ${n}`).join('\n');
+			return t(locale, 'verify.result.active', {
+				name: player.name,
+				tag: player.allianceTag,
+				level: player.level,
+				notes: notesBlock,
+				summary,
+			});
 		}
 
 		await applyGuestRole(token, config, guildId, discordUserId);
-		notes.push('Guest role assigned');
-		await postLog('guest', notes);
+		auditNotes.push('Guest role assigned');
+		await postLog('guest', auditNotes);
 		await postAuditLog(env, config, {
 			title: 'Member verified (guest)',
 			description: `<@${discordUserId}> → **${player.name}** [${player.allianceTag}] (expected ${config.alliance_tag ?? '—'})`,
 			actorId: opts?.manualByUserId ?? discordUserId,
 			source: opts?.manualByUserId ? 'admin' : 'member',
 			color: AuditColor.warn,
-			fields: [{ name: 'Notes', value: notes.join(' · ') || '—', inline: false }],
+			fields: [{ name: 'Notes', value: auditNotes.join(' · ') || '—', inline: false }],
 		});
-		const expected = config.alliance_tag ?? 'the configured alliance';
-		return `⏳ Verified **${player.name}** but alliance **${player.allianceTag}** does not match **${expected}** — guest role assigned. We'll re-check every ${config.poll_interval_hours}h.\n\n${formatPlayerSummary(player)}`;
+		await finishLocale();
+		const expected = config.alliance_tag ?? '—';
+		return t(locale, 'verify.result.guest', {
+			name: player.name,
+			tag: player.allianceTag,
+			expected,
+			hours: config.poll_interval_hours,
+			summary,
+		});
 	} catch (err) {
 		console.error('Discord role update failed:', err);
 		await postLog(tagMatches ? 'active' : 'guest', ['Discord role update failed']);
@@ -410,10 +450,12 @@ export async function processVerification(
 			source: opts?.manualByUserId ? 'admin' : 'member',
 			color: AuditColor.danger,
 		});
-		return (
-			`✅ Verified on stfc.pro but failed to update Discord roles: ${formatDiscordApiFailure(err)}` +
-			`${nicknamePermissionHint(err)}\n\n${formatPlayerSummary(player)}`
-		);
+		await finishLocale();
+		return t(locale, 'verify.result.discord_failed', {
+			error: formatDiscordApiFailure(err),
+			nickHint: nicknamePermissionHint(err, locale),
+			summary,
+		});
 	}
 }
 
@@ -423,6 +465,7 @@ export async function inviteNewMember(
 	userId: string,
 	username: string,
 ): Promise<DmResult> {
+	const existing = await getVerifiedPlayer(env.STFC_DB, guildId, userId);
 	await upsertVerifiedPlayer(env.STFC_DB, {
 		guild_id: guildId,
 		discord_user_id: userId,
@@ -437,23 +480,27 @@ export async function inviteNewMember(
 	}
 
 	try {
-		await sendDirectMessage(env.DISCORD_BOT_TOKEN, userId, VERIFICATION_INVITE_MESSAGE);
+		const locale = resolveLocale(existing?.preferred_locale);
+		if (!existing?.preferred_locale) {
+			await sendLanguagePickerDm(env.DISCORD_BOT_TOKEN, userId, guildId);
+		} else {
+			await sendDirectMessage(env.DISCORD_BOT_TOKEN, userId, t(locale, 'verify.invite.welcome'));
+		}
 		await postAuditLog(env, config, {
 			title: 'Verification invite sent',
-			description: `DM sent to <@${userId}> (${username})`,
+			description: `DM sent to <@${userId}> (${username})` +
+				(existing?.preferred_locale ? ` · locale ${locale}` : ' · language picker'),
 			actorId: userId,
 			source: 'automated',
 			color: AuditColor.info,
 		});
 		return { ok: true };
 	} catch (error) {
-		// sendDirectMessage ultimately throws DiscordApiError with status/body.
 		const maybeDiscordErr = error as { status?: number; body?: string; message?: string };
 		const status = typeof maybeDiscordErr.status === 'number' ? maybeDiscordErr.status : undefined;
 
 		let errorMessage = error instanceof Error ? error.message : 'Unknown error';
 		if (maybeDiscordErr.body) {
-			// Keep it short so Discord responses aren't overly large.
 			const body = String(maybeDiscordErr.body);
 			errorMessage += `: ${body.slice(0, 180)}${body.length > 180 ? '…' : ''}`;
 		}

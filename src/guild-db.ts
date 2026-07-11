@@ -119,6 +119,7 @@ function mapVerifiedPlayer(row: any): VerifiedPlayer {
 		stfc_pro_url: row.stfc_pro_url ?? null,
 		verification_status: row.verification_status as VerificationStatus,
 		personal_channel_id: row.personal_channel_id ?? null,
+		preferred_locale: row.preferred_locale ?? null,
 		verified_at: row.verified_at ?? null,
 		last_synced_at: row.last_synced_at ?? null,
 	};
@@ -458,6 +459,7 @@ export async function upsertVerifiedPlayer(
 		stfc_pro_url?: string | null;
 		verification_status?: VerificationStatus;
 		personal_channel_id?: string | null;
+		preferred_locale?: string | null;
 		verified_at?: string | null;
 		last_synced_at?: string | null;
 	},
@@ -470,8 +472,9 @@ export async function upsertVerifiedPlayer(
 			.prepare(
 				`INSERT INTO verified_players
 				(guild_id, discord_user_id, player_id, player_name, alliance_tag, alliance_rank,
-				 ops_level, power, grade, stfc_pro_url, verification_status, personal_channel_id, verified_at, last_synced_at, updated_at)
-				VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+				 ops_level, power, grade, stfc_pro_url, verification_status, personal_channel_id,
+				 preferred_locale, verified_at, last_synced_at, updated_at)
+				VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 			)
 			.bind(
 				data.guild_id,
@@ -486,6 +489,7 @@ export async function upsertVerifiedPlayer(
 				data.stfc_pro_url ?? null,
 				data.verification_status ?? 'pending_invite',
 				data.personal_channel_id ?? null,
+				data.preferred_locale ?? null,
 				data.verified_at ?? null,
 				data.last_synced_at ?? null,
 				now,
@@ -493,6 +497,8 @@ export async function upsertVerifiedPlayer(
 			.run();
 		return;
 	}
+
+	const localeProvided = Object.prototype.hasOwnProperty.call(data, 'preferred_locale');
 
 	await db
 		.prepare(
@@ -507,6 +513,7 @@ export async function upsertVerifiedPlayer(
 			 stfc_pro_url = COALESCE(?, stfc_pro_url),
 			 verification_status = COALESCE(?, verification_status),
 			 personal_channel_id = COALESCE(?, personal_channel_id),
+			 preferred_locale = CASE WHEN ? = 1 THEN ? ELSE preferred_locale END,
 			 verified_at = COALESCE(?, verified_at),
 			 last_synced_at = COALESCE(?, last_synced_at),
 			 updated_at = ?
@@ -523,6 +530,8 @@ export async function upsertVerifiedPlayer(
 			data.stfc_pro_url ?? null,
 			data.verification_status ?? null,
 			data.personal_channel_id ?? null,
+			localeProvided ? 1 : 0,
+			localeProvided ? (data.preferred_locale?.trim() || null) : null,
 			data.verified_at ?? null,
 			data.last_synced_at ?? null,
 			now,

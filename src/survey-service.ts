@@ -19,6 +19,7 @@ import {
 import { describeSurveyTarget, resolveSurveyTargets } from './survey-targeting';
 import type { SurveyDelivery, SurveyRecord, SurveyTargetType } from './survey-types';
 import type { GuildConfig, VerifiedPlayer } from './types';
+import { resolveLocale, t } from './i18n';
 
 const VIEW = 0x400;
 const SEND = 0x800;
@@ -189,9 +190,12 @@ async function deliverSurveyMessage(
 	delivery: SurveyDelivery,
 	prefix?: string,
 ): Promise<void> {
-	const content =
-		(prefix ? `${prefix}\n\n` : '') +
-		`**Survey #${survey.id}**\n${survey.question}\n\nTap a button to respond:`;
+	const locale = resolveLocale(player.preferred_locale);
+	const body = t(locale, 'survey.delivery.body', {
+		id: survey.id,
+		question: survey.question,
+	});
+	const content = (prefix ? `${prefix}\n\n` : '') + body;
 	const components = buildSurveyVoteComponents(survey.id, survey.options);
 
 	if (delivery === 'personal_channel' && player.personal_channel_id) {
@@ -234,6 +238,7 @@ export async function sendSurveyTest(
 		stfc_pro_url: null,
 		verification_status: 'active',
 		personal_channel_id: null,
+		preferred_locale: null,
 		verified_at: null,
 		last_synced_at: null,
 	};
@@ -242,7 +247,7 @@ export async function sendSurveyTest(
 		fakePlayer,
 		survey,
 		'dm',
-		'🧪 **Test delivery** (only you — votes while draft are not counted)',
+		t(resolveLocale(fakePlayer.preferred_locale), 'survey.delivery.test_prefix').trim(),
 	);
 }
 

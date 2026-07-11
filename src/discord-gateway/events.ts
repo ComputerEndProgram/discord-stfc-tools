@@ -1,21 +1,15 @@
-import { sendChannelMessage } from '../discord-api';
-import { getGuildConfig, getPendingVerificationsForUser, upsertVerifiedPlayer } from '../guild-db';
+import { sendChannelMessage, sendMessageWithComponents } from '../discord-api';
+import { getGuildConfig, getPendingVerificationsForUser, getVerifiedPlayer, upsertVerifiedPlayer } from '../guild-db';
 import { processVerification } from '../verification';
+import { resolveLocale, t } from '../i18n';
+import {
+	buildLanguagePickerComponents,
+	languagePickerPrompt,
+	sendLanguagePickerDm,
+} from '../i18n/language-picker';
 import { extractStfcProUrls, pickImageAttachmentUrl } from './dm-handler';
 import type { DiscordMessage } from './protocol';
 import type { VerificationStatus } from '../types';
-
-const SCREENSHOT_RECEIVED_MESSAGE =
-	'✅ Screenshot received and archived. Now send your **stfc.pro profile link** (e.g. `https://stfc.pro/player/12345?region=US&server=42`).';
-
-const NEED_SCREENSHOT_MESSAGE =
-	'Please send a **screenshot of your in-game profile** first, then your stfc.pro link.\n\nYou can also use `/verify` in the server.';
-
-const NEED_LINK_MESSAGE =
-	'Please send your **stfc.pro profile link** to continue verification.';
-
-const MULTI_GUILD_MESSAGE =
-	'You have pending verification in multiple servers. Please use `/verify` in the Discord server you want to join.';
 
 export async function handleDirectMessage(env: Env, message: DiscordMessage): Promise<void> {
 	if (message.author.bot) return;
@@ -29,22 +23,27 @@ export async function handleDirectMessage(env: Env, message: DiscordMessage): Pr
 
 	const pending = await getPendingVerificationsForUser(env.STFC_DB, userId);
 	if (pending.length === 0) {
-		await sendChannelMessage(
-			token,
-			message.channel_id,
-			'No pending verification found. Join a configured server first, or use `/verify` there.',
-		);
+		await sendChannelMessage(token, message.channel_id, t('en', 'verify.dm.no_pending'));
 		return;
 	}
 
 	if (pending.length > 1) {
-		await sendChannelMessage(token, message.channel_id, MULTI_GUILD_MESSAGE);
+		await sendChannelMessage(token, message.channel_id, t('en', 'verify.dm.multi_guild'));
 		return;
 	}
 
 	const record = pending[0];
 	const config = await getGuildConfig(env.STFC_DB, record.guild_id);
 	if (!config) return;
+
+	const locale = resolveLocale(record.preferred_locale);
+	if (!record.preferred_locale) {
+		await sendMessageWithComponents(token, message.channel_id, {
+			content: languagePickerPrompt(),
+			components: buildLanguagePickerComponents(record.guild_id),
+		});
+		return;
+	}
 
 	const status = record.verification_status as VerificationStatus;
 	const imageUrl = pickImageAttachmentUrl(message.attachments);
@@ -64,7 +63,7 @@ export async function handleDirectMessage(env: Env, message: DiscordMessage): Pr
 				return;
 			}
 
-			await sendChannelMessage(token, message.channel_id, SCREENSHOT_RECEIVED_MESSAGE);
+			await sendChannelMessage(token, message.channel_id, t(locale, 'verify.dm.screenshot_received'));
 			return;
 		}
 
@@ -74,7 +73,7 @@ export async function handleDirectMessage(env: Env, message: DiscordMessage): Pr
 			return;
 		}
 
-		await sendChannelMessage(token, message.channel_id, NEED_SCREENSHOT_MESSAGE);
+		await sendChannelMessage(token, message.channel_id, t(locale, 'verify.dm.need_screenshot'));
 		return;
 	}
 
@@ -86,11 +85,17 @@ export async function handleDirectMessage(env: Env, message: DiscordMessage): Pr
 			return;
 		}
 
-		if (imageUrl) {
-			await sendChannelMessage(token, message.channel_id, NEED_LINK_MESSAGE);
-			return;
-		}
-
-		await sendChannelMessage(token, message.channel_id, NEED_LINK_MESSAGE);
+		await sendChannelMessage(token, message.channel_id, t(locale, 'verify.dm.need_link'));
 	}
+}
+
+/** Re-send language picker to a user who still has no locale (optional helper). */
+export async function promptLocaleIfMissing(
+	env: Env,
+	guildId: string,
+	userId: string,
+): Promise<void> {
+	const player = await getVerifiedPlayer(env.STFC_DB, guildId, userId);
+	if (player?.preferred_locale || !env.DISCORD_BOT_TOKEN) return;
+	await sendLanguagePickerDm(env.DISCORD_BOT_TOKEN, userId, guildId);
 }

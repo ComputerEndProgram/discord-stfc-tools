@@ -21,6 +21,7 @@ function player(partial: Partial<VerifiedPlayer> & { discord_user_id: string }):
 		stfc_pro_url: null,
 		verification_status: 'active',
 		personal_channel_id: null,
+		preferred_locale: null,
 		verified_at: null,
 		last_synced_at: null,
 		...partial,

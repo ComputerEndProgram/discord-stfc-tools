@@ -110,6 +110,8 @@ export interface VerifiedPlayer {
 	stfc_pro_url: string | null;
 	verification_status: VerificationStatus;
 	personal_channel_id: string | null;
+	/** Player-facing bot language (en, de, …). Null until chosen. */
+	preferred_locale: string | null;
 	verified_at: string | null;
 	last_synced_at: string | null;
 }

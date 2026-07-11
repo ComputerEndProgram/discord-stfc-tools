@@ -132,6 +132,22 @@ List roles / IDs:
 
 ---
 
+## 3b. Player language (i18n)
+
+Player-facing **DMs** (and survey delivery) are localized. On first bot contact (join invite), members get a **language picker**. They can change later with:
+
+```
+/language
+```
+
+Stored per Discord user on `verified_players.preferred_locale`.
+
+Supported: English, Deutsch, Français, Español, Português, Nederlands, Polski, Italiano, Русский, Türkçe.
+
+Admin ephemeral replies and shared channel pins (e.g. exchange hub) stay in English for now.
+
+---
+
 ## 4. Verification log channel (admin archive)
 
 Posts a **summary + screenshot** to a staff-only channel on each successful verify (active or guest). Screenshots are still stored in R2 when configured; the log channel is for day-to-day review without digging in storage.
@@ -565,12 +581,13 @@ After create you get an ephemeral draft with buttons:
 3. [ ] `/server channels extra-roles` — officers/roles that see **all** member channels (not part of setup)  
 4. [ ] `/server channels audit create:true` — general bot audit (admin + automated actions)  
 5. [ ] `/server channels log create:true` — verification archive (screenshots; separate from audit)  
-6. [ ] Link existing member channels with `/server channels link` if needed  
-7. [ ] `/server channels plan` then `/server channels rebalance apply:true create_missing:true` (or manual `/server channels map`)  
-8. [ ] Optional: `nickname_template`, rank roles, `/server bucket`  
-9. [ ] Multi-alliance: `/server channels diplomacy enable:true write_roles:Diplomat write_ranks:Commodore,Admiral`  
-10. [ ] Optional: `/survey creators` for officers who may poll the alliance  
-11. [ ] Optional: `/exchange setup` + `/exchange resource create` for cross-alliance resources  
-12. [ ] `/server test-invite` → verify yourself → check roles, log, personal/diplomacy channels  
-13. [ ] Existing members: `/server verify user:@Them link:https://stfc.pro/…` (repeat as needed)  
-14. [ ] `/server status` looks correct  
+6. [ ] Members pick language on first DM (or `/language`) — player-facing messages are localized  
+7. [ ] Link existing member channels with `/server channels link` if needed  
+8. [ ] `/server channels plan` then `/server channels rebalance apply:true create_missing:true` (or manual `/server channels map`)  
+9. [ ] Optional: `nickname_template`, rank roles, `/server bucket`  
+10. [ ] Multi-alliance: `/server channels diplomacy enable:true write_roles:Diplomat write_ranks:Commodore,Admiral`  
+11. [ ] Optional: `/survey creators` for officers who may poll the alliance  
+12. [ ] Optional: `/exchange setup` + `/exchange resource create` for cross-alliance resources  
+13. [ ] `/server test-invite` → verify yourself → check roles, log, personal/diplomacy channels  
+14. [ ] Existing members: `/server verify user:@Them link:https://stfc.pro/…` (repeat as needed)  
+15. [ ] `/server status` looks correct  

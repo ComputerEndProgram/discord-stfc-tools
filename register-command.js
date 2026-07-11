@@ -11,6 +11,10 @@ if (!DISCORD_APPLICATION_ID || !DISCORD_BOT_TOKEN) {
 
 const commands = [
 	{
+		name: 'language',
+		description: 'Choose your preferred language for bot DMs and messages',
+	},
+	{
 		name: 'lookup',
 		description: 'Look up STFC coordinate information',
 		options: [

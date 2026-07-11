@@ -28,6 +28,7 @@ import {
 } from './exchange-db';
 import type { ExchangeResource } from './exchange-types';
 import { getVerifiedPlayer } from './guild-db';
+import { resolveLocale, t } from './i18n';
 import type { GuildConfig, VerifiedPlayer } from './types';
 
 export function slugifyResourceName(name: string): string {
@@ -88,7 +89,10 @@ export function buildResourcePinComponents(resourceId: number): DiscordActionRow
 	];
 }
 
-export function buildDonorOfferComponents(requestId: number): DiscordActionRow[] {
+export function buildDonorOfferComponents(
+	requestId: number,
+	locale: string = 'en',
+): DiscordActionRow[] {
 	return [
 		{
 			type: 1,
@@ -96,13 +100,13 @@ export function buildDonorOfferComponents(requestId: number): DiscordActionRow[]
 				{
 					type: 2,
 					style: 3,
-					label: 'Help',
+					label: t(locale, 'exchange.btn.help'),
 					custom_id: `exch:help:${requestId}`,
 				},
 				{
 					type: 2,
 					style: 2,
-					label: 'Ignore',
+					label: t(locale, 'exchange.btn.ignore'),
 					custom_id: `exch:ignore:${requestId}`,
 				},
 			],
@@ -110,7 +114,10 @@ export function buildDonorOfferComponents(requestId: number): DiscordActionRow[]
 	];
 }
 
-export function buildRecipientFollowupComponents(requestId: number): DiscordActionRow[] {
+export function buildRecipientFollowupComponents(
+	requestId: number,
+	locale: string = 'en',
+): DiscordActionRow[] {
 	return [
 		{
 			type: 1,
@@ -118,13 +125,13 @@ export function buildRecipientFollowupComponents(requestId: number): DiscordActi
 				{
 					type: 2,
 					style: 3,
-					label: 'Completed',
+					label: t(locale, 'exchange.btn.completed'),
 					custom_id: `exch:done:${requestId}`,
 				},
 				{
 					type: 2,
 					style: 1,
-					label: 'Ask again',
+					label: t(locale, 'exchange.btn.ask_again'),
 					custom_id: `exch:again:${requestId}`,
 				},
 			],
@@ -313,13 +320,16 @@ export async function notifyEligibleDonors(
 	const name = recipient.player_name || `<@${recipient.discord_user_id}>`;
 	const ops = recipient.ops_level ?? '?';
 	const tag = recipient.alliance_tag || '—';
-	const content =
-		`📦 **${name}** (Ops ${ops}) needs **${resource.name}**.\n` +
-		`Alliance: [${tag}]\n` +
-		`Hit **Help** to claim (first wins), or **Ignore**.`;
-	const components = buildDonorOfferComponents(requestId);
 	let sent = 0;
 	for (const d of eligible) {
+		const locale = resolveLocale(d.preferred_locale);
+		const content = t(locale, 'exchange.dm.need_request', {
+			name,
+			ops,
+			resource: resource.name,
+			tag,
+		});
+		const components = buildDonorOfferComponents(requestId, locale);
 		try {
 			await dmWithComponents(env.DISCORD_BOT_TOKEN, d.discord_user_id, content, components);
 			sent += 1;
@@ -408,10 +418,14 @@ export async function cancelNeedRequest(
 		if (claimerId) {
 			try {
 				const channelId = await openDmChannel(env.DISCORD_BOT_TOKEN, claimerId);
+				const claimer = await getVerifiedPlayer(env.STFC_DB, guildId, claimerId);
+				const locale = resolveLocale(claimer?.preferred_locale);
 				await sendMessageWithComponents(env.DISCORD_BOT_TOKEN, channelId, {
-					content:
-						`ℹ️ <@${userId}> cancelled their **${resource.name}** request ` +
-						`(#${existing.id}) — no longer needed.`,
+					content: t(locale, 'exchange.dm.request_cancelled', {
+						userId,
+						resource: resource.name,
+						id: existing.id,
+					}),
 					components: [],
 				});
 			} catch (err) {
@@ -464,15 +478,19 @@ export async function handleHelpClaim(
 
 	const donorName = donor.player_name || `<@${donorUserId}>`;
 	const recipName = recipient.player_name || `<@${recipient.discord_user_id}>`;
+	const recipLocale = resolveLocale(recipient.preferred_locale);
 	try {
 		await dmWithComponents(
 			env.DISCORD_BOT_TOKEN,
 			request.recipient_discord_user_id,
-			`🤝 **${donorName}** (Ops ${donor.ops_level ?? '?'}, [${donor.alliance_tag || '—'}]) ` +
-				`claimed your **${resource.name}** request!\n` +
-				`Discord: <@${donorUserId}>\n\n` +
-				`When done, tap **Completed**. If they can’t help, tap **Ask again**.`,
-			buildRecipientFollowupComponents(requestId),
+			t(recipLocale, 'exchange.dm.claimed', {
+				donorName,
+				ops: donor.ops_level ?? '?',
+				tag: donor.alliance_tag || '—',
+				resource: resource.name,
+				donorId: donorUserId,
+			}),
+			buildRecipientFollowupComponents(requestId, recipLocale),
 		);
 	} catch (err) {
 		console.error('Recipient claim DM failed:', err);

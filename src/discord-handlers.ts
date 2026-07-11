@@ -1647,6 +1647,10 @@ export async function handleDiscordInteraction(
 
 	if (interaction.type === 3) {
 		const customId = interaction.data?.custom_id as string | undefined;
+		if (customId?.startsWith('locale:')) {
+			const { handleLocaleComponent } = await import('./i18n/language-picker');
+			return handleLocaleComponent(env, interaction);
+		}
 		if (customId?.startsWith('survey:')) {
 			const { handleSurveyComponent } = await import('./survey-handlers');
 			return handleSurveyComponent(env, ctx, interaction);
@@ -1660,6 +1664,15 @@ export async function handleDiscordInteraction(
 
 	if (interaction.type === 2) {
 		const { data } = interaction;
+
+		if (data.name === 'language') {
+			const guildId = interaction.guild_id as string | undefined;
+			if (!guildId) {
+				return interactionResponse('❌ Run `/language` inside the server.', true);
+			}
+			const { languagePickerInteractionResponse } = await import('./i18n/language-picker');
+			return languagePickerInteractionResponse(guildId);
+		}
 
 		if (data.name === 'survey') {
 			const { handleSurveyCommand } = await import('./survey-handlers');
