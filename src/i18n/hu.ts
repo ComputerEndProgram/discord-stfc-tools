@@ -58,8 +58,9 @@ export const hu: MessageCatalog = {
 	'verify.note.manual': 'Kézi: <@{userId}>',
 
 	'verify.hint.nickname_permissions':
-	'verify.hint.role_permissions': "\n↳ Usually: bot needs **Manage Roles**, and its role must sit **above** every role it assigns (and above the member’s highest role) in Server Settings → Roles.",
 		'\n↳ Általában: a botnak kell a **Becenevek kezelése**, a szerepének **a tag felett** kell lennie, és a Discord nem tudja átnevezni a **szerver tulajdonosát**.',
+	'verify.hint.role_permissions':
+		'\n↳ Általában: a botnak kell a **Szerepek kezelése**, és a szerepének **minden kiosztott szerep felett** kell lennie (és a tag legmagasabb szerepe felett) a Szerverbeállítások → Szerepek listában.',
 
 	'verify.player_summary':
 		'**{name}** (ID {id})\nSzövetség: [{alliance}] · Rang: {rank}\nOps {ops} · Power {power}\nSzerver {server} ({region})',
