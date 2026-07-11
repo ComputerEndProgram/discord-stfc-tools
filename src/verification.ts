@@ -7,6 +7,8 @@ import { opsLevelToGrade } from './grade-utils';
 import {
 	getGuildConfig,
 	getVerifiedPlayer,
+	markMemberInvited,
+	recordGuildMember,
 	recordPlayerStats,
 	recordScreenshot,
 	upsertVerifiedPlayer,
@@ -193,6 +195,10 @@ export async function processVerification(
 		verified_at: now,
 		last_synced_at: now,
 	});
+
+	// Stop cron invite retries (manual verify often left verification_invited_at NULL).
+	await recordGuildMember(env.STFC_DB, guildId, discordUserId, null);
+	await markMemberInvited(env.STFC_DB, guildId, discordUserId);
 
 	const verified = await getVerifiedPlayer(env.STFC_DB, guildId, discordUserId);
 	if (verified) {
@@ -393,6 +399,19 @@ export async function inviteNewMember(
 	username: string,
 ): Promise<DmResult> {
 	const existing = await getVerifiedPlayer(env.STFC_DB, guildId, userId);
+	const alreadyDone =
+		existing &&
+		(existing.verification_status === 'active' ||
+			existing.verification_status === 'guest' ||
+			existing.verification_status === 'verified');
+
+	// Manually verified (or already onboarded) — never reset status or spam invite DMs.
+	if (alreadyDone) {
+		await recordGuildMember(env.STFC_DB, guildId, userId, username);
+		await markMemberInvited(env.STFC_DB, guildId, userId);
+		return { ok: true };
+	}
+
 	await upsertVerifiedPlayer(env.STFC_DB, {
 		guild_id: guildId,
 		discord_user_id: userId,
@@ -413,6 +432,7 @@ export async function inviteNewMember(
 		} else {
 			await sendDirectMessage(env.DISCORD_BOT_TOKEN, userId, t(locale, 'verify.invite.welcome'));
 		}
+		await markMemberInvited(env.STFC_DB, guildId, userId);
 		await postAuditLog(env, config, {
 			title: 'Verification invite sent',
 			description: `DM sent to <@${userId}> (${username})` +
@@ -433,9 +453,17 @@ export async function inviteNewMember(
 		}
 
 		console.error(`Failed to DM ${userId}:`, errorMessage);
+		const is403 = status === 403 || /DM open failed:\s*403/i.test(errorMessage);
+		// Stop retrying forever when privacy blocks DMs — they can /verify in-channel.
+		if (is403) {
+			await markMemberInvited(env.STFC_DB, guildId, userId);
+		}
+		const privacyHint = is403
+			? '\n\nLikely cause: their Discord privacy settings block DMs from server members (or they blocked the bot). Ask them to enable **Allow direct messages from server members** for this server, then use `/server test-invite` or `/verify` in-channel.'
+			: '';
 		await postAuditLog(env, config, {
 			title: 'Verification invite failed',
-			description: `Could not DM <@${userId}> (${username}): ${errorMessage.slice(0, 500)}`,
+			description: `Could not DM <@${userId}> (${username}): ${errorMessage.slice(0, 400)}${privacyHint}`,
 			actorId: userId,
 			source: 'automated',
 			color: AuditColor.danger,

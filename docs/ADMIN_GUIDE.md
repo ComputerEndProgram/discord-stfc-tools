@@ -659,7 +659,8 @@ After create you get an ephemeral draft with buttons:
 |---------|------------|
 | Roles not assigned / `50013` on `/roles/…` | [Raise bot in role hierarchy](#role-hierarchy-drag-the-bot-up); bot needs **Manage Roles** (Administrator not required) |
 | Nickname fails (403) | Manage Nicknames; bot role above member; **owner cannot be renamed** |
-| No verification DM | Member privacy (allow DMs); `/server gateway` Ready; bot token secret set |
+| No verification DM / `DM open failed: 403` | Member privacy: **User Settings → Privacy** or server privacy — allow DMs from server members; or they blocked the bot. Use `/verify` in-channel as fallback; retry with `/server test-invite` after they fix privacy. After one 403 the bot stops auto-retrying that member |
+| Repeat “Verification invite failed” for people already verified | Fixed in code: manual `/server verify` now marks invited; already `active`/`guest` members are skipped by the invite cron. Redeploy to pick up |
 | “Server not configured” | Run `/server setup` |
 | Log channel silent | `/server channels log` set; bot can attach files; redeploy after feature add |
 | Personal channel not created | Single-alliance + category map set; check `/server channels status` |

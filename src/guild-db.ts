@@ -510,7 +510,7 @@ export async function recordGuildMember(
 			`INSERT INTO guild_members (guild_id, discord_user_id, username, verification_invited_at)
 			 VALUES (?, ?, ?, ?)
 			 ON CONFLICT (guild_id, discord_user_id) DO UPDATE SET
-			   username = excluded.username,
+			   username = COALESCE(excluded.username, guild_members.username),
 			   verification_invited_at = COALESCE(guild_members.verification_invited_at, excluded.verification_invited_at)`,
 		)
 		.bind(guildId, userId, username, invitedAt ?? null)
@@ -802,10 +802,18 @@ export async function getPendingVerificationsForUser(
 }
 
 export async function getMembersNeedingInvite(db: D1Database, guildId: string): Promise<GuildMemberRecord[]> {
+	// Skip anyone already verified/active/guest (manual verify often left invited_at NULL).
 	const { results } = await db
 		.prepare(
-			`SELECT * FROM guild_members
-			 WHERE guild_id = ? AND verification_invited_at IS NULL`,
+			`SELECT gm.* FROM guild_members gm
+			 WHERE gm.guild_id = ?
+			   AND gm.verification_invited_at IS NULL
+			   AND NOT EXISTS (
+			     SELECT 1 FROM verified_players vp
+			     WHERE vp.guild_id = gm.guild_id
+			       AND vp.discord_user_id = gm.discord_user_id
+			       AND vp.verification_status IN ('verified', 'active', 'guest')
+			   )`,
 		)
 		.bind(guildId)
 		.all();
