@@ -2,6 +2,7 @@ import {
 	createGuildCategory,
 	listGuildChannels,
 	patchGuildChannel,
+	modifyGuildChannelPositions,
 	createGuildTextChannel,
 	fetchGuildChannel,
 	getGuildChannel,
@@ -20,6 +21,7 @@ import {
 	DEFAULT_SOFT_LIMIT,
 	applyCategoryNameTemplate,
 	buildLetterHistogram,
+	categoryNameTemplatePrefix,
 	formatCategoryPlan,
 	letterKeyForName,
 	planCategoryBuckets,
@@ -29,6 +31,80 @@ import {
 import type { GuildConfig, VerifiedPlayer } from './types';
 
 const DEFAULT_ARCHIVE_NAME = 'Member Channels Archive';
+
+/** Stable A–Z order for Discord channel names within a category. */
+export function compareChannelNamesAlpha(a: string, b: string): number {
+	return a.localeCompare(b, undefined, { sensitivity: 'base', numeric: true });
+}
+
+/**
+ * Reorder text/announcement channels under a category alphabetically by name.
+ * Returns how many channels were considered (0 if nothing to do / already sorted).
+ */
+export async function sortCategoryChannelsAlphabetically(
+	token: string,
+	guildId: string,
+	categoryId: string,
+	allChannels?: DiscordChannel[],
+): Promise<{ sorted: number; changed: boolean }> {
+	const channels = allChannels ?? (await listGuildChannels(token, guildId));
+	const category = channels.find((ch) => ch.id === categoryId && ch.type === 4);
+	const children = channels
+		.filter((ch) => ch.parent_id === categoryId && isLinkableGuildTextChannel(ch.type))
+		.sort((a, b) => compareChannelNamesAlpha(a.name, b.name));
+
+	if (children.length <= 1) return { sorted: children.length, changed: false };
+
+	const byPosition = [...children].sort(
+		(a, b) =>
+			(a.position ?? 0) - (b.position ?? 0) || compareChannelNamesAlpha(a.name, b.name),
+	);
+	const alreadySorted = byPosition.every((ch, i) => ch.id === children[i].id);
+	if (alreadySorted) return { sorted: children.length, changed: false };
+
+	const startPos = (category?.position ?? 0) + 1;
+	await modifyGuildChannelPositions(
+		token,
+		guildId,
+		children.map((ch, i) => ({
+			id: ch.id,
+			position: startPos + i,
+			parent_id: categoryId,
+		})),
+	);
+	return { sorted: children.length, changed: true };
+}
+
+export async function sortMemberCategoryMapsAlphabetically(
+	token: string,
+	guildId: string,
+	categoryMap: Record<string, string>,
+	allChannels?: DiscordChannel[],
+): Promise<{ categoriesSorted: number; channelsTouched: number }> {
+	const channels = allChannels ?? (await listGuildChannels(token, guildId));
+	let categoriesSorted = 0;
+	let channelsTouched = 0;
+	const seen = new Set<string>();
+	for (const categoryId of Object.values(categoryMap)) {
+		if (!/^\d{15,20}$/.test(categoryId) || seen.has(categoryId)) continue;
+		seen.add(categoryId);
+		try {
+			const result = await sortCategoryChannelsAlphabetically(
+				token,
+				guildId,
+				categoryId,
+				channels,
+			);
+			if (result.changed) {
+				categoriesSorted++;
+				channelsTouched += result.sorted;
+			}
+		} catch {
+			/* non-fatal — Manage Channels required */
+		}
+	}
+	return { categoriesSorted, channelsTouched };
+}
 
 export type PersonalChannelResult =
 	| {
@@ -143,6 +219,13 @@ export async function ensurePersonalChannel(
 				}
 
 				await applyPersonalChannelPermissions(token, guildId, existingChannelId, userId, config);
+				if ((moved || renamed) && targetCategoryId) {
+					try {
+						await sortCategoryChannelsAlphabetically(token, guildId, targetCategoryId);
+					} catch {
+						/* non-fatal */
+					}
+				}
 				return { ok: true, channelId: existingChannelId, created: false, moved, renamed };
 			}
 		}
@@ -154,6 +237,13 @@ export async function ensurePersonalChannel(
 		});
 		// Re-apply in case Discord dropped sync/overwrites; soft-fail warnings ignored on create.
 		await applyPersonalChannelPermissions(token, guildId, channel.id, userId, config);
+		if (targetCategoryId) {
+			try {
+				await sortCategoryChannelsAlphabetically(token, guildId, targetCategoryId);
+			} catch {
+				/* non-fatal */
+			}
+		}
 		return { ok: true, channelId: channel.id, created: true, moved: false, renamed: false };
 	} catch (error) {
 		const message = error instanceof Error ? error.message : 'unknown error';
@@ -215,6 +305,13 @@ export async function linkExistingPersonalChannel(
 			if (channel.name !== desiredName) {
 				await patchGuildChannel(token, channelId, { name: desiredName });
 				renamed = true;
+			}
+			if ((moved || renamed) && targetCategoryId) {
+				try {
+					await sortCategoryChannelsAlphabetically(token, guildId, targetCategoryId);
+				} catch {
+					/* non-fatal */
+				}
 			}
 		}
 
@@ -503,11 +600,26 @@ export async function rebalancePersonalChannels(
 	);
 
 	const existing = sortedCategoryMapEntries(config.channel_category_map);
+	const previousMapCategoryIds = [
+		...new Set(existing.map((e) => e.categoryId).filter((id) => /^\d{15,20}$/.test(id))),
+	];
 	const newMap: Record<string, string> = {};
 	const errors: string[] = [];
 	let categoriesCreated = 0;
 	let categoriesRenamed = 0;
+	let categoriesReusedByName = 0;
 	let archiveCategoryId: string | null = null;
+
+	// List once up front — reuse by map id / exact name, and archive across old+new categories.
+	let channelById = new Map<string, DiscordChannel>();
+	try {
+		const listed = await listGuildChannels(token, guildId);
+		channelById = new Map(listed.map((ch) => [ch.id, ch]));
+	} catch (error) {
+		errors.push(
+			`Could not list guild channels: ${error instanceof Error ? error.message : 'unknown'}`,
+		);
+	}
 
 	if (archiveUnlinked || opts.archiveCategoryId || opts.archiveName) {
 		try {
@@ -524,6 +636,14 @@ export async function rebalancePersonalChannels(
 			} else {
 				archiveCategoryId = resolved.categoryId;
 				if (resolved.created) categoriesCreated++;
+				if (archiveCategoryId && resolved.created) {
+					channelById.set(archiveCategoryId, {
+						id: archiveCategoryId,
+						name: opts.archiveName?.trim() || DEFAULT_ARCHIVE_NAME,
+						type: 4,
+						guild_id: guildId,
+					});
+				}
 			}
 		} catch (error) {
 			errors.push(
@@ -534,10 +654,34 @@ export async function rebalancePersonalChannels(
 		archiveCategoryId = config.personal_channel_archive_category_id;
 	}
 
+	const guildCategories = [...channelById.values()].filter((ch) => ch.type === 4);
+	const assignedCategoryIds = new Set<string>();
+	if (archiveCategoryId) assignedCategoryIds.add(archiveCategoryId);
+
 	for (let i = 0; i < plan.buckets.length; i++) {
 		const bucket = plan.buckets[i];
 		const desiredName = applyCategoryNameTemplate(nameTemplate, bucket.range);
-		let categoryId = existing[i]?.categoryId;
+		let categoryId: string | undefined = existing[i]?.categoryId;
+		let reusedByName = false;
+
+		// Drop stale map ids that no longer exist in the guild.
+		if (categoryId && !channelById.has(categoryId)) {
+			categoryId = undefined;
+		}
+		if (categoryId && assignedCategoryIds.has(categoryId)) {
+			categoryId = undefined;
+		}
+
+		// After a crashed run the map may be empty but categories already exist — adopt by name.
+		if (!categoryId) {
+			const byName = guildCategories.find(
+				(ch) => ch.name === desiredName && !assignedCategoryIds.has(ch.id),
+			);
+			if (byName) {
+				categoryId = byName.id;
+				reusedByName = true;
+			}
+		}
 
 		if (!categoryId) {
 			if (!createCategories) {
@@ -548,6 +692,12 @@ export async function rebalancePersonalChannels(
 				const created = await createGuildCategory(token, guildId, desiredName);
 				categoryId = created.id;
 				categoriesCreated++;
+				channelById.set(created.id, {
+					id: created.id,
+					name: desiredName,
+					type: 4,
+					guild_id: guildId,
+				});
 			} catch (error) {
 				errors.push(
 					`Failed to create category ${desiredName}: ${error instanceof Error ? error.message : 'unknown'}`,
@@ -556,10 +706,11 @@ export async function rebalancePersonalChannels(
 			}
 		} else if (renameCategories) {
 			try {
-				const ch = await getGuildChannel(token, categoryId);
+				const ch = channelById.get(categoryId) ?? (await getGuildChannel(token, categoryId));
 				if (ch && ch.name !== desiredName) {
 					await patchGuildChannel(token, categoryId, { name: desiredName });
 					categoriesRenamed++;
+					channelById.set(categoryId, { ...ch, name: desiredName });
 				}
 			} catch (error) {
 				errors.push(
@@ -568,7 +719,11 @@ export async function rebalancePersonalChannels(
 			}
 		}
 
-		if (categoryId) newMap[bucket.range] = categoryId;
+		if (categoryId) {
+			if (reusedByName) categoriesReusedByName++;
+			assignedCategoryIds.add(categoryId);
+			newMap[bucket.range] = categoryId;
+		}
 	}
 
 	const configWithMap: GuildConfig = {
@@ -593,24 +748,13 @@ export async function rebalancePersonalChannels(
 	let channelsFailed = 0;
 	let channelsRenamed = 0;
 
-	// One guild channel list beats N GETs (and survives better under rate limits).
-	let channelById = new Map<string, DiscordChannel>();
-	try {
-		const listed = await listGuildChannels(token, guildId);
-		channelById = new Map(listed.map((ch) => [ch.id, ch]));
-	} catch (error) {
-		errors.push(
-			`Could not list guild channels (falling back to per-channel fetch): ${
-				error instanceof Error ? error.message : 'unknown'
-			}`,
-		);
-	}
-
 	const linkedWithNames = opts.players.filter((p) => p.player_name?.trim());
 	let processed = 0;
 
 	await report(
-		`⏳ Rebalance: categories ready (${categoriesCreated} created, ${categoriesRenamed} renamed). Moving/creating channels (0/${linkedWithNames.length})…`,
+		`⏳ Rebalance: categories ready (` +
+			`${categoriesCreated} created, ${categoriesRenamed} renamed, ${categoriesReusedByName} reused by name). ` +
+			`Moving/creating channels (0/${linkedWithNames.length})…`,
 	);
 
 	// Move (and optionally create) linked/missing personal channels.
@@ -704,12 +848,31 @@ export async function rebalancePersonalChannels(
 		} else {
 			try {
 				await report(`⏳ Rebalance: archiving unlinked channels → <#${archiveCategoryId}>…`);
-				const channels =
-					channelById.size > 0
-						? [...channelById.values()]
-						: await listGuildChannels(token, guildId);
-				const cats = memberCategoryIds(config.channel_category_map, ...Object.values(newMap));
-				// Do not treat archive itself as a member category.
+				// Refresh list so parent_ids reflect moves we just made.
+				try {
+					const listed = await listGuildChannels(token, guildId);
+					channelById = new Map(listed.map((ch) => [ch.id, ch]));
+				} catch {
+					/* keep cached list */
+				}
+				const channels = [...channelById.values()];
+				const namePrefix = categoryNameTemplatePrefix(nameTemplate);
+				const leftoverByName = channels
+					.filter(
+						(ch) =>
+							ch.type === 4 &&
+							ch.id !== archiveCategoryId &&
+							!Object.values(newMap).includes(ch.id) &&
+							(ch.name?.startsWith(namePrefix) || previousMapCategoryIds.includes(ch.id)),
+					)
+					.map((ch) => ch.id);
+
+				const cats = memberCategoryIds(
+					config.channel_category_map,
+					...Object.values(newMap),
+					...previousMapCategoryIds,
+					...leftoverByName,
+				);
 				cats.delete(archiveCategoryId);
 				const unlinked = findUnlinkedMemberChannels(
 					channels,
@@ -745,22 +908,60 @@ export async function rebalancePersonalChannels(
 		}
 	}
 
-	const orphaned = existing.slice(plan.buckets.length);
+	await report(`⏳ Rebalance: sorting channels alphabetically within categories…`);
+	let categoriesAlphaSorted = 0;
+	try {
+		const listed = await listGuildChannels(token, guildId);
+		channelById = new Map(listed.map((ch) => [ch.id, ch]));
+		const sortResult = await sortMemberCategoryMapsAlphabetically(
+			token,
+			guildId,
+			newMap,
+			[...channelById.values()],
+		);
+		categoriesAlphaSorted = sortResult.categoriesSorted;
+	} catch (error) {
+		errors.push(
+			`Alphabetical sort failed: ${error instanceof Error ? error.message : 'unknown'}`,
+		);
+	}
+
+	const orphanedMapped = existing.slice(plan.buckets.length);
+	const activeIds = new Set(Object.values(newMap));
+	if (archiveCategoryId) activeIds.add(archiveCategoryId);
+	const orphanedLeftover = [...channelById.values()].filter(
+		(ch) =>
+			ch.type === 4 &&
+			!activeIds.has(ch.id) &&
+			(ch.name?.startsWith(categoryNameTemplatePrefix(nameTemplate)) ||
+				previousMapCategoryIds.includes(ch.id)),
+	);
+	const orphanNoteParts: string[] = [];
+	if (orphanedMapped.length > 0) {
+		orphanNoteParts.push(
+			`Unused prior map slots: ${orphanedMapped.map((o) => `<#${o.categoryId}>`).join(', ')}`,
+		);
+	}
+	if (orphanedLeftover.length > 0) {
+		orphanNoteParts.push(
+			`Leftover member categories (not deleted): ${orphanedLeftover.map((c) => `<#${c.id}>`).join(', ')}`,
+		);
+	}
 	const orphanNote =
-		orphaned.length > 0
-			? `\n• Unused old categories (not deleted): ${orphaned.map((o) => `<#${o.categoryId}>`).join(', ')}`
-			: '';
+		orphanNoteParts.length > 0 ? `\n• ${orphanNoteParts.join('\n• ')}` : '';
 
 	const mapComplete = Object.keys(newMap).length === plan.buckets.length;
 	const summary = (
 		`${formatCategoryPlan(plan, { title: mapComplete ? 'Rebalance complete' : 'Rebalance partial' })}\n\n` +
 		`• Categories created: ${categoriesCreated}\n` +
 		`• Categories renamed: ${categoriesRenamed}\n` +
+		`• Categories reused by name: ${categoriesReusedByName}\n` +
 		`• Channels moved: ${channelsMoved}\n` +
 		`• Channels renamed: ${channelsRenamed}\n` +
 		`• Channels created: ${channelsCreated}\n` +
 		`• Channels archived: ${channelsArchived}\n` +
 		`• Channels failed: ${channelsFailed}\n` +
+		`• Categories A–Z sorted: ${categoriesAlphaSorted}\n` +
 		`• Archive: ${archiveCategoryId ? `<#${archiveCategoryId}>` : 'none'}\n` +
 		`• New map: ${Object.entries(newMap)
 			.map(([r, id]) => `${r}→${id}`)

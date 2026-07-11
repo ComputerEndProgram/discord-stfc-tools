@@ -237,6 +237,14 @@ export function applyCategoryNameTemplate(template: string, range: string): stri
 	return name.slice(0, 100);
 }
 
+/** Prefix before `{range}` — used to recognize prior rebalance categories by name. */
+export function categoryNameTemplatePrefix(template: string): string {
+	const raw = template.trim() || DEFAULT_CATEGORY_NAME_TEMPLATE;
+	const idx = raw.indexOf('{range}');
+	if (idx <= 0) return 'Member Channels ';
+	return raw.slice(0, idx);
+}
+
 /** Human-readable plan summary for Discord. */
 export function formatCategoryPlan(plan: CategoryPlan, opts?: { title?: string }): string {
 	const title = opts?.title ?? 'Personal channel plan';

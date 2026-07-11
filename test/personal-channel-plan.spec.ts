@@ -6,6 +6,7 @@ import {
 	parseLetterRange,
 	planCategoryBuckets,
 	applyCategoryNameTemplate,
+	categoryNameTemplatePrefix,
 	DEFAULT_SOFT_LIMIT,
 } from '../src/personal-channel-plan';
 import { categoryForPlayerName } from '../src/channel-utils';
@@ -89,6 +90,11 @@ describe('personal-channel-plan', () => {
 		expect(letterKeyForName('Łukasz')).toBe('L');
 		expect(letterKeyForName('βeta')).toBe('B');
 		expect(letterKeyForName('ンZed')).toBe('N');
+	});
+
+	it('categoryNameTemplatePrefix extracts the stem before {range}', () => {
+		expect(categoryNameTemplatePrefix('Member Channels {range}')).toBe('Member Channels ');
+		expect(categoryNameTemplatePrefix('Players {range} here')).toBe('Players ');
 	});
 
 	it('parseLetterRange supports N-#', () => {

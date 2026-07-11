@@ -103,6 +103,7 @@ export interface DiscordChannel {
 	id: string;
 	name: string;
 	type: number;
+	position?: number;
 	parent_id?: string | null;
 	guild_id?: string | null;
 	permission_overwrites?: ChannelPermissionOverwrite[];
@@ -237,13 +238,26 @@ export async function fetchGuildChannel(
 export async function patchGuildChannel(
 	token: string,
 	channelId: string,
-	updates: { name?: string; parent_id?: string | null },
+	updates: { name?: string; parent_id?: string | null; position?: number },
 ): Promise<DiscordChannel> {
 	const response = await discordFetch(token, `/channels/${channelId}`, {
 		method: 'PATCH',
 		body: JSON.stringify(updates),
 	});
 	return (await response.json()) as DiscordChannel;
+}
+
+/** Batch-update channel positions (and optional parent). Returns 204 on success. */
+export async function modifyGuildChannelPositions(
+	token: string,
+	guildId: string,
+	positions: Array<{ id: string; position: number; parent_id?: string | null }>,
+): Promise<void> {
+	if (positions.length === 0) return;
+	await discordFetch(token, `/guilds/${guildId}/channels`, {
+		method: 'PATCH',
+		body: JSON.stringify(positions),
+	});
 }
 
 export async function createGuildRole(

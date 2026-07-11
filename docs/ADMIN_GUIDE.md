@@ -421,7 +421,7 @@ Buckets use the **first letter** of the in-game name (`A`–`Z`). Names starting
 
 That creates/renames categories like `Member Channels A-M` / `Member Channels N-#`, updates the map, moves linked member channels, creates missing ones (if `create_missing`), and archives unlinked ones.
 
-Large servers take a while: the command shows **progress** on the slash reply, posts **started** + **finished** (or failed) to the audit log, and saves the category map as soon as categories exist so a retry can continue. Re-running `apply:true` is safe for channels already in the right place.
+Large servers take a while: the command shows **progress** on the slash reply, posts **started** + **finished** (or failed) to the audit log, and saves the category map as soon as categories exist so a retry can continue. Re-running `apply:true` **reuses** mapped categories (renames ranges in place, creates only extra buckets). If the map was empty after a crash, it also **adopts existing categories by matching name** (e.g. `Member Channels A-L`) instead of creating duplicates. Archive scans the current map, the previous map, and leftover `Member Channels *` categories so unlinked channels left behind by a partial run still get moved.
 
 The planner splits **fairly evenly** under the soft limit (50 players → two ~25 buckets, not 45+5). Re-run when occupancy nears the limit (`/server channels status` shows counts).
 
@@ -454,7 +454,7 @@ The planner splits **fairly evenly** under the soft limit (50 players → two ~2
 
 Or one range at a time: `range:A-M` + `category_id:…`.
 
-On verify, the bot creates a private channel for the member in the matching category (name slug from player name), with access for the member + extra-roles.
+On verify, the bot creates a private channel for the member in the matching category (name slug from player name), with access for the member + extra-roles. Channels within each member category are kept in **alphabetical** order (rebalance re-sorts all buckets; create/link/rename re-sorts that category).
 
 Clear mappings (disables auto-create):
 
