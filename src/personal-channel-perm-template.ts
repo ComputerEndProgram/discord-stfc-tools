@@ -3,8 +3,12 @@ import { decodePermissionBits } from './channel-permission-audit';
 import type { GuildConfig } from './types';
 
 const VIEW_CHANNEL = '1024';
-const MEMBER_PERMS = String(0x400 | 0x800 | 0x10000);
-const BOT_PERMS = String(0x400 | 0x800 | 0x4000 | 0x8000 | 0x10000);
+/** View + Send + Embed Links + Attach Files + Read History */
+export const DEFAULT_PERSONAL_CHANNEL_MEMBER_ALLOW = String(
+	0x400 | 0x800 | 0x4000 | 0x8000 | 0x10000,
+);
+const BOT_PERMS = DEFAULT_PERSONAL_CHANNEL_MEMBER_ALLOW;
+const MEMBER_PERMS = DEFAULT_PERSONAL_CHANNEL_MEMBER_ALLOW;
 
 export interface PermBits {
 	allow: string;
@@ -43,6 +47,52 @@ export function defaultPersonalChannelPermTemplate(): PersonalChannelPermTemplat
 		captured_at: new Date().toISOString(),
 		captured_by: null,
 	};
+}
+
+/**
+ * Clone the built-in default (or an existing template) and attach staff/viewer roles.
+ * Role allow bits match the member slot (or `roleAllow` if provided).
+ * Use this when you have not locked a sample channel — pair with `/server channels extra-roles`.
+ */
+export function withExtraRolesOnPersonalChannelPermTemplate(
+	roleIds: string[],
+	base: PersonalChannelPermTemplate | null = null,
+	roleAllow?: string,
+): PersonalChannelPermTemplate {
+	const t = base
+		? {
+				...base,
+				everyone: { ...base.everyone },
+				bot: { ...base.bot },
+				member: { ...base.member },
+			}
+		: defaultPersonalChannelPermTemplate();
+	const allow = roleAllow ?? t.member.allow;
+	const seen = new Set<string>();
+	const roles: PersonalChannelRolePerm[] = [];
+	for (const raw of roleIds) {
+		const role_id = String(raw);
+		if (!/^\d{15,20}$/.test(role_id) || seen.has(role_id)) continue;
+		seen.add(role_id);
+		roles.push({ role_id, allow, deny: '0' });
+	}
+	return { ...t, roles };
+}
+
+/**
+ * Template used for create/link/show: locked sample if set; otherwise built-in default
+ * with `personal_channel_extra_roles` filled in. Locked templates with an empty role
+ * list also pick up extra-roles (same bits as the member slot).
+ */
+export function effectivePersonalChannelPermTemplate(
+	config: Pick<GuildConfig, 'personal_channel_perm_template' | 'personal_channel_extra_roles'>,
+): PersonalChannelPermTemplate {
+	const locked = config.personal_channel_perm_template;
+	if (locked && locked.roles.length > 0) return locked;
+	return withExtraRolesOnPersonalChannelPermTemplate(
+		config.personal_channel_extra_roles,
+		locked,
+	);
 }
 
 export function parsePersonalChannelPermTemplate(
@@ -92,25 +142,36 @@ function bitsLabel(bits: PermBits): string {
 
 export function formatPersonalChannelPermTemplate(
 	template: PersonalChannelPermTemplate | null,
+	opts?: { locked?: boolean },
 ): string {
 	const t = template ?? defaultPersonalChannelPermTemplate();
-	const isDefault = !template;
+	const isDefault = opts?.locked === false || template == null;
 	const lines = [
 		isDefault
 			? '📋 **Permission template:** built-in default (not locked from a channel)'
 			: '📋 **Permission template:** locked-in',
 		t.source_channel_id ? `• Source channel: <#${t.source_channel_id}>` : '• Source channel: —',
-		t.captured_at ? `• Captured: ${t.captured_at}` : null,
-		t.captured_by ? `• By: <@${t.captured_by}>` : null,
+		!isDefault && t.captured_at ? `• Captured: ${t.captured_at}` : null,
+		!isDefault && t.captured_by ? `• By: <@${t.captured_by}>` : null,
 		`• @everyone: ${bitsLabel(t.everyone)}`,
 		`• Bot (slot): ${bitsLabel(t.bot)}`,
 		`• Member (slot): ${bitsLabel(t.member)}`,
 		t.roles.length
 			? `• Roles (${t.roles.length}):\n` +
 				t.roles.map((r) => `  – <@&${r.role_id}>: ${bitsLabel(r)}`).join('\n')
-			: '• Roles: none (only @everyone + bot + member)',
+			: '• Roles: none — set `/server channels extra-roles` (no sample channel needed)',
 	].filter(Boolean);
 	return lines.join('\n');
+}
+
+/** Format the effective template for a guild (locked or default + extra-roles). */
+export function formatEffectivePersonalChannelPermTemplate(
+	config: Pick<GuildConfig, 'personal_channel_perm_template' | 'personal_channel_extra_roles'>,
+): string {
+	const locked = Boolean(config.personal_channel_perm_template);
+	return formatPersonalChannelPermTemplate(effectivePersonalChannelPermTemplate(config), {
+		locked,
+	});
 }
 
 /**
@@ -170,7 +231,7 @@ export async function buildOverwritesFromTemplate(
 	config: GuildConfig,
 ): Promise<ChannelPermissionOverwrite[]> {
 	const botUserId = await getBotUserId(token);
-	const template = config.personal_channel_perm_template ?? defaultPersonalChannelPermTemplate();
+	const template = effectivePersonalChannelPermTemplate(config);
 
 	const overwrites: ChannelPermissionOverwrite[] = [
 		// Bot first — never lock ourselves out when denying @everyone.
@@ -194,16 +255,7 @@ export async function buildOverwritesFromTemplate(
 		},
 	];
 
-	const roleIds =
-		template.roles.length > 0
-			? template.roles
-			: config.personal_channel_extra_roles.map((role_id) => ({
-					role_id,
-					allow: MEMBER_PERMS,
-					deny: '0',
-				}));
-
-	for (const role of roleIds) {
+	for (const role of template.roles) {
 		if (!/^\d{15,20}$/.test(role.role_id)) continue;
 		overwrites.push({
 			id: role.role_id,

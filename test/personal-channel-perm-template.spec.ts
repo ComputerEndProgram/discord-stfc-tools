@@ -1,8 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import {
 	capturePersonalChannelPermTemplate,
+	DEFAULT_PERSONAL_CHANNEL_MEMBER_ALLOW,
 	defaultPersonalChannelPermTemplate,
+	effectivePersonalChannelPermTemplate,
 	parsePersonalChannelPermTemplate,
+	withExtraRolesOnPersonalChannelPermTemplate,
 } from '../src/personal-channel-perm-template';
 
 describe('personal-channel-perm-template', () => {
@@ -10,6 +13,45 @@ describe('personal-channel-perm-template', () => {
 	const botId = '222222222222222222';
 	const memberId = '333333333333333333';
 	const officerRole = '444444444444444444';
+	const diplomatRole = '555555555555555555';
+
+	it('default member allow includes embed and attach', () => {
+		const t = defaultPersonalChannelPermTemplate();
+		expect(t.member.allow).toBe(DEFAULT_PERSONAL_CHANNEL_MEMBER_ALLOW);
+		expect(t.bot.allow).toBe(DEFAULT_PERSONAL_CHANNEL_MEMBER_ALLOW);
+		// View|Send|Embed|Attach|History
+		expect(Number(t.member.allow)).toBe(0x400 | 0x800 | 0x4000 | 0x8000 | 0x10000);
+	});
+
+	it('withExtraRolesOnPersonalChannelPermTemplate fills default without a sample lock', () => {
+		const t = withExtraRolesOnPersonalChannelPermTemplate([officerRole, diplomatRole, officerRole]);
+		expect(t.source_channel_id).toBeNull();
+		expect(t.roles).toEqual([
+			{ role_id: officerRole, allow: DEFAULT_PERSONAL_CHANNEL_MEMBER_ALLOW, deny: '0' },
+			{ role_id: diplomatRole, allow: DEFAULT_PERSONAL_CHANNEL_MEMBER_ALLOW, deny: '0' },
+		]);
+	});
+
+	it('effectivePersonalChannelPermTemplate uses extra-roles on built-in default', () => {
+		const t = effectivePersonalChannelPermTemplate({
+			personal_channel_perm_template: null,
+			personal_channel_extra_roles: [officerRole],
+		});
+		expect(t.roles).toEqual([
+			{ role_id: officerRole, allow: DEFAULT_PERSONAL_CHANNEL_MEMBER_ALLOW, deny: '0' },
+		]);
+	});
+
+	it('effectivePersonalChannelPermTemplate keeps locked roles when present', () => {
+		const locked = defaultPersonalChannelPermTemplate();
+		locked.source_channel_id = '999999999999999999';
+		locked.roles = [{ role_id: diplomatRole, allow: '3072', deny: '0' }];
+		const t = effectivePersonalChannelPermTemplate({
+			personal_channel_perm_template: locked,
+			personal_channel_extra_roles: [officerRole],
+		});
+		expect(t.roles).toEqual([{ role_id: diplomatRole, allow: '3072', deny: '0' }]);
+	});
 
 	it('captures slots from overwrites', () => {
 		const template = capturePersonalChannelPermTemplate({

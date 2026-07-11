@@ -350,7 +350,9 @@ Before creating or linking member channels, configure which Discord roles can se
 /server channels extra-roles roles:@Officer,@Diplomat
 ```
 
-This is **not** part of `/server setup` — it is required for personal channels. Clear with an empty `roles:` value.
+This attaches those roles to the **built-in default** permission template (same allow bits as the member). No sample channel lock required — confirm with `/server channels permissions-template-show`. Clear with an empty `roles:` value.
+
+This is **not** part of `/server setup` — it is required for personal channels.
 
 When the bot creates a channel, updates one on verify, or links with `apply_permissions` left on (default), it applies:
 
@@ -358,7 +360,7 @@ When the bot creates a channel, updates one on verify, or links with `apply_perm
 |--------|--------|
 | **Bot** (first) | View, Send, Embed, Attach, Read History — required for surveys and other posts |
 | `@everyone` | Deny View Channel |
-| The member | View, Send Messages, Read Message History |
+| The member | View, Send, Embed Links, Attach Files, Read History |
 | Extra-roles | Same as the member |
 
 The bot overwrite is applied **before** denying `@everyone`, so the bot never locks itself out. Newly created channels include these overwrites at create time.
@@ -383,7 +385,9 @@ Before changing anything, dump what Discord currently has on linked channels + c
 - Ephemeral summary with flags (`bot_missing_view`, `linked_member_no_overwrite`, …)
 - Full text dump attached to `/server channels audit` when that channel is set (keep this as your record)
 
-### Lock a permission template from a sample channel
+### Lock a permission template from a sample channel (optional)
+
+You do **not** need this if the built-in default + `/server channels extra-roles` is enough.
 
 Once you find a member channel whose overwrites look right (bot can post, member + staff roles correct):
 
@@ -392,6 +396,8 @@ Once you find a member channel whose overwrites look right (bot can post, member
 ```
 
 Optional: `member:@Owner` if the channel isn’t linked yet; `sync_extra_roles:false` to leave `/server channels extra-roles` unchanged (default **true** copies role overwrites into extra-roles).
+
+If a locked template already lists role overwrites, those take precedence for personal channels; extra-roles still apply to log/audit/urgent channels.
 
 ```
 /server channels permissions-template-show

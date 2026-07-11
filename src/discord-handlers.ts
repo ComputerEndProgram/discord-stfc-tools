@@ -51,6 +51,7 @@ import {
 } from './channel-permission-audit';
 import {
 	capturePersonalChannelPermTemplate,
+	formatEffectivePersonalChannelPermTemplate,
 	formatPersonalChannelPermTemplate,
 } from './personal-channel-perm-template';
 import { DEFAULT_SOFT_LIMIT } from './personal-channel-plan';
@@ -1495,10 +1496,7 @@ async function handleServerChannelsCommand(
 	}
 
 	if (sub.name === 'permissions-template-show') {
-		return interactionResponse(
-			formatPersonalChannelPermTemplate(config.personal_channel_perm_template),
-			true,
-		);
+		return interactionResponse(formatEffectivePersonalChannelPermTemplate(config), true);
 	}
 
 	if (sub.name === 'permissions-template-clear') {
@@ -1515,7 +1513,10 @@ async function handleServerChannelsCommand(
 		});
 		return interactionResponse(
 			'✅ Cleared locked permission template. New channels use the built-in default again.\n' +
-				formatPersonalChannelPermTemplate(null),
+				formatEffectivePersonalChannelPermTemplate({
+					personal_channel_perm_template: null,
+					personal_channel_extra_roles: config.personal_channel_extra_roles,
+				}),
 			true,
 		);
 	}
@@ -2081,13 +2082,22 @@ async function handleServerChannelsCommand(
 
 		if (!rolesRaw?.trim()) {
 			await upsertGuildConfig(env.STFC_DB, { guild_id: guildId, personal_channel_extra_roles: [] });
-			await postAuditLog(env, { ...config, personal_channel_extra_roles: [] }, {
+			const cleared = {
+				...config,
+				personal_channel_extra_roles: [] as string[],
+			};
+			await postAuditLog(env, cleared, {
 				title: 'Channel extra-roles cleared',
 				actorId: interaction.member?.user?.id,
 				source: 'admin',
 				color: AuditColor.warn,
 			});
-			return interactionResponse('✅ Channel extra roles cleared.', true);
+			return interactionResponse(
+				'✅ Channel extra roles cleared.\n\n' +
+					formatEffectivePersonalChannelPermTemplate(cleared) +
+					'\n\n_Existing channels are unchanged until create/link with apply_permissions._',
+				true,
+			);
 		}
 
 		try {
@@ -2099,15 +2109,21 @@ async function handleServerChannelsCommand(
 				config.personal_channel_extra_roles.map((id) => ({ id })),
 			);
 			await upsertGuildConfig(env.STFC_DB, { guild_id: guildId, personal_channel_extra_roles: resolved.ids });
-			await postAuditLog(env, { ...config, personal_channel_extra_roles: resolved.ids }, {
+			const updated = { ...config, personal_channel_extra_roles: resolved.ids };
+			await postAuditLog(env, updated, {
 				title: 'Channel extra-roles updated',
 				description: resolved.ids.map((id) => `<@&${id}>`).join(', ') || 'none',
 				actorId: interaction.member?.user?.id,
 				source: 'admin',
 				color: AuditColor.info,
 			});
+			const note = config.personal_channel_perm_template?.roles.length
+				? '\n\n_Note: a locked template with its own role list is in use; those role overwrites take precedence for personal channels. Extra-roles still apply to log/audit/urgent channels._'
+				: '\n\n_Applied to the built-in default (no sample lock needed). Existing channels unchanged until create/link with apply_permissions._';
 			return interactionResponse(
-				`✅ Channel extra roles updated (${resolved.ids.length}): ${resolved.ids.join(', ')}`,
+				`✅ Channel extra roles updated (${resolved.ids.length}): ${resolved.ids.map((id) => `<@&${id}>`).join(', ')}\n\n` +
+					formatEffectivePersonalChannelPermTemplate(updated) +
+					note,
 				true,
 			);
 		} catch (error) {
