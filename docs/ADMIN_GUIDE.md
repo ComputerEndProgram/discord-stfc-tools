@@ -168,6 +168,26 @@ Ensure the bot can **View Channel**, **Send Messages**, **Embed Links**, and **A
 
 ## 5. Personal / member channels
 
+### Permissions (set this first)
+
+Before creating or linking member channels, configure which Discord roles can see **every** personal channel (officers, diplomats, etc.):
+
+```
+/server channels extra-roles roles:@Officer,@Diplomat
+```
+
+This is **not** part of `/server setup` — it is required for personal channels. Clear with an empty `roles:` value.
+
+When the bot creates a channel, updates one on verify, or links with `apply_permissions` left on (default), it applies:
+
+| Target | Access |
+|--------|--------|
+| `@everyone` | Deny View Channel |
+| The member | View, Send Messages, Read Message History |
+| Extra-roles | Same as the member |
+
+Do this **before** `/server channels rebalance … create_missing:true` or bulk `/server channels link`, so new and rewritten channels get the right access. Changing extra-roles later does **not** rewrite existing channels until the next create/update/link that applies permissions.
+
 ### Auto-create (single-alliance)
 
 Buckets use the **first letter** of the in-game name (`A`–`Z`). Names starting with a digit or symbol go in `#` (non-alphabetic), always at the end of the alphabet (e.g. range `N-#`).
@@ -176,10 +196,10 @@ Buckets use the **first letter** of the in-game name (`A`–`Z`). Names starting
 
 ```
 /server channels plan
-/server channels rebalance apply:true
+/server channels rebalance apply:true create_missing:true
 ```
 
-That creates/renames categories like `Member Channels A-M` / `Member Channels N-#`, updates the map, and moves linked member channels.
+That creates/renames categories like `Member Channels A-M` / `Member Channels N-#`, updates the map, moves linked member channels, creates missing ones (if `create_missing`), and archives unlinked ones.
 
 The planner splits **fairly evenly** under the soft limit (50 players → two ~25 buckets, not 45+5). Re-run when occupancy nears the limit (`/server channels status` shows counts).
 
@@ -195,12 +215,13 @@ The planner splits **fairly evenly** under the soft limit (50 players → two ~2
 | `archive_name` | `Member Channels Archive` | Find or create archive category by name |
 | `apply` | `false` | Preview only unless `true` |
 
-**Workflow for an existing server:**
+**First-time / migration workflow:**
 
-1. Verify players (`/verify` or `/server verify`).
-2. `/server channels link` for members who already have a channel (rebalance will **not** guess links by name).
-3. `/server channels plan` — review suggested ranges, missing channels, and unlinked channels.
-4. `/server channels rebalance apply:true create_missing:true` — splits categories, creates missing channels, moves linked ones, archives unlinked ones.
+1. `/server channels extra-roles` — who can see all member channels (see above).
+2. Verify players (`/verify` or `/server verify`).
+3. `/server channels link` for members who already have a channel (rebalance will **not** guess links by name).
+4. `/server channels plan` — review suggested ranges, missing channels, and unlinked channels.
+5. `/server channels rebalance apply:true create_missing:true` — splits categories, creates missing channels, moves linked ones, archives unlinked ones.
 
 **Manual map** (if you prefer to create categories yourself):
 
@@ -210,12 +231,6 @@ The planner splits **fairly evenly** under the soft limit (50 players → two ~2
 ```
 
 Or one range at a time: `range:A-M` + `category_id:…`.
-
-Roles that can see **all** personal channels (officers, diplomats):
-
-```
-/server channels extra-roles roles:@Officer,@Diplomat
-```
 
 On verify, the bot creates a private channel for the member in the matching category (name slug from player name), with access for the member + extra-roles.
 
@@ -517,13 +532,14 @@ After create you get an ephemeral draft with buttons:
 
 1. [ ] Bot invited; role near top of list  
 2. [ ] `/server setup` with server, region, mode, tag, roles  
-3. [ ] `/server channels extra-roles` for officers who see all member channels  
-4. [ ] `/server channels plan` then `/server channels rebalance apply:true` (or manual `/server channels map`) — link existing channels with `/server channels link` first if needed  
-5. [ ] `/server channels log create:true`  
-6. [ ] Optional: `nickname_template`, rank roles, `/server bucket`  
-7. [ ] Multi-alliance: `/server channels diplomacy enable:true write_roles:Diplomat write_ranks:Commodore,Admiral`  
-8. [ ] Optional: `/survey creators` for officers who may poll the alliance  
-9. [ ] Optional: `/exchange setup` + `/exchange resource create` for cross-alliance resources  
-10. [ ] `/server test-invite` → verify yourself → check roles, log, personal/diplomacy channels
-11. [ ] Existing members: `/server verify user:@Them link:https://stfc.pro/…` (repeat as needed)  
-11. [ ] `/server status` looks correct  
+3. [ ] `/server channels extra-roles` — officers/roles that see **all** member channels (not part of setup)  
+4. [ ] Link existing member channels with `/server channels link` if needed  
+5. [ ] `/server channels plan` then `/server channels rebalance apply:true create_missing:true` (or manual `/server channels map`)  
+6. [ ] `/server channels log create:true`  
+7. [ ] Optional: `nickname_template`, rank roles, `/server bucket`  
+8. [ ] Multi-alliance: `/server channels diplomacy enable:true write_roles:Diplomat write_ranks:Commodore,Admiral`  
+9. [ ] Optional: `/survey creators` for officers who may poll the alliance  
+10. [ ] Optional: `/exchange setup` + `/exchange resource create` for cross-alliance resources  
+11. [ ] `/server test-invite` → verify yourself → check roles, log, personal/diplomacy channels  
+12. [ ] Existing members: `/server verify user:@Them link:https://stfc.pro/…` (repeat as needed)  
+13. [ ] `/server status` looks correct  
