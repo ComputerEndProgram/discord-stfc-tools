@@ -2,6 +2,7 @@ import type {
 	AgreementMode,
 	AgreementTiming,
 	GuildConfig,
+	GuildExcludedUser,
 	GuildMemberRecord,
 	OverlayBucket,
 	StfcRegion,
@@ -821,7 +822,7 @@ export async function getPendingVerificationsForUser(
 }
 
 export async function getMembersNeedingInvite(db: D1Database, guildId: string): Promise<GuildMemberRecord[]> {
-	// Skip anyone already verified/active/guest (manual verify often left invited_at NULL).
+	// Skip verified/active/guest and manually excluded users (bots, never-verify accounts).
 	const { results } = await db
 		.prepare(
 			`SELECT gm.* FROM guild_members gm
@@ -832,6 +833,11 @@ export async function getMembersNeedingInvite(db: D1Database, guildId: string): 
 			     WHERE vp.guild_id = gm.guild_id
 			       AND vp.discord_user_id = gm.discord_user_id
 			       AND vp.verification_status IN ('verified', 'active', 'guest')
+			   )
+			   AND NOT EXISTS (
+			     SELECT 1 FROM guild_excluded_users ex
+			     WHERE ex.guild_id = gm.guild_id
+			       AND ex.discord_user_id = gm.discord_user_id
 			   )`,
 		)
 		.bind(guildId)
@@ -1062,4 +1068,138 @@ export async function incrementDmAiUsage(db: D1Database, day: string): Promise<n
 		.bind(day)
 		.run();
 	return getDmAiUsage(db, day);
+}
+
+function mapExcludedUser(row: Record<string, unknown>): GuildExcludedUser {
+	return {
+		guild_id: String(row.guild_id),
+		discord_user_id: String(row.discord_user_id),
+		reason: row.reason != null ? String(row.reason) : null,
+		excluded_by: row.excluded_by != null ? String(row.excluded_by) : null,
+		excluded_at: String(row.excluded_at ?? ''),
+	};
+}
+
+export async function isUserExcluded(db: D1Database, guildId: string, userId: string): Promise<boolean> {
+	const row = await db
+		.prepare(
+			`SELECT 1 AS ok FROM guild_excluded_users
+			 WHERE guild_id = ? AND discord_user_id = ?`,
+		)
+		.bind(guildId, userId)
+		.first();
+	return Boolean(row);
+}
+
+export async function getExcludedUserIds(db: D1Database, guildId: string): Promise<Set<string>> {
+	const { results } = await db
+		.prepare(`SELECT discord_user_id FROM guild_excluded_users WHERE guild_id = ?`)
+		.bind(guildId)
+		.all();
+	return new Set((results ?? []).map((r) => String((r as { discord_user_id: string }).discord_user_id)));
+}
+
+export async function listExcludedUsers(db: D1Database, guildId: string): Promise<GuildExcludedUser[]> {
+	const { results } = await db
+		.prepare(
+			`SELECT * FROM guild_excluded_users
+			 WHERE guild_id = ?
+			 ORDER BY excluded_at DESC`,
+		)
+		.bind(guildId)
+		.all();
+	return (results ?? []).map((r) => mapExcludedUser(r as Record<string, unknown>));
+}
+
+export async function excludeGuildUser(
+	db: D1Database,
+	guildId: string,
+	userId: string,
+	opts?: { reason?: string | null; excludedBy?: string | null },
+): Promise<void> {
+	await db
+		.prepare(
+			`INSERT INTO guild_excluded_users (guild_id, discord_user_id, reason, excluded_by, excluded_at)
+			 VALUES (?, ?, ?, ?, datetime('now'))
+			 ON CONFLICT (guild_id, discord_user_id) DO UPDATE SET
+			   reason = COALESCE(excluded.reason, guild_excluded_users.reason),
+			   excluded_by = COALESCE(excluded.excluded_by, guild_excluded_users.excluded_by),
+			   excluded_at = datetime('now')`,
+		)
+		.bind(guildId, userId, opts?.reason?.trim() || null, opts?.excludedBy ?? null)
+		.run();
+}
+
+export async function unexcludeGuildUser(db: D1Database, guildId: string, userId: string): Promise<boolean> {
+	const result = await db
+		.prepare(
+			`DELETE FROM guild_excluded_users
+			 WHERE guild_id = ? AND discord_user_id = ?`,
+		)
+		.bind(guildId, userId)
+		.run();
+	return (result.meta?.changes ?? 0) > 0;
+}
+
+/** Verified players with optional grade / ops filters (active roster only). */
+export async function listRosterPlayers(
+	db: D1Database,
+	guildId: string,
+	filters?: {
+		grade?: number;
+		opsMin?: number;
+		opsMax?: number;
+		status?: VerificationStatus;
+		limit?: number;
+	},
+): Promise<VerifiedPlayer[]> {
+	const clauses = [
+		`guild_id = ?`,
+		`verification_status IN ('verified', 'active', 'guest')`,
+	];
+	const binds: Array<string | number> = [guildId];
+
+	if (filters?.grade != null) {
+		clauses.push(`grade = ?`);
+		binds.push(filters.grade);
+	}
+	if (filters?.opsMin != null) {
+		clauses.push(`ops_level >= ?`);
+		binds.push(filters.opsMin);
+	}
+	if (filters?.opsMax != null) {
+		clauses.push(`ops_level <= ?`);
+		binds.push(filters.opsMax);
+	}
+	if (filters?.status) {
+		clauses.push(`verification_status = ?`);
+		binds.push(filters.status);
+	}
+
+	const limit = Math.min(Math.max(filters?.limit ?? 50, 1), 100);
+	binds.push(limit);
+
+	const { results } = await db
+		.prepare(
+			`SELECT * FROM verified_players
+			 WHERE ${clauses.join(' AND ')}
+			 ORDER BY (ops_level IS NULL), ops_level DESC, player_name COLLATE NOCASE
+			 LIMIT ?`,
+		)
+		.bind(...binds)
+		.all();
+	return (results ?? []).map(mapVerifiedPlayer);
+}
+
+/** Discord user IDs with an active/guest/verified link in this guild. */
+export async function getVerifiedDiscordUserIds(db: D1Database, guildId: string): Promise<Set<string>> {
+	const { results } = await db
+		.prepare(
+			`SELECT discord_user_id FROM verified_players
+			 WHERE guild_id = ?
+			 AND verification_status IN ('verified', 'active', 'guest')`,
+		)
+		.bind(guildId)
+		.all();
+	return new Set((results ?? []).map((r) => String((r as { discord_user_id: string }).discord_user_id)));
 }

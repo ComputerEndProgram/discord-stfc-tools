@@ -16,10 +16,17 @@ import {
 	upsertVerifiedPlayer,
 	findVerifiedPlayersForLink,
 	listPlayersForPersonalChannels,
+	excludeGuildUser,
+	unexcludeGuildUser,
+	listExcludedUsers,
+	isUserExcluded,
 } from './guild-db';
 import { findPlayerByIdOrName, formatPlayerSummary } from './stfc-utils';
 import { inviteNewMember, processVerification } from './verification';
+import { handleRosterCommand } from './roster-handlers';
 import { requireGuildAdmin, resolveTargetUserId, resolveRequiredUserOption } from './discord-admin';
+import { AuditColor, createAuditLogChannel, postAuditLog } from './audit-log';
+import { createUrgentNotifyChannel, postUrgentNotify } from './urgent-notify';
 import { getDiscordGatewayStatus } from './discord-gateway/wake';
 import { parseCSV, autoGenerateColumns, generateAsciiTable } from './tableUtils';
 import {
@@ -37,8 +44,6 @@ import {
 import { DEFAULT_SOFT_LIMIT } from './personal-channel-plan';
 import { defaultNicknameTemplate } from './nickname-utils';
 import { createVerificationLogChannel } from './verification-log';
-import { AuditColor, createAuditLogChannel, postAuditLog } from './audit-log';
-import { createUrgentNotifyChannel, postUrgentNotify } from './urgent-notify';
 import {
 	diplomacyChannelsEnabled,
 	ensureDiplomacyChannel,
@@ -894,6 +899,14 @@ async function handleServerTestInviteCommand(
 	const userId = resolveTargetUserId(interaction as any, sub.options);
 	if (!userId) return interactionResponse('❌ Could not resolve target user.', true);
 
+	if (await isUserExcluded(env.STFC_DB, guildId, userId)) {
+		return interactionResponse(
+			`⚠️ <@${userId}> is on the exclude list — no invite DM will be sent.\n` +
+				`Remove them first with \`/server exclude remove user:@Them\`.`,
+			true,
+		);
+	}
+
 	// Minimal test helper: record member + send DM invitation.
 	await recordGuildMember(env.STFC_DB, guildId, userId, null);
 	const dm = await inviteNewMember(env, guildId, userId, 'user');
@@ -906,6 +919,108 @@ async function handleServerTestInviteCommand(
 		`❌ Failed to send DM: ${dm.errorMessage}${typeof dm.status === 'number' ? ` (HTTP ${dm.status})` : ''}`,
 		true,
 	);
+}
+
+async function handleServerExcludeCommand(
+	env: Env,
+	interaction: { guild_id?: string; member?: { permissions?: string; user?: { id: string } } },
+	sub: {
+		options?: Array<{
+			name: string;
+			type?: number;
+			value?: unknown;
+			options?: Array<{ name: string; value?: unknown; type?: number }>;
+		}>;
+	},
+): Promise<Response> {
+	const adminError = requireGuildAdmin(interaction as any);
+	if (adminError) return adminError;
+
+	const guildId = interaction.guild_id!;
+	const action = sub.options?.[0];
+	if (!action) {
+		return interactionResponse(
+			'Use `/server exclude add`, `/server exclude remove`, or `/server exclude list`.',
+			true,
+		);
+	}
+
+	const opts = action.options;
+	const actorId = interaction.member?.user?.id;
+
+	if (action.name === 'list') {
+		const rows = await listExcludedUsers(env.STFC_DB, guildId);
+		if (rows.length === 0) {
+			return interactionResponse(
+				'No excluded users. Discord bots are skipped automatically without being listed here.',
+				true,
+			);
+		}
+		const lines = rows.slice(0, 50).map((r) => {
+			const reason = r.reason ? ` — ${r.reason}` : '';
+			const by = r.excluded_by ? ` · by <@${r.excluded_by}>` : '';
+			return `• <@${r.discord_user_id}>${reason}${by}`;
+		});
+		const extra = rows.length > 50 ? `\n…and ${rows.length - 50} more` : '';
+		return interactionResponse(
+			`🚫 **Excluded users** (${rows.length}) — skipped for invites & unverified stats\n` +
+				`${lines.join('\n')}${extra}`,
+			true,
+		);
+	}
+
+	const userId = resolveRequiredUserOption(opts);
+	if (!userId) {
+		return interactionResponse('❌ Provide `user:`.', true);
+	}
+
+	if (action.name === 'add') {
+		const reason = (getOptionValue(opts, 'reason') as string | undefined)?.trim() || null;
+		await excludeGuildUser(env.STFC_DB, guildId, userId, {
+			reason,
+			excludedBy: actorId ?? null,
+		});
+		await recordGuildMember(env.STFC_DB, guildId, userId, null);
+		await markMemberInvited(env.STFC_DB, guildId, userId);
+
+		const config = await getGuildConfig(env.STFC_DB, guildId);
+		await postAuditLog(env, config, {
+			title: 'User excluded from verification',
+			description:
+				`<@${userId}> will not receive verification DMs and is omitted from unverified roster stats.` +
+				(reason ? `\nReason: ${reason}` : ''),
+			actorId,
+			source: 'admin',
+			color: AuditColor.warn,
+		});
+
+		return interactionResponse(
+			`✅ Excluded <@${userId}> from verification invites and unverified stats.` +
+				(reason ? `\nReason: ${reason}` : ''),
+			true,
+		);
+	}
+
+	if (action.name === 'remove') {
+		const removed = await unexcludeGuildUser(env.STFC_DB, guildId, userId);
+		if (!removed) {
+			return interactionResponse(`ℹ️ <@${userId}> was not on the exclude list.`, true);
+		}
+		const config = await getGuildConfig(env.STFC_DB, guildId);
+		await postAuditLog(env, config, {
+			title: 'User un-excluded',
+			description: `<@${userId}> can receive verification invites again (use \`/server test-invite\` if needed).`,
+			actorId,
+			source: 'admin',
+			color: AuditColor.info,
+		});
+		return interactionResponse(
+			`✅ Removed <@${userId}> from the exclude list. Use \`/server test-invite\` to send a verification DM.`,
+			true,
+		);
+	}
+
+	return interactionResponse('❌ Unknown exclude action.', true);
 }
 
 async function handleServerTestResetCommand(
@@ -1950,6 +2065,10 @@ export async function handleDiscordInteraction(
 			return handlePlayerCommand(env, ctx, interaction, data);
 		}
 
+		if (data.name === 'roster') {
+			return handleRosterCommand(env, interaction as any, data);
+		}
+
 		if (data.name === 'verify') {
 			return handleVerifyCommand(env, ctx, interaction, data);
 		}
@@ -1973,6 +2092,9 @@ export async function handleDiscordInteraction(
 			}
 			if (sub?.name === 'test-invite') {
 				return handleServerTestInviteCommand(env, interaction as any, sub);
+			}
+			if (sub?.name === 'exclude') {
+				return handleServerExcludeCommand(env, interaction as any, sub);
 			}
 			if (sub?.name === 'test-reset') {
 				return handleServerTestResetCommand(env, interaction as any, sub);

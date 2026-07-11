@@ -61,6 +61,70 @@ const commands = [
 		],
 	},
 	{
+		name: 'roster',
+		description: 'List verified players / find unverified Discord members',
+		options: [
+			{
+				type: 1,
+				name: 'grades',
+				description: 'Count verified players by grade (G3–G7)',
+			},
+			{
+				type: 1,
+				name: 'grade',
+				description: 'List verified players at a grade',
+				options: [
+					{
+						type: 4,
+						name: 'grade',
+						description: 'Grade number 3–7',
+						required: true,
+						min_value: 3,
+						max_value: 7,
+					},
+				],
+			},
+			{
+				type: 1,
+				name: 'ops',
+				description: 'List verified players by ops level range',
+				options: [
+					{
+						type: 4,
+						name: 'min',
+						description: 'Minimum ops level (inclusive)',
+						required: false,
+						min_value: 1,
+						max_value: 99,
+					},
+					{
+						type: 4,
+						name: 'max',
+						description: 'Maximum ops level (inclusive)',
+						required: false,
+						min_value: 1,
+						max_value: 99,
+					},
+				],
+			},
+			{
+				type: 1,
+				name: 'unverified',
+				description: 'Discord members not linked to a verified player (excludes bots + exclude list)',
+			},
+			{
+				type: 1,
+				name: 'status',
+				description: 'Count verified players by status (active / guest)',
+			},
+			{
+				type: 1,
+				name: 'alliances',
+				description: 'Count verified players by alliance tag',
+			},
+		],
+	},
+	{
 		name: 'verify',
 		description: 'Verify your STFC account with a stfc.pro profile link',
 		options: [
@@ -293,6 +357,50 @@ const commands = [
 						name: 'user',
 						description: 'User to test (defaults to you)',
 						required: false,
+					},
+				],
+			},
+			{
+				type: 2,
+				name: 'exclude',
+				description: 'Admin: exclude Discord users from invites and unverified stats',
+				options: [
+					{
+						type: 1,
+						name: 'add',
+						description: 'Exclude a user (other bots, never-verify accounts, etc.)',
+						options: [
+							{
+								type: 6,
+								name: 'user',
+								description: 'Discord user to exclude',
+								required: true,
+							},
+							{
+								type: 3,
+								name: 'reason',
+								description: 'Optional note (e.g. other bot, alt)',
+								required: false,
+							},
+						],
+					},
+					{
+						type: 1,
+						name: 'remove',
+						description: 'Remove a user from the exclude list',
+						options: [
+							{
+								type: 6,
+								name: 'user',
+								description: 'Discord user to un-exclude',
+								required: true,
+							},
+						],
+					},
+					{
+						type: 1,
+						name: 'list',
+						description: 'List excluded users',
 					},
 				],
 			},

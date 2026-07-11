@@ -162,6 +162,15 @@ export interface GuildMemberRecord {
 	verification_invited_at: string | null;
 }
 
+/** Discord users skipped for invites / unverified stats (bots, never-verify accounts). */
+export interface GuildExcludedUser {
+	guild_id: string;
+	discord_user_id: string;
+	reason: string | null;
+	excluded_by: string | null;
+	excluded_at: string;
+}
+
 export interface ParsedStfcProUrl {
 	playerId?: number;
 	playerName?: string;

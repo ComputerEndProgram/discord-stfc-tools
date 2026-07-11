@@ -7,6 +7,7 @@ import { opsLevelToGrade } from './grade-utils';
 import {
 	getGuildConfig,
 	getVerifiedPlayer,
+	isUserExcluded,
 	markMemberInvited,
 	recordGuildMember,
 	recordPlayerStats,
@@ -399,6 +400,12 @@ export async function inviteNewMember(
 	userId: string,
 	username: string,
 ): Promise<DmResult> {
+	if (await isUserExcluded(env.STFC_DB, guildId, userId)) {
+		await recordGuildMember(env.STFC_DB, guildId, userId, username);
+		await markMemberInvited(env.STFC_DB, guildId, userId);
+		return { ok: true };
+	}
+
 	const existing = await getVerifiedPlayer(env.STFC_DB, guildId, userId);
 	const config = await getGuildConfig(env.STFC_DB, guildId);
 	const alreadyDone =

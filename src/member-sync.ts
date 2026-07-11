@@ -1,5 +1,12 @@
 import { listAllGuildMembers } from './discord-api';
-import { getKnownMemberIds, getMembersNeedingInvite, listConfiguredGuilds, markMemberInvited, recordGuildMember } from './guild-db';
+import {
+	getExcludedUserIds,
+	getKnownMemberIds,
+	getMembersNeedingInvite,
+	listConfiguredGuilds,
+	markMemberInvited,
+	recordGuildMember,
+} from './guild-db';
 import { inviteNewMember } from './verification';
 
 export async function syncGuildMembers(env: Env): Promise<void> {
@@ -15,9 +22,15 @@ export async function syncGuildMembers(env: Env): Promise<void> {
 		if (!config.verification_enabled) continue;
 
 		try {
+			const excludedIds = await getExcludedUserIds(env.STFC_DB, config.guild_id);
+
 			// First retry any previously-uninvited members (DM may have failed earlier).
 			const needingInvite = await getMembersNeedingInvite(env.STFC_DB, config.guild_id);
 			for (const record of needingInvite) {
+				if (excludedIds.has(record.discord_user_id)) {
+					await markMemberInvited(env.STFC_DB, config.guild_id, record.discord_user_id);
+					continue;
+				}
 				const dm = await inviteNewMember(env, config.guild_id, record.discord_user_id, record.username ?? 'user');
 				if (dm.ok) {
 					await markMemberInvited(env.STFC_DB, config.guild_id, record.discord_user_id);
@@ -30,6 +43,23 @@ export async function syncGuildMembers(env: Env): Promise<void> {
 			for (const member of members) {
 				const userId = member.user.id;
 				const username = member.user.username;
+
+				// Discord bots never verify — don't invite or count as pending.
+				if (member.user.bot) {
+					if (!knownIds.has(userId)) {
+						await recordGuildMember(env.STFC_DB, config.guild_id, userId, username);
+						await markMemberInvited(env.STFC_DB, config.guild_id, userId);
+					}
+					continue;
+				}
+
+				if (excludedIds.has(userId)) {
+					if (!knownIds.has(userId)) {
+						await recordGuildMember(env.STFC_DB, config.guild_id, userId, username);
+						await markMemberInvited(env.STFC_DB, config.guild_id, userId);
+					}
+					continue;
+				}
 
 				if (!knownIds.has(userId)) {
 					await recordGuildMember(env.STFC_DB, config.guild_id, userId, username);

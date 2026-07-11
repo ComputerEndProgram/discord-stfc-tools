@@ -674,6 +674,7 @@ After create you get an ephemeral draft with buttons:
 | Command | Purpose |
 |---------|---------|
 | `/player` | Live stfc.pro lookup (needs `/server setup`) |
+| `/roster …` | Roster reports — Admin or `/server assistant` roles (see below) |
 | `/lookup` | Coordinate share-string lookup |
 | `/table` / `/tablehelp` | CSV → ASCII table |
 | `/survey …` | Surveys / polls (creator roles; see §8) |
@@ -733,6 +734,8 @@ Verified members (and admins) can **DM the bot** outside of verification:
 | `menu` / `admin` / `help` | Admin button wizard (Administrator or Manage Server required) |
 | Roster questions (e.g. “how many G6?”) | Allowed for admins, or roles set below |
 
+Prefer slash commands for listings: `/roster grades`, `/roster grade grade:6`, `/roster ops min:50`, `/roster unverified`.
+
 Admin wizards (DM → `menu`): **Server status**, **Server setup** (core fields), **Verification log**, **Audit log**.
 
 ```
@@ -743,6 +746,20 @@ Admin wizards (DM → `menu`): **Server status**, **Server setup** (core fields)
 ```
 
 **Cost:** Roster answers and wizards use D1 + buttons — **no Workers AI**. Optional AI intent assist is off by default and hard-capped per day if enabled.
+
+---
+
+## Exclude users (bots / never-verify)
+
+Discord **bots are skipped automatically** (no invite DMs). For other accounts that should never verify:
+
+```
+/server exclude add user:@OtherBot reason:MEE6 twin
+/server exclude remove user:@OtherBot
+/server exclude list
+```
+
+Excluded users never get verification invite DMs and are omitted from `/roster unverified`.
 
 ---
 

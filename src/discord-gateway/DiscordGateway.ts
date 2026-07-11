@@ -1,6 +1,6 @@
 import { DurableObject } from 'cloudflare:workers';
 import { getGatewayBotUrl } from '../discord-api';
-import { getGuildConfig, recordGuildMember, markMemberInvited } from '../guild-db';
+import { getGuildConfig, isUserExcluded, recordGuildMember, markMemberInvited } from '../guild-db';
 import { inviteNewMember } from '../verification';
 import { handleDirectMessage } from './events';
 import {
@@ -199,10 +199,17 @@ export class DiscordGateway extends DurableObject<Env> {
 
 	private async handleGuildMemberAdd(data: {
 		guild_id: string;
-		user: { id: string; username: string };
+		user: { id: string; username: string; bot?: boolean };
 	}): Promise<void> {
 		const config = await getGuildConfig(this.env.STFC_DB, data.guild_id);
 		if (!config?.verification_enabled) return;
+
+		// Bots and manually excluded users — record + mark invited, never DM.
+		if (data.user.bot || (await isUserExcluded(this.env.STFC_DB, data.guild_id, data.user.id))) {
+			await recordGuildMember(this.env.STFC_DB, data.guild_id, data.user.id, data.user.username);
+			await markMemberInvited(this.env.STFC_DB, data.guild_id, data.user.id);
+			return;
+		}
 
 		await recordGuildMember(this.env.STFC_DB, data.guild_id, data.user.id, data.user.username);
 		const dm = await inviteNewMember(this.env, data.guild_id, data.user.id, data.user.username);
