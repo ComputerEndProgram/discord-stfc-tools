@@ -734,6 +734,7 @@ export async function rebalanceDiplomacyChannels(
 			listed,
 		);
 		categoriesAlphaSorted = sortResult.categoriesSorted;
+		errors.push(...sortResult.errors);
 	} catch (error) {
 		errors.push(
 			`Alphabetical sort failed: ${error instanceof Error ? error.message : 'unknown'}`,

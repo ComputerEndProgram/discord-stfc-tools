@@ -855,6 +855,7 @@ export async function rebalancePersonalChannels(
 			[...channelById.values()],
 		);
 		categoriesAlphaSorted = sortResult.categoriesSorted;
+		errors.push(...sortResult.errors);
 	} catch (error) {
 		errors.push(
 			`Alphabetical sort failed: ${error instanceof Error ? error.message : 'unknown'}`,
