@@ -103,4 +103,7 @@ export const it: MessageCatalog = {
 	'verify.demote.btn.restart': 'Riavvia verifica',
 	'verify.demote.restarted': '✅ Verifica riavviata. Invia uno **screenshot** del profilo di gioco, poi il tuo **link stfc.pro**.\n\nOppure usa `/verify link:<url>` nel server.',
 	'verify.demote.restart_failed': '❌ Impossibile riavviare la verifica. Usa `/verify` nel server o chiedi a un admin.',
+	'welcome.dm.personal_channel': 'Il tuo canale personale membro: <#{channelId}>',
+	'welcome.dm.fetch_failed':
+		'Impossibile caricare il messaggio di benvenuto (il bot serve Visualizza canale + Leggi cronologia messaggi). {detail}',
 };

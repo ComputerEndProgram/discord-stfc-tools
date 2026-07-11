@@ -172,6 +172,10 @@ export const en = {
 		'Or use `/verify link:<url>` in the server.',
 	'verify.demote.restart_failed':
 		'❌ Could not restart verification. Please use `/verify` in the server, or ask an admin.',
+
+	'welcome.dm.personal_channel': 'Your personal member channel: <#{channelId}>',
+	'welcome.dm.fetch_failed':
+		'Could not fetch the welcome message (bot needs View Channel + Read Message History). {detail}',
 } as const;
 
 export type MessageKey = keyof typeof en;

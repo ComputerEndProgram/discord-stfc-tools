@@ -570,6 +570,18 @@ export async function grantFullAccessForVerifiedPlayer(
 		if (diplomacyId) auditNotes.push(`Diplomacy <#${diplomacyId}>`);
 	}
 
+	const personalChannelId =
+		channelResult?.channelId ?? existing?.personal_channel_id ?? record.personal_channel_id ?? null;
+	const { sendWelcomeDmIfNeeded } = await import('./welcome-dm');
+	const welcome = await sendWelcomeDmIfNeeded(
+		env,
+		config,
+		guildId,
+		discordUserId,
+		personalChannelId,
+	);
+	if (welcome.note) auditNotes.push(welcome.note);
+
 	return {
 		message: t(locale, 'agree.result.access_granted', { name }),
 		auditNotes,

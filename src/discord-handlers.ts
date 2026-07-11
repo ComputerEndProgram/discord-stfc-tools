@@ -749,6 +749,151 @@ async function handleServerAgreementCommand(
 	);
 }
 
+async function handleServerWelcomeCommand(
+	env: Env,
+	interaction: {
+		guild_id?: string;
+		member?: { permissions?: string; user?: { id?: string } };
+		user?: { id?: string };
+	},
+	sub: { options?: Array<{ name: string; value?: unknown }> },
+): Promise<Response> {
+	const adminError = requireGuildAdmin(interaction);
+	if (adminError) return adminError;
+
+	const guildId = interaction.guild_id!;
+	const config = await getGuildConfig(env.STFC_DB, guildId);
+	if (!config) {
+		return interactionResponse('❌ Server not configured. Run `/server setup` first.', true);
+	}
+
+	const enabledRaw = getOptionValue(sub.options, 'enabled');
+	const messageLinkRaw = getOptionValue(sub.options, 'message_link') as string | undefined;
+	const channelRaw = getOptionValue(sub.options, 'channel');
+	const messageIdRaw = getOptionValue(sub.options, 'message_id') as string | undefined;
+	const clear = getOptionValue(sub.options, 'clear') === true;
+	const preview = getOptionValue(sub.options, 'preview') === true;
+
+	const anyOpt =
+		enabledRaw !== undefined ||
+		messageLinkRaw !== undefined ||
+		channelRaw !== undefined ||
+		messageIdRaw !== undefined ||
+		clear ||
+		preview;
+
+	const statusBlock = (c: typeof config) =>
+		`📬 **Welcome DM**\n` +
+		`• Enabled: ${c.welcome_dm_enabled ? 'yes' : 'no'}\n` +
+		`• Source: ${
+			c.welcome_dm_channel_id && c.welcome_dm_message_id
+				? `https://discord.com/channels/${guildId}/${c.welcome_dm_channel_id}/${c.welcome_dm_message_id}`
+				: 'not set'
+		}\n` +
+		`• Channel: ${c.welcome_dm_channel_id ? `<#${c.welcome_dm_channel_id}>` : '—'}\n` +
+		`• Message ID: ${c.welcome_dm_message_id ?? '—'}\n\n` +
+		`Edit the linked Discord post to change recommended channels (use \`<#…>\` mentions). ` +
+		`The bot appends the member’s personal channel after full access (and after agreement if required).\n\n` +
+		`Example:\n\`/server welcome enabled:true message_link:https://discord.com/channels/…/…/…\``;
+
+	if (!anyOpt) {
+		return interactionResponse(statusBlock(config), true);
+	}
+
+	const { parseDiscordMessageLink, previewWelcomeDm } = await import('./welcome-dm');
+	const patch: Partial<import('./types').GuildConfig> & { guild_id: string } = { guild_id: guildId };
+
+	if (clear) {
+		patch.welcome_dm_channel_id = null;
+		patch.welcome_dm_message_id = null;
+	} else if (messageLinkRaw !== undefined && String(messageLinkRaw).trim()) {
+		const parsed = parseDiscordMessageLink(String(messageLinkRaw));
+		if (!parsed) {
+			return interactionResponse(
+				'❌ Invalid `message_link`. Use **Copy Message Link** from Discord (…/channels/guild/channel/message).',
+				true,
+			);
+		}
+		if (parsed.guildId !== guildId) {
+			return interactionResponse('❌ That message link is for a different Discord server.', true);
+		}
+		patch.welcome_dm_channel_id = parsed.channelId;
+		patch.welcome_dm_message_id = parsed.messageId;
+	} else {
+		if (channelRaw != null && channelRaw !== '') {
+			patch.welcome_dm_channel_id = String(channelRaw);
+		}
+		if (messageIdRaw !== undefined) {
+			const mid = String(messageIdRaw).trim();
+			if (mid && !/^\d{15,20}$/.test(mid)) {
+				return interactionResponse('❌ `message_id` must be a Discord snowflake.', true);
+			}
+			patch.welcome_dm_message_id = mid || null;
+		}
+	}
+
+	if (enabledRaw === true || enabledRaw === 'true') patch.welcome_dm_enabled = true;
+	if (enabledRaw === false || enabledRaw === 'false') patch.welcome_dm_enabled = false;
+
+	const configTouched =
+		Object.prototype.hasOwnProperty.call(patch, 'welcome_dm_enabled') ||
+		Object.prototype.hasOwnProperty.call(patch, 'welcome_dm_channel_id') ||
+		Object.prototype.hasOwnProperty.call(patch, 'welcome_dm_message_id');
+
+	if (configTouched) {
+		await upsertGuildConfig(env.STFC_DB, patch);
+		const refreshed = await getGuildConfig(env.STFC_DB, guildId);
+		await postAuditLog(env, refreshed, {
+			title: 'Welcome DM settings updated',
+			description:
+				`Enabled: **${refreshed?.welcome_dm_enabled ? 'yes' : 'no'}** · ` +
+				`Source: ${
+					refreshed?.welcome_dm_channel_id && refreshed?.welcome_dm_message_id
+						? `<#${refreshed.welcome_dm_channel_id}> / \`${refreshed.welcome_dm_message_id}\``
+						: 'cleared'
+				}`,
+			source: 'admin',
+			color: AuditColor.info,
+		});
+	}
+
+	const refreshed = await getGuildConfig(env.STFC_DB, guildId);
+	if (!refreshed) {
+		return interactionResponse('❌ Failed to reload config.', true);
+	}
+
+	if (preview) {
+		if (!env.DISCORD_BOT_TOKEN) {
+			return interactionResponse('❌ DISCORD_BOT_TOKEN not configured.', true);
+		}
+		const userId = interaction.member?.user?.id ?? interaction.user?.id;
+		const player = userId ? await getVerifiedPlayer(env.STFC_DB, guildId, userId) : null;
+		const { resolveLocale } = await import('./i18n');
+		const locale = resolveLocale(player?.preferred_locale);
+		const result = await previewWelcomeDm(
+			env.DISCORD_BOT_TOKEN,
+			refreshed,
+			locale,
+			player?.personal_channel_id ?? '000000000000000000',
+		);
+		if (!result.ok) {
+			return interactionResponse(`❌ Preview failed: ${result.error}\n\n${statusBlock(refreshed)}`, true);
+		}
+		const embedNote = result.embeds?.length
+			? `\n_(Source has ${result.embeds.length} embed(s) — those are forwarded in the real DM.)_`
+			: '';
+		return interactionResponse(
+			`**Welcome DM preview**${embedNote}\n\n${result.content || '_(empty content — embeds only)_'}\n\n---\n${statusBlock(refreshed)}`,
+			true,
+		);
+	}
+
+	return interactionResponse(
+		(configTouched ? '✅ Welcome DM settings updated.\n\n' : '') + statusBlock(refreshed),
+		true,
+	);
+}
+
 async function handleServerRolesCommand(env: Env, interaction: { guild_id?: string; member?: { permissions?: string } }, sub: { options?: Array<{ name: string; value?: unknown }> }): Promise<Response> {
 	const adminError = requireGuildAdmin(interaction);
 	if (adminError) return adminError;
@@ -2711,6 +2856,9 @@ export async function handleDiscordInteraction(
 			}
 			if (sub?.name === 'agreement') {
 				return handleServerAgreementCommand(env, interaction as any, sub);
+			}
+			if (sub?.name === 'welcome') {
+				return handleServerWelcomeCommand(env, interaction as any, sub);
 			}
 			if (sub?.name === 'verify') {
 				return handleServerVerifyCommand(env, ctx, interaction, sub, data.resolved);

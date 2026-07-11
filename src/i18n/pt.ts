@@ -103,4 +103,7 @@ export const pt: MessageCatalog = {
 	'verify.demote.btn.restart': 'Reiniciar verificação',
 	'verify.demote.restarted': '✅ Verificação reiniciada. Envie uma **captura de ecrã** do seu perfil no jogo e depois o seu **link stfc.pro**.\n\nOu use `/verify link:<url>` no servidor.',
 	'verify.demote.restart_failed': '❌ Não foi possível reiniciar a verificação. Use `/verify` no servidor ou peça a um admin.',
+	'welcome.dm.personal_channel': 'O seu canal pessoal de membro: <#{channelId}>',
+	'welcome.dm.fetch_failed':
+		'Não foi possível obter a mensagem de boas-vindas (o bot precisa de Ver canal + Ler histórico de mensagens). {detail}',
 };

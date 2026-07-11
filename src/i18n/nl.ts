@@ -103,4 +103,7 @@ export const nl: MessageCatalog = {
 	'verify.demote.btn.restart': 'Verificatie opnieuw starten',
 	'verify.demote.restarted': '✅ Verificatie opnieuw gestart. Stuur een **schermafbeelding** van je in-game profiel en daarna je **stfc.pro-link**.\n\nOf gebruik `/verify link:<url>` op de server.',
 	'verify.demote.restart_failed': '❌ Verificatie kon niet opnieuw worden gestart. Gebruik `/verify` op de server of vraag een admin.',
+	'welcome.dm.personal_channel': 'Jouw persoonlijke ledenkanaal: <#{channelId}>',
+	'welcome.dm.fetch_failed':
+		'Welkomstbericht kon niet worden geladen (bot heeft Kanaal bekijken + Berichtsgeschiedenis lezen nodig). {detail}',
 };

@@ -830,6 +830,29 @@ Bump `version` when the CoC changes to force re-accept. `mode:channel_react` is 
 
 ---
 
+## Welcome DM (post-onboarding)
+
+After a member reaches **full access** (verified, and agreement accepted if that gate is enabled), the bot can DM a welcome message once.
+
+**Hybrid setup:**
+
+1. Post a welcome message in any channel the bot can read (include recommended channels as normal `#channel` mentions).
+2. Copy Message Link → configure the bot.
+3. The bot fetches that post’s content (and embeds) and appends a link to the member’s personal channel.
+
+```
+/server welcome
+/server welcome enabled:true message_link:https://discord.com/channels/<guild>/<channel>/<message>
+/server welcome preview:true
+/server welcome clear:true
+```
+
+Optional: put `{personal_channel}` in the source post where you want the personal channel mention mid-text (the bot still appends the personal-channel line at the end).
+
+Bot needs **View Channel** + **Read Message History** on the source channel. Guests / wrong-alliance members do not receive this DM.
+
+---
+
 ## DM assistant (Badgey / HAL)
 
 Verified members (and admins) can **DM the bot** outside of verification:

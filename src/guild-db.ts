@@ -124,6 +124,9 @@ function mapGuildConfig(row: any): GuildConfig {
 		agreement_message_id: row.agreement_message_id ?? null,
 		agreement_version: row.agreement_version ?? null,
 		demotion_policy: parseDemotionPolicy(row.demotion_policy),
+		welcome_dm_enabled: Boolean(row.welcome_dm_enabled ?? 0),
+		welcome_dm_channel_id: row.welcome_dm_channel_id ?? null,
+		welcome_dm_message_id: row.welcome_dm_message_id ?? null,
 		poll_interval_hours: row.poll_interval_hours ?? 6,
 		verification_enabled: Boolean(row.verification_enabled ?? 1),
 		created_at: row.created_at,
@@ -151,6 +154,7 @@ function mapVerifiedPlayer(row: any): VerifiedPlayer {
 		agreement_accepted_at: row.agreement_accepted_at ?? null,
 		agreement_version: row.agreement_version ?? null,
 		agreement_method: row.agreement_method ?? null,
+		welcome_dm_sent_at: row.welcome_dm_sent_at ?? null,
 		verified_at: row.verified_at ?? null,
 		last_synced_at: row.last_synced_at ?? null,
 	};
@@ -479,6 +483,42 @@ async function upsertDiplomacyConfigFields(
 	await upsertDmAssistantConfigFields(db, config);
 	await upsertAgreementConfigFields(db, config);
 	await upsertDemotionPolicyField(db, config);
+	await upsertWelcomeDmConfigFields(db, config);
+}
+
+async function upsertWelcomeDmConfigFields(
+	db: D1Database,
+	config: Partial<GuildConfig> & { guild_id: string },
+): Promise<void> {
+	const touched =
+		Object.prototype.hasOwnProperty.call(config, 'welcome_dm_enabled') ||
+		Object.prototype.hasOwnProperty.call(config, 'welcome_dm_channel_id') ||
+		Object.prototype.hasOwnProperty.call(config, 'welcome_dm_message_id');
+	if (!touched) return;
+
+	const enabledProvided = Object.prototype.hasOwnProperty.call(config, 'welcome_dm_enabled');
+	const channelProvided = Object.prototype.hasOwnProperty.call(config, 'welcome_dm_channel_id');
+	const messageProvided = Object.prototype.hasOwnProperty.call(config, 'welcome_dm_message_id');
+
+	await db
+		.prepare(
+			`UPDATE guild_configs SET
+			 welcome_dm_enabled = CASE WHEN ? = 1 THEN ? ELSE welcome_dm_enabled END,
+			 welcome_dm_channel_id = CASE WHEN ? = 1 THEN ? ELSE welcome_dm_channel_id END,
+			 welcome_dm_message_id = CASE WHEN ? = 1 THEN ? ELSE welcome_dm_message_id END,
+			 updated_at = datetime('now')
+			 WHERE guild_id = ?`,
+		)
+		.bind(
+			enabledProvided ? 1 : 0,
+			enabledProvided ? (config.welcome_dm_enabled ? 1 : 0) : null,
+			channelProvided ? 1 : 0,
+			channelProvided ? (config.welcome_dm_channel_id?.trim() || null) : null,
+			messageProvided ? 1 : 0,
+			messageProvided ? (config.welcome_dm_message_id?.trim() || null) : null,
+			config.guild_id,
+		)
+		.run();
 }
 
 async function upsertDemotionPolicyField(
@@ -642,6 +682,7 @@ export async function upsertVerifiedPlayer(
 		agreement_accepted_at?: string | null;
 		agreement_version?: string | null;
 		agreement_method?: string | null;
+		welcome_dm_sent_at?: string | null;
 		verified_at?: string | null;
 		last_synced_at?: string | null;
 	},
@@ -649,6 +690,7 @@ export async function upsertVerifiedPlayer(
 	const now = new Date().toISOString();
 	const existing = await getVerifiedPlayer(db, data.guild_id, data.discord_user_id);
 	const agreementProvided = Object.prototype.hasOwnProperty.call(data, 'agreement_accepted_at');
+	const welcomeSentProvided = Object.prototype.hasOwnProperty.call(data, 'welcome_dm_sent_at');
 
 	if (!existing) {
 		await db
@@ -657,8 +699,8 @@ export async function upsertVerifiedPlayer(
 				(guild_id, discord_user_id, player_id, player_name, alliance_tag, alliance_rank,
 				 ops_level, power, grade, stfc_pro_url, verification_status, personal_channel_id,
 				 preferred_locale, agreement_accepted_at, agreement_version, agreement_method,
-				 verified_at, last_synced_at, updated_at)
-				VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+				 welcome_dm_sent_at, verified_at, last_synced_at, updated_at)
+				VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 			)
 			.bind(
 				data.guild_id,
@@ -677,6 +719,7 @@ export async function upsertVerifiedPlayer(
 				data.agreement_accepted_at ?? null,
 				data.agreement_version ?? null,
 				data.agreement_method ?? null,
+				data.welcome_dm_sent_at ?? null,
 				data.verified_at ?? null,
 				data.last_synced_at ?? null,
 				now,
@@ -704,6 +747,7 @@ export async function upsertVerifiedPlayer(
 			 agreement_accepted_at = CASE WHEN ? = 1 THEN ? ELSE agreement_accepted_at END,
 			 agreement_version = CASE WHEN ? = 1 THEN ? ELSE agreement_version END,
 			 agreement_method = CASE WHEN ? = 1 THEN ? ELSE agreement_method END,
+			 welcome_dm_sent_at = CASE WHEN ? = 1 THEN ? ELSE welcome_dm_sent_at END,
 			 verified_at = COALESCE(?, verified_at),
 			 last_synced_at = COALESCE(?, last_synced_at),
 			 updated_at = ?
@@ -728,6 +772,8 @@ export async function upsertVerifiedPlayer(
 			agreementProvided ? (data.agreement_version?.trim() || null) : null,
 			agreementProvided ? 1 : 0,
 			agreementProvided ? (data.agreement_method?.trim() || null) : null,
+			welcomeSentProvided ? 1 : 0,
+			welcomeSentProvided ? (data.welcome_dm_sent_at?.trim() || null) : null,
 			data.verified_at ?? null,
 			data.last_synced_at ?? null,
 			now,

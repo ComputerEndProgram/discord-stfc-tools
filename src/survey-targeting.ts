@@ -63,6 +63,7 @@ export async function resolveSurveyTargets(
 						agreement_accepted_at: null,
 						agreement_version: null,
 						agreement_method: null,
+						welcome_dm_sent_at: null,
 						verified_at: null,
 						last_synced_at: null,
 					} satisfies VerifiedPlayer),

@@ -374,6 +374,50 @@ const commands = [
 			},
 			{
 				type: 1,
+				name: 'welcome',
+				description: 'Admin: post-onboarding welcome DM (source message + personal channel)',
+				options: [
+					{
+						type: 5,
+						name: 'enabled',
+						description: 'Send welcome DM after full member access',
+						required: false,
+					},
+					{
+						type: 3,
+						name: 'message_link',
+						description: 'Discord message URL (Copy Message Link) — body for the welcome DM',
+						required: false,
+					},
+					{
+						type: 7,
+						name: 'channel',
+						description: 'Channel containing the welcome message (with message_id)',
+						required: false,
+						channel_types: [0],
+					},
+					{
+						type: 3,
+						name: 'message_id',
+						description: 'Message snowflake in that channel',
+						required: false,
+					},
+					{
+						type: 5,
+						name: 'clear',
+						description: 'Clear linked welcome message (channel + message id)',
+						required: false,
+					},
+					{
+						type: 5,
+						name: 'preview',
+						description: 'Fetch and show how the welcome DM would look (ephemeral)',
+						required: false,
+					},
+				],
+			},
+			{
+				type: 1,
 				name: 'verify',
 				description: 'Admin: manually verify a member with an stfc.pro link (no DM flow)',
 				options: [

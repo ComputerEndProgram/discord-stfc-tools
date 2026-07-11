@@ -141,4 +141,7 @@ export const hu: MessageCatalog = {
 	'verify.demote.btn.restart': 'Hitelesítés újraindítása',
 	'verify.demote.restarted': '✅ Hitelesítés újraindítva. Küldj egy **képernyőképet** a játékbeli profilodról, majd az **stfc.pro linkedet**.\n\nVagy használd a `/verify link:<url>` parancsot a szerveren.',
 	'verify.demote.restart_failed': '❌ Nem sikerült újraindítani a hitelesítést. Használd a `/verify` parancsot a szerveren, vagy kérj segítséget egy admintól.',
+	'welcome.dm.personal_channel': 'A személyes tagsági csatornád: <#{channelId}>',
+	'welcome.dm.fetch_failed':
+		'A üdvözlő üzenet nem tölthető be (a botnak Csatorna megtekintése + Üzenetelőzmények olvasása kell). {detail}',
 };

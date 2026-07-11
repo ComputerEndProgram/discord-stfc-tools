@@ -139,6 +139,10 @@ export interface GuildConfig {
 	 * approval = urgent buttons; yolo = auto after recheck for not-found.
 	 */
 	demotion_policy: DemotionPolicy;
+	/** Post-onboarding welcome DM (source message + personal-channel append). */
+	welcome_dm_enabled: boolean;
+	welcome_dm_channel_id: string | null;
+	welcome_dm_message_id: string | null;
 	poll_interval_hours: number;
 	verification_enabled: boolean;
 	created_at: string;
@@ -193,6 +197,8 @@ export interface VerifiedPlayer {
 	agreement_version: string | null;
 	/** dm_button | reaction */
 	agreement_method: string | null;
+	/** When the hybrid welcome DM was successfully sent (once per member). */
+	welcome_dm_sent_at: string | null;
 	verified_at: string | null;
 	last_synced_at: string | null;
 }

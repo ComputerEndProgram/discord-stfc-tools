@@ -103,4 +103,7 @@ export const ru: MessageCatalog = {
 	'verify.demote.btn.restart': 'Начать проверку заново',
 	'verify.demote.restarted': '✅ Проверка перезапущена. Отправьте **скриншот** игрового профиля, затем **ссылку stfc.pro**.\n\nИли используйте `/verify link:<url>` на сервере.',
 	'verify.demote.restart_failed': '❌ Не удалось перезапустить проверку. Используйте `/verify` на сервере или обратитесь к админу.',
+	'welcome.dm.personal_channel': 'Ваш личный канал участника: <#{channelId}>',
+	'welcome.dm.fetch_failed':
+		'Не удалось загрузить приветственное сообщение (боту нужны «Просмотр канала» и «Чтение истории сообщений»). {detail}',
 };

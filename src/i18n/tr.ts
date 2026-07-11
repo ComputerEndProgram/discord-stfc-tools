@@ -103,4 +103,7 @@ export const tr: MessageCatalog = {
 	'verify.demote.btn.restart': 'Doğrulamayı yeniden başlat',
 	'verify.demote.restarted': '✅ Doğrulama yeniden başlatıldı. Lütfen oyun içi profilinizin **ekran görüntüsünü**, ardından **stfc.pro bağlantınızı** gönderin.\n\nVeya sunucuda `/verify link:<url>` kullanın.',
 	'verify.demote.restart_failed': '❌ Doğrulama yeniden başlatılamadı. Sunucuda `/verify` kullanın veya bir yöneticiden yardım isteyin.',
+	'welcome.dm.personal_channel': 'Kişisel üye kanalınız: <#{channelId}>',
+	'welcome.dm.fetch_failed':
+		'Hoş geldin mesajı alınamadı (botun Kanalı Görüntüle + Mesaj Geçmişini Oku izinleri gerekir). {detail}',
 };

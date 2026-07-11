@@ -320,6 +320,18 @@ export async function processVerification(
 				auditNotes.push(`Diplomacy <#${diplomacyId}>`);
 			}
 
+			const personalChannelId =
+				channelResult?.channelId ?? verified?.personal_channel_id ?? null;
+			const { sendWelcomeDmIfNeeded } = await import('./welcome-dm');
+			const welcome = await sendWelcomeDmIfNeeded(
+				env,
+				config,
+				guildId,
+				discordUserId,
+				personalChannelId,
+			);
+			if (welcome.note) auditNotes.push(welcome.note);
+
 			await postLog('active', auditNotes);
 			await postAuditLog(env, config, {
 				title: 'Member verified (active)',
@@ -649,6 +661,18 @@ export async function syncVerifiedPlayer(
 		if (allianceTag) {
 			await applyDiplomacyForAlliance(env, token, config, guildId, allianceTag);
 		}
+
+		const personalChannelId =
+			channelResult?.channelId ?? existing?.personal_channel_id ?? previous?.personal_channel_id ?? null;
+		const { sendWelcomeDmIfNeeded } = await import('./welcome-dm');
+		const welcome = await sendWelcomeDmIfNeeded(
+			env,
+			config,
+			guildId,
+			discordUserId,
+			personalChannelId,
+		);
+		if (welcome.note) changes.push(welcome.note);
 	}
 
 	if (changes.length > 0) {

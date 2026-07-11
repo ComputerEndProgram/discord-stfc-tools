@@ -209,6 +209,22 @@ export async function getGuildChannel(token: string, channelId: string): Promise
 	return result.ok ? result.channel : null;
 }
 
+/** GET /channels/{channel.id}/messages/{message.id} — needs View Channel + Read Message History. */
+export async function getChannelMessage(
+	token: string,
+	channelId: string,
+	messageId: string,
+): Promise<{
+	id: string;
+	content: string;
+	embeds?: DiscordEmbed[];
+}> {
+	const response = await discordFetch(token, `/channels/${channelId}/messages/${messageId}`, {
+		method: 'GET',
+	});
+	return (await response.json()) as { id: string; content: string; embeds?: DiscordEmbed[] };
+}
+
 /** Fetch a channel with a clear error (Missing Access, wrong id, etc.). */
 export async function fetchGuildChannel(
 	token: string,

@@ -140,4 +140,7 @@ export const de: MessageCatalog = {
 	'verify.demote.btn.restart': 'Verifizierung neu starten',
 	'verify.demote.restarted': '✅ Verifizierung neu gestartet. Bitte sende einen **Screenshot** deines Ingame-Profils und danach deinen **stfc.pro-Link**.\n\nOder nutze `/verify link:<url>` im Server.',
 	'verify.demote.restart_failed': '❌ Verifizierung konnte nicht neu gestartet werden. Bitte nutze `/verify` im Server oder frage einen Admin.',
+	'welcome.dm.personal_channel': 'Dein persönlicher Mitgliederkanal: <#{channelId}>',
+	'welcome.dm.fetch_failed':
+		'Willkommensnachricht konnte nicht geladen werden (Bot braucht Kanal anzeigen + Nachrichtenverlauf lesen). {detail}',
 };
