@@ -168,6 +168,7 @@ export async function linkExistingPersonalChannel(
 	guildId: string,
 	userId: string,
 	channelId: string,
+	playerName: string,
 	opts?: {
 		applyPermissions?: boolean;
 		/** From interaction resolved.channels — avoids a GET the bot may not be allowed to make. */
@@ -200,6 +201,23 @@ export async function linkExistingPersonalChannel(
 	}
 
 	try {
+		let moved = false;
+		let renamed = false;
+		const name = playerName.trim();
+		if (name) {
+			const desiredName = slugPersonalChannelName(name, userId);
+			const targetCategoryId = categoryForPlayerName(config, name);
+
+			if (targetCategoryId && channel.parent_id !== targetCategoryId) {
+				await patchGuildChannel(token, channelId, { parent_id: targetCategoryId });
+				moved = true;
+			}
+			if (channel.name !== desiredName) {
+				await patchGuildChannel(token, channelId, { name: desiredName });
+				renamed = true;
+			}
+		}
+
 		let permissionWarnings: string[] | undefined;
 		if (opts?.applyPermissions !== false) {
 			const { warnings } = await applyPersonalChannelPermissions(
@@ -215,8 +233,8 @@ export async function linkExistingPersonalChannel(
 			ok: true,
 			channelId,
 			created: false,
-			moved: false,
-			renamed: false,
+			moved,
+			renamed,
 			permissionWarnings,
 		};
 	} catch (error) {
@@ -588,6 +606,11 @@ export async function rebalancePersonalChannels(
 			if (existingCh.parent_id !== targetCategoryId) {
 				await patchGuildChannel(token, player.personal_channel_id, { parent_id: targetCategoryId });
 				channelsMoved++;
+				if (moveDelayMs > 0) await sleep(moveDelayMs);
+			}
+			const desiredName = slugPersonalChannelName(player.player_name, player.discord_user_id);
+			if (existingCh.name !== desiredName) {
+				await patchGuildChannel(token, player.personal_channel_id, { name: desiredName });
 				if (moveDelayMs > 0) await sleep(moveDelayMs);
 			}
 		} catch (error) {

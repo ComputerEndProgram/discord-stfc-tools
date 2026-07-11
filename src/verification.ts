@@ -289,7 +289,7 @@ export async function processVerification(
 				auditNotes.push('Nick failed (hierarchy/owner?)');
 			}
 
-			const channelId = await applyPersonalChannelForMember(
+			const channelResult = await applyPersonalChannelForMember(
 				token,
 				config,
 				guildId,
@@ -297,15 +297,15 @@ export async function processVerification(
 				player.name,
 				verified?.personal_channel_id,
 			);
-			if (channelId) {
+			if (channelResult) {
 				await upsertVerifiedPlayer(env.STFC_DB, {
 					guild_id: guildId,
 					discord_user_id: discordUserId,
-					personal_channel_id: channelId,
+					personal_channel_id: channelResult.channelId,
 					verification_status: 'active',
 				});
-				notes.push(t(locale, 'verify.note.channel', { channelId }));
-				auditNotes.push(`Channel <#${channelId}>`);
+				notes.push(t(locale, 'verify.note.channel', { channelId: channelResult.channelId }));
+				auditNotes.push(`Channel <#${channelResult.channelId}>`);
 			}
 
 			const diplomacyId = await applyDiplomacyForAlliance(
@@ -582,8 +582,12 @@ export async function syncVerifiedPlayer(
 				console.error('Nickname sync failed:', nickErr);
 			}
 
+			if (previous?.player_name && previous.player_name !== player.name) {
+				changes.push(`name ${previous.player_name} → ${player.name}`);
+			}
+
 			const existing = await getVerifiedPlayer(env.STFC_DB, guildId, discordUserId);
-			const channelId = await applyPersonalChannelForMember(
+			const channelResult = await applyPersonalChannelForMember(
 				token,
 				config,
 				guildId,
@@ -591,14 +595,21 @@ export async function syncVerifiedPlayer(
 				player.name,
 				existing?.personal_channel_id,
 			);
-			if (channelId) {
+			if (channelResult) {
 				await upsertVerifiedPlayer(env.STFC_DB, {
 					guild_id: guildId,
 					discord_user_id: discordUserId,
-					personal_channel_id: channelId,
+					personal_channel_id: channelResult.channelId,
 				});
-				if (!previous?.personal_channel_id) {
-					changes.push(`channel <#${channelId}>`);
+				if (channelResult.created || !previous?.personal_channel_id) {
+					changes.push(`channel <#${channelResult.channelId}>`);
+				} else {
+					if (channelResult.renamed) {
+						changes.push(`channel renamed <#${channelResult.channelId}>`);
+					}
+					if (channelResult.moved) {
+						changes.push(`channel moved <#${channelResult.channelId}>`);
+					}
 				}
 			}
 

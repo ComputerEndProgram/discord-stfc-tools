@@ -18,6 +18,7 @@ import {
 	resetVerification,
 	upsertVerifiedPlayer,
 	findVerifiedPlayersForLink,
+	getVerifiedPlayer,
 	listPlayersForPersonalChannels,
 	excludeGuildUser,
 	unexcludeGuildUser,
@@ -38,7 +39,7 @@ import {
 	parseMultipleCoordinates,
 } from './systemUtils';
 import type { GuildMode, StfcRegion, GuildConfig } from './types';
-import { parseCategoryMapInput, formatCategoryMap, personalChannelsEnabled } from './channel-utils';
+import { parseCategoryMapInput, formatCategoryMap, personalChannelsEnabled, slugPersonalChannelName } from './channel-utils';
 import {
 	linkExistingPersonalChannel,
 	planPersonalChannels,
@@ -2152,6 +2153,7 @@ async function handleServerChannelsCommand(
 
 		let discordUserId: string | undefined;
 		let matchLabel = '';
+		let playerName = '';
 
 		if (playerQuery) {
 			const matches = await findVerifiedPlayersForLink(env.STFC_DB, guildId, playerQuery);
@@ -2175,15 +2177,26 @@ async function handleServerChannelsCommand(
 				);
 			}
 			discordUserId = matches[0].discord_user_id;
+			playerName = matches[0].player_name?.trim() || '';
 			matchLabel = matches[0].player_name
 				? `**${matches[0].player_name}** (<@${discordUserId}>)`
 				: `<@${discordUserId}>`;
 		} else if (userOpt != null) {
 			discordUserId = String(userOpt);
 			matchLabel = `<@${discordUserId}>`;
+			const linked = await getVerifiedPlayer(env.STFC_DB, guildId, discordUserId);
+			playerName = linked?.player_name?.trim() || '';
+			if (playerName) matchLabel = `**${playerName}** (<@${discordUserId}>)`;
 		} else {
 			return interactionResponse(
 				'❌ Provide `player:` (in-game name or STFC ID) and/or `user:@Member`, plus `channel:`.',
+				true,
+			);
+		}
+
+		if (!playerName) {
+			return interactionResponse(
+				'❌ That member has no stored in-game name yet — verify them first, then link.',
 				true,
 			);
 		}
@@ -2194,6 +2207,7 @@ async function handleServerChannelsCommand(
 			guildId,
 			discordUserId,
 			channelId,
+			playerName,
 			{
 				applyPermissions,
 				knownChannel: (() => {
@@ -2219,9 +2233,14 @@ async function handleServerChannelsCommand(
 			personal_channel_id: channelId,
 		});
 
+		const renameNote = result.renamed
+			? ` Renamed to \`#${slugPersonalChannelName(playerName, discordUserId)}\`.`
+			: '';
+		const moveNote = result.moved ? ' Moved to the matching letter category.' : '';
+
 		await postAuditLog(env, config, {
 			title: 'Personal channel linked',
-			description: `<#${channelId}> → ${matchLabel}`,
+			description: `<#${channelId}> → ${matchLabel}${renameNote}${moveNote}`,
 			actorId: interaction.member?.user?.id,
 			source: 'admin',
 			color: result.permissionWarnings?.length ? AuditColor.warn : AuditColor.info,
@@ -2246,7 +2265,10 @@ async function handleServerChannelsCommand(
 					`\n\nGrant the bot **Manage Channels** + **View Channel** on this channel (or its category), then re-run link — or edit overwrites manually so the bot can **View** and **Send**.`
 				: ' Applied permissions (bot can post here; member + extra-roles can view/send).';
 
-		return interactionResponse(`✅ Linked <#${channelId}> to ${matchLabel}.${permNote}`, true);
+		return interactionResponse(
+			`✅ Linked <#${channelId}> to ${matchLabel}.${renameNote}${moveNote}${permNote}`,
+			true,
+		);
 	}
 
 	return interactionResponse(`❌ Unknown channels subcommand: ${sub.name}`, true);

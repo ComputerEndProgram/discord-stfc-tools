@@ -163,7 +163,7 @@ export async function applyPersonalChannelForMember(
 	discordUserId: string,
 	playerName: string,
 	existingChannelId?: string | null,
-): Promise<string | null> {
+): Promise<{ channelId: string; created: boolean; moved: boolean; renamed: boolean } | null> {
 	const result = await ensurePersonalChannel(
 		token,
 		config,
@@ -176,7 +176,12 @@ export async function applyPersonalChannelForMember(
 		console.error('Personal channel setup failed:', result.error);
 		return null;
 	}
-	return result.channelId;
+	return {
+		channelId: result.channelId,
+		created: result.created,
+		moved: result.moved,
+		renamed: result.renamed,
+	};
 }
 
 export async function applyDiplomacyForAlliance(
@@ -265,7 +270,7 @@ export async function grantFullAccessForVerifiedPlayer(
 	}
 
 	const existing = await getVerifiedPlayer(env.STFC_DB, guildId, discordUserId);
-	const channelId = await applyPersonalChannelForMember(
+	const channelResult = await applyPersonalChannelForMember(
 		token,
 		config,
 		guildId,
@@ -273,13 +278,13 @@ export async function grantFullAccessForVerifiedPlayer(
 		name,
 		existing?.personal_channel_id,
 	);
-	if (channelId) {
+	if (channelResult) {
 		await upsertVerifiedPlayer(env.STFC_DB, {
 			guild_id: guildId,
 			discord_user_id: discordUserId,
-			personal_channel_id: channelId,
+			personal_channel_id: channelResult.channelId,
 		});
-		auditNotes.push(`Channel <#${channelId}>`);
+		auditNotes.push(`Channel <#${channelResult.channelId}>`);
 	}
 
 	if (allianceTag) {
