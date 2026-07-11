@@ -10,13 +10,15 @@ import type { GuildConfig, VerifiedPlayer } from './types';
 
 /** Common Discord permission bits we care about for member channels. */
 const PERM_LABELS: Array<{ bit: bigint; label: string }> = [
+	{ bit: 0x8n, label: 'Administrator' },
+	{ bit: 0x10n, label: 'ManageChannels' },
 	{ bit: 0x400n, label: 'View' },
 	{ bit: 0x800n, label: 'Send' },
 	{ bit: 0x2000n, label: 'ManageMessages' },
 	{ bit: 0x4000n, label: 'Embed' },
 	{ bit: 0x8000n, label: 'Attach' },
 	{ bit: 0x10000n, label: 'History' },
-	{ bit: 0x10n, label: 'ManageChannels' },
+	{ bit: 0x10000000n, label: 'ManagePermissions' },
 ];
 
 export function decodePermissionBits(bits: string | number | bigint | null | undefined): string[] {

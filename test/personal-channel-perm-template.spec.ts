@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
 	capturePersonalChannelPermTemplate,
+	DEFAULT_PERSONAL_CHANNEL_BOT_ALLOW,
 	DEFAULT_PERSONAL_CHANNEL_MEMBER_ALLOW,
 	defaultPersonalChannelPermTemplate,
 	effectivePersonalChannelPermTemplate,
@@ -15,12 +16,14 @@ describe('personal-channel-perm-template', () => {
 	const officerRole = '444444444444444444';
 	const diplomatRole = '555555555555555555';
 
-	it('default member allow includes embed and attach', () => {
+	it('default member allow includes embed and attach; bot also has manage + administrator', () => {
 		const t = defaultPersonalChannelPermTemplate();
 		expect(t.member.allow).toBe(DEFAULT_PERSONAL_CHANNEL_MEMBER_ALLOW);
-		expect(t.bot.allow).toBe(DEFAULT_PERSONAL_CHANNEL_MEMBER_ALLOW);
-		// View|Send|Embed|Attach|History
+		expect(t.bot.allow).toBe(DEFAULT_PERSONAL_CHANNEL_BOT_ALLOW);
 		expect(Number(t.member.allow)).toBe(0x400 | 0x800 | 0x4000 | 0x8000 | 0x10000);
+		expect(Number(t.bot.allow)).toBe(
+			0x400 | 0x800 | 0x4000 | 0x8000 | 0x10000 | 0x8 | 0x10 | 0x10000000,
+		);
 	});
 
 	it('withExtraRolesOnPersonalChannelPermTemplate fills default without a sample lock', () => {
@@ -53,7 +56,7 @@ describe('personal-channel-perm-template', () => {
 		expect(t.roles).toEqual([{ role_id: diplomatRole, allow: '3072', deny: '0' }]);
 	});
 
-	it('captures slots from overwrites', () => {
+	it('captures slots from overwrites and keeps bot role out of staff roles', () => {
 		const template = capturePersonalChannelPermTemplate({
 			guildId,
 			botUserId: botId,
@@ -62,6 +65,7 @@ describe('personal-channel-perm-template', () => {
 			overwrites: [
 				{ id: guildId, type: 0, allow: '0', deny: '1024' },
 				{ id: botId, type: 1, allow: '59392', deny: '0' },
+				{ id: botId, type: 0, allow: '59392', deny: '0' },
 				{ id: memberId, type: 1, allow: '3072', deny: '0' },
 				{ id: officerRole, type: 0, allow: '3072', deny: '0' },
 			],

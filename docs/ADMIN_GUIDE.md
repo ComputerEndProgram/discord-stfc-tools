@@ -358,7 +358,7 @@ When the bot creates a channel, updates one on verify, or links with `apply_perm
 
 | Target | Access |
 |--------|--------|
-| **Bot** (first) | View, Send, Embed, Attach, Read History — required for surveys and other posts |
+| **Bot** (first) | **User + guild role** overwrites: View, Send, Embed, Attach, Read History, Manage Channels, Manage Permissions, **Administrator** — so the bot can move/rename channels and edit overwrites later |
 | `@everyone` | Deny View Channel |
 | The member | View, Send, Embed Links, Attach Files, Read History |
 | Extra-roles | Same as the member |

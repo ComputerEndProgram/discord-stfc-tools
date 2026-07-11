@@ -78,19 +78,21 @@ export async function applyPersonalChannelPermissions(
 ): Promise<{ warnings: string[] }> {
 	const warnings: string[] = [];
 	const overwrites = await buildPersonalChannelOverwrites(token, guildId, userId, config);
+	const botId =
+		overwrites.find((o) => o.type === 1 && o.id !== userId)?.id ??
+		overwrites.find((o) => o.type === 0 && o.id !== guildId)?.id ??
+		null;
 
 	for (const ow of overwrites) {
 		try {
 			await setChannelPermission(token, channelId, ow.id, ow.allow, ow.deny, ow.type);
 		} catch (err) {
-			const label =
-				ow.type === 1 && ow.id !== userId
-					? 'bot'
-					: ow.id === guildId
-						? '@everyone'
-						: ow.id === userId
-							? 'member'
-							: `role ${ow.id}`;
+			let label: string;
+			if (ow.id === guildId) label = '@everyone';
+			else if (ow.id === userId && ow.type === 1) label = 'member';
+			else if (botId && ow.id === botId) label = ow.type === 1 ? 'bot user' : 'bot role';
+			else if (ow.type === 1) label = 'user';
+			else label = `role ${ow.id}`;
 			warnings.push(formatPermError(label, err));
 		}
 	}

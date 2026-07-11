@@ -7,7 +7,15 @@ const VIEW_CHANNEL = '1024';
 export const DEFAULT_PERSONAL_CHANNEL_MEMBER_ALLOW = String(
 	0x400 | 0x800 | 0x4000 | 0x8000 | 0x10000,
 );
-const BOT_PERMS = DEFAULT_PERSONAL_CHANNEL_MEMBER_ALLOW;
+/**
+ * Member messaging bits plus Manage Channels, Manage Permissions (Manage Roles),
+ * and Administrator — applied to both the bot **user** and the bot’s **guild role**
+ * (same snowflake). Needed so the bot can move channels and edit overwrites later.
+ */
+export const DEFAULT_PERSONAL_CHANNEL_BOT_ALLOW = String(
+	Number(DEFAULT_PERSONAL_CHANNEL_MEMBER_ALLOW) | 0x8 | 0x10 | 0x10000000,
+);
+const BOT_PERMS = DEFAULT_PERSONAL_CHANNEL_BOT_ALLOW;
 const MEMBER_PERMS = DEFAULT_PERSONAL_CHANNEL_MEMBER_ALLOW;
 
 export interface PermBits {
@@ -154,7 +162,7 @@ export function formatPersonalChannelPermTemplate(
 		!isDefault && t.captured_at ? `• Captured: ${t.captured_at}` : null,
 		!isDefault && t.captured_by ? `• By: <@${t.captured_by}>` : null,
 		`• @everyone: ${bitsLabel(t.everyone)}`,
-		`• Bot (slot): ${bitsLabel(t.bot)}`,
+		`• Bot user + bot role (slots): ${bitsLabel(t.bot)}`,
 		`• Member (slot): ${bitsLabel(t.member)}`,
 		t.roles.length
 			? `• Roles (${t.roles.length}):\n` +
@@ -190,13 +198,17 @@ export function capturePersonalChannelPermTemplate(opts: {
 	const defaults = defaultPersonalChannelPermTemplate();
 
 	const everyoneOw = overwrites.find((o) => o.type === 0 && o.id === guildId);
-	const botOw = overwrites.find((o) => o.type === 1 && o.id === botUserId);
+	const botUserOw = overwrites.find((o) => o.type === 1 && o.id === botUserId);
+	const botRoleOw = overwrites.find((o) => o.type === 0 && o.id === botUserId);
 	const memberOw = overwrites.find((o) => o.type === 1 && o.id === memberUserId);
+	const botOw = botUserOw ?? botRoleOw;
 
 	const roles: PersonalChannelRolePerm[] = [];
 	for (const ow of overwrites) {
 		if (ow.type !== 0) continue;
 		if (ow.id === guildId) continue;
+		// Bot's managed guild role shares the bot user snowflake — keep in bot slot, not staff roles.
+		if (ow.id === botUserId) continue;
 		if (!/^\d{15,20}$/.test(ow.id)) continue;
 		roles.push({
 			role_id: ow.id,
@@ -234,10 +246,17 @@ export async function buildOverwritesFromTemplate(
 	const template = effectivePersonalChannelPermTemplate(config);
 
 	const overwrites: ChannelPermissionOverwrite[] = [
-		// Bot first — never lock ourselves out when denying @everyone.
+		// Bot user + bot role first — never lock ourselves out when denying @everyone.
+		// Discord managed bot role uses the same snowflake as the bot user.
 		{
 			id: botUserId,
 			type: 1,
+			allow: template.bot.allow,
+			deny: template.bot.deny,
+		},
+		{
+			id: botUserId,
+			type: 0,
 			allow: template.bot.allow,
 			deny: template.bot.deny,
 		},
@@ -257,6 +276,7 @@ export async function buildOverwritesFromTemplate(
 
 	for (const role of template.roles) {
 		if (!/^\d{15,20}$/.test(role.role_id)) continue;
+		if (role.role_id === botUserId) continue;
 		overwrites.push({
 			id: role.role_id,
 			type: 0,
