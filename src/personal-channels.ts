@@ -437,6 +437,13 @@ export interface RebalancePersonalChannelsOptions {
 	moveDelayMs?: number;
 	/** Called when a missing channel is created so the caller can persist personal_channel_id. */
 	onChannelCreated?: (player: VerifiedPlayer, channelId: string) => Promise<void>;
+	/** After categories/map are ready (before channel moves) — persist map early. */
+	onCategoriesReady?: (
+		newMap: Record<string, string>,
+		archiveCategoryId: string | null,
+	) => Promise<void>;
+	/** Periodic status for Discord “thinking” follow-ups. */
+	onProgress?: (message: string) => Promise<void>;
 }
 
 export interface RebalancePersonalChannelsResult {
@@ -474,13 +481,26 @@ export async function rebalancePersonalChannels(
 	const createCategories = opts.createCategories !== false;
 	const createMissing = opts.createMissing === true;
 	const archiveUnlinked = opts.archiveUnlinked !== false;
-	const moveDelayMs = opts.moveDelayMs ?? 350;
+	const moveDelayMs = opts.moveDelayMs ?? 250;
+
+	const report = async (message: string) => {
+		if (!opts.onProgress) return;
+		try {
+			await opts.onProgress(message);
+		} catch {
+			/* non-fatal */
+		}
+	};
 
 	const names: string[] = [];
 	for (const p of opts.players) {
 		if (p.player_name?.trim()) names.push(p.player_name.trim());
 	}
 	const plan = planCategoryBuckets(buildLetterHistogram(names), softLimit);
+
+	await report(
+		`⏳ Rebalance: preparing **${plan.buckets.length}** categor${plan.buckets.length === 1 ? 'y' : 'ies'} for **${names.length}** player(s)…`,
+	);
 
 	const existing = sortedCategoryMapEntries(config.channel_category_map);
 	const newMap: Record<string, string> = {};
@@ -556,14 +576,52 @@ export async function rebalancePersonalChannels(
 		channel_category_map: newMap,
 		personal_channel_archive_category_id: archiveCategoryId,
 	};
+
+	if (opts.onCategoriesReady) {
+		try {
+			await opts.onCategoriesReady(newMap, archiveCategoryId);
+		} catch (error) {
+			errors.push(
+				`Failed to persist category map early: ${error instanceof Error ? error.message : 'unknown'}`,
+			);
+		}
+	}
+
 	let channelsMoved = 0;
 	let channelsCreated = 0;
 	let channelsArchived = 0;
 	let channelsFailed = 0;
+	let channelsRenamed = 0;
+
+	// One guild channel list beats N GETs (and survives better under rate limits).
+	let channelById = new Map<string, DiscordChannel>();
+	try {
+		const listed = await listGuildChannels(token, guildId);
+		channelById = new Map(listed.map((ch) => [ch.id, ch]));
+	} catch (error) {
+		errors.push(
+			`Could not list guild channels (falling back to per-channel fetch): ${
+				error instanceof Error ? error.message : 'unknown'
+			}`,
+		);
+	}
+
+	const linkedWithNames = opts.players.filter((p) => p.player_name?.trim());
+	let processed = 0;
+
+	await report(
+		`⏳ Rebalance: categories ready (${categoriesCreated} created, ${categoriesRenamed} renamed). Moving/creating channels (0/${linkedWithNames.length})…`,
+	);
 
 	// Move (and optionally create) linked/missing personal channels.
-	for (const player of opts.players) {
-		if (!player.player_name?.trim()) continue;
+	for (const player of linkedWithNames) {
+		processed++;
+		if (processed === 1 || processed % 10 === 0 || processed === linkedWithNames.length) {
+			await report(
+				`⏳ Rebalance: channels ${processed}/${linkedWithNames.length}` +
+					` (moved ${channelsMoved}, renamed ${channelsRenamed}, created ${channelsCreated}, failed ${channelsFailed})…`,
+			);
+		}
 
 		if (!player.personal_channel_id) {
 			if (!createMissing) continue;
@@ -573,7 +631,7 @@ export async function rebalancePersonalChannels(
 				configWithMap,
 				guildId,
 				player.discord_user_id,
-				player.player_name,
+				player.player_name!,
 				null,
 			);
 			if (!result.ok) {
@@ -583,6 +641,13 @@ export async function rebalancePersonalChannels(
 			}
 			channelsCreated++;
 			player.personal_channel_id = result.channelId;
+			channelById.set(result.channelId, {
+				id: result.channelId,
+				name: slugPersonalChannelName(player.player_name!, player.discord_user_id),
+				type: 0,
+				parent_id: categoryForPlayerName(configWithMap, player.player_name!) ?? null,
+				guild_id: guildId,
+			});
 			if (opts.onChannelCreated) {
 				await opts.onChannelCreated(player, result.channelId);
 			}
@@ -590,27 +655,39 @@ export async function rebalancePersonalChannels(
 			continue;
 		}
 
-		const targetCategoryId = categoryForPlayerName(configWithMap, player.player_name);
+		const targetCategoryId = categoryForPlayerName(configWithMap, player.player_name!);
 		if (!targetCategoryId) {
 			channelsFailed++;
-			errors.push(`No category for ${player.player_name} (${letterKeyForName(player.player_name)})`);
+			errors.push(`No category for ${player.player_name} (${letterKeyForName(player.player_name!)})`);
 			continue;
 		}
 		try {
-			const existingCh = await getGuildChannel(token, player.personal_channel_id);
+			let existingCh = channelById.get(player.personal_channel_id) ?? null;
+			if (!existingCh) {
+				existingCh = await getGuildChannel(token, player.personal_channel_id);
+			}
 			if (!existingCh || !isLinkableGuildTextChannel(existingCh.type)) {
 				channelsFailed++;
 				errors.push(`Channel missing for ${player.player_name}`);
 				continue;
 			}
+			const desiredName = slugPersonalChannelName(player.player_name!, player.discord_user_id);
+			const updates: { name?: string; parent_id?: string } = {};
 			if (existingCh.parent_id !== targetCategoryId) {
-				await patchGuildChannel(token, player.personal_channel_id, { parent_id: targetCategoryId });
-				channelsMoved++;
-				if (moveDelayMs > 0) await sleep(moveDelayMs);
+				updates.parent_id = targetCategoryId;
 			}
-			const desiredName = slugPersonalChannelName(player.player_name, player.discord_user_id);
 			if (existingCh.name !== desiredName) {
-				await patchGuildChannel(token, player.personal_channel_id, { name: desiredName });
+				updates.name = desiredName;
+			}
+			if (updates.parent_id || updates.name) {
+				await patchGuildChannel(token, player.personal_channel_id, updates);
+				if (updates.parent_id) channelsMoved++;
+				if (updates.name) channelsRenamed++;
+				channelById.set(player.personal_channel_id, {
+					...existingCh,
+					name: updates.name ?? existingCh.name,
+					parent_id: updates.parent_id ?? existingCh.parent_id,
+				});
 				if (moveDelayMs > 0) await sleep(moveDelayMs);
 			}
 		} catch (error) {
@@ -626,7 +703,11 @@ export async function rebalancePersonalChannels(
 			errors.push('Archive requested but no archive category is available.');
 		} else {
 			try {
-				const channels = await listGuildChannels(token, guildId);
+				await report(`⏳ Rebalance: archiving unlinked channels → <#${archiveCategoryId}>…`);
+				const channels =
+					channelById.size > 0
+						? [...channelById.values()]
+						: await listGuildChannels(token, guildId);
 				const cats = memberCategoryIds(config.channel_category_map, ...Object.values(newMap));
 				// Do not treat archive itself as a member category.
 				cats.delete(archiveCategoryId);
@@ -636,11 +717,18 @@ export async function rebalancePersonalChannels(
 					linkedChannelIds(opts.players),
 					archiveCategoryId,
 				);
+				let archivedProgress = 0;
 				for (const ch of unlinked) {
 					if (ch.parent_id === archiveCategoryId) continue;
 					try {
 						await patchGuildChannel(token, ch.id, { parent_id: archiveCategoryId });
 						channelsArchived++;
+						archivedProgress++;
+						if (archivedProgress === 1 || archivedProgress % 10 === 0) {
+							await report(
+								`⏳ Rebalance: archived ${channelsArchived}/${unlinked.length} unlinked channel(s)…`,
+							);
+						}
 						if (moveDelayMs > 0) await sleep(moveDelayMs);
 					} catch (error) {
 						channelsFailed++;
@@ -669,6 +757,7 @@ export async function rebalancePersonalChannels(
 		`• Categories created: ${categoriesCreated}\n` +
 		`• Categories renamed: ${categoriesRenamed}\n` +
 		`• Channels moved: ${channelsMoved}\n` +
+		`• Channels renamed: ${channelsRenamed}\n` +
 		`• Channels created: ${channelsCreated}\n` +
 		`• Channels archived: ${channelsArchived}\n` +
 		`• Channels failed: ${channelsFailed}\n` +

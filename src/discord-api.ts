@@ -11,6 +11,10 @@ export class DiscordApiError extends Error {
 	}
 }
 
+function sleepMs(ms: number): Promise<void> {
+	return new Promise((r) => setTimeout(r, ms));
+}
+
 async function discordFetch(
 	token: string,
 	path: string,
@@ -23,21 +27,43 @@ async function discordFetch(
 		headers.set('Content-Type', 'application/json');
 	}
 
-	const response = await fetch(`${DISCORD_API}${path}`, {
-		...init,
-		headers,
-	});
+	const maxAttempts = 6;
+	for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+		const response = await fetch(`${DISCORD_API}${path}`, {
+			...init,
+			headers,
+		});
 
-	if (!response.ok) {
-		const body = await response.text();
-		throw new DiscordApiError(
-			`Discord API ${path} failed (HTTP ${response.status})${body ? `: ${body.slice(0, 200)}` : ''}`,
-			response.status,
-			body,
-		);
+		if (response.status === 429) {
+			const retryAfterHdr = response.headers.get('Retry-After');
+			const retryAfterSec = retryAfterHdr != null ? Number(retryAfterHdr) : NaN;
+			const waitMs = Number.isFinite(retryAfterSec)
+				? Math.min(Math.max(retryAfterSec * 1000, 500), 20_000)
+				: Math.min(1000 * attempt, 10_000);
+			await response.text().catch(() => undefined);
+			if (attempt === maxAttempts) {
+				throw new DiscordApiError(
+					`Discord API ${path} failed (HTTP 429) after ${maxAttempts} attempts`,
+					429,
+				);
+			}
+			await sleepMs(waitMs);
+			continue;
+		}
+
+		if (!response.ok) {
+			const body = await response.text();
+			throw new DiscordApiError(
+				`Discord API ${path} failed (HTTP ${response.status})${body ? `: ${body.slice(0, 200)}` : ''}`,
+				response.status,
+				body,
+			);
+		}
+
+		return response;
 	}
 
-	return response;
+	throw new DiscordApiError(`Discord API ${path} failed after retries`, 500);
 }
 
 export interface DiscordGuildMember {

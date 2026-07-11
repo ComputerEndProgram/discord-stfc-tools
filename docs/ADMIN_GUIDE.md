@@ -421,6 +421,8 @@ Buckets use the **first letter** of the in-game name (`A`–`Z`). Names starting
 
 That creates/renames categories like `Member Channels A-M` / `Member Channels N-#`, updates the map, moves linked member channels, creates missing ones (if `create_missing`), and archives unlinked ones.
 
+Large servers take a while: the command shows **progress** on the slash reply, posts **started** + **finished** (or failed) to the audit log, and saves the category map as soon as categories exist so a retry can continue. Re-running `apply:true` is safe for channels already in the right place.
+
 The planner splits **fairly evenly** under the soft limit (50 players → two ~25 buckets, not 45+5). Re-run when occupancy nears the limit (`/server channels status` shows counts).
 
 | Option | Default | Description |

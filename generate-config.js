@@ -18,6 +18,9 @@ function generateWranglerConfig() {
     "observability": {
       "enabled": true
     },
+    "limits": {
+      "cpu_ms": 300000
+    },
     "vars": {
       "ENVIRONMENT": "development"
     },

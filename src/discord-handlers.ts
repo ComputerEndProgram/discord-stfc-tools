@@ -1714,7 +1714,18 @@ async function handleServerChannelsCommand(
 		const deferred = deferredResponse();
 		ctx.waitUntil(
 			(async () => {
+				const actorId = interaction.member?.user?.id;
 				try {
+					await postAuditLog(env, config, {
+						title: 'Personal channels rebalance started',
+						description:
+							`Triggered by <@${actorId ?? 'unknown'}>. ` +
+							`Progress updates appear on the slash command; a completion summary will post here when finished.`,
+						actorId,
+						source: 'admin',
+						color: AuditColor.info,
+					});
+
 					const players = await listPlayersForPersonalChannels(env.STFC_DB, guildId);
 					const result = await rebalancePersonalChannels(env.DISCORD_BOT_TOKEN!, guildId, config, {
 						players,
@@ -1733,6 +1744,23 @@ async function handleServerChannelsCommand(
 								personal_channel_id: channelId,
 							});
 						},
+						onCategoriesReady: async (newMap, archiveId) => {
+							const patch: Parameters<typeof upsertGuildConfig>[1] = {
+								guild_id: guildId,
+							};
+							if (Object.keys(newMap).length > 0) {
+								patch.channel_category_map = newMap;
+							}
+							if (archiveId) {
+								patch.personal_channel_archive_category_id = archiveId;
+							}
+							if (patch.channel_category_map || patch.personal_channel_archive_category_id) {
+								await upsertGuildConfig(env.STFC_DB, patch);
+							}
+						},
+						onProgress: async (message) => {
+							await editInteractionResponse(appId, interaction.token, message, true);
+						},
 					});
 					const patch: Parameters<typeof upsertGuildConfig>[1] = {
 						guild_id: guildId,
@@ -1750,16 +1778,29 @@ async function handleServerChannelsCommand(
 					await postAuditLog(env, refreshed, {
 						title: 'Personal channels rebalanced',
 						description: result.summary.slice(0, 1500),
-						actorId: interaction.member?.user?.id,
+						actorId,
 						source: 'admin',
 						color: result.ok ? AuditColor.success : AuditColor.warn,
 					});
 					await editInteractionResponse(appId, interaction.token, result.summary, true);
 				} catch (error) {
+					const errMsg = error instanceof Error ? error.message : 'unknown error';
+					try {
+						await postAuditLog(env, config, {
+							title: 'Personal channels rebalance failed',
+							description: errMsg.slice(0, 1500),
+							actorId,
+							source: 'admin',
+							color: AuditColor.danger,
+						});
+					} catch {
+						/* ignore */
+					}
 					await editInteractionResponse(
 						appId,
 						interaction.token,
-						`❌ Rebalance failed: ${error instanceof Error ? error.message : 'unknown error'}`,
+						`❌ Rebalance failed: ${errMsg}\n\n` +
+							`Partial moves may already be applied. Re-run \`/server channels rebalance apply:true\` to continue (idempotent for already-placed channels).`,
 						true,
 					);
 				}
