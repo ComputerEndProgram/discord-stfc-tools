@@ -7,6 +7,7 @@ import {
 } from './discord-api';
 import { requireGuildAdmin, isGuildAdministrator } from './discord-admin';
 import { getGuildConfig, upsertGuildConfig } from './guild-db';
+import { AuditColor, postAuditLog } from './audit-log';
 import { deleteSurvey, getSurvey, listSurveys, updateSurvey } from './survey-db';
 import {
 	buildSurveyAdminComponents,
@@ -232,6 +233,13 @@ export async function handleSurveyCommand(
 			status: 'closed',
 			closed_at: new Date().toISOString(),
 		});
+		await postAuditLog(env, config, {
+			title: 'Survey closed',
+			description: `Survey #${id}`,
+			actorId: actorUserId(interaction),
+			source: 'admin',
+			color: AuditColor.warn,
+		});
 		return interactionResponse(`✅ Survey #${id} closed.`, true);
 	}
 
@@ -396,6 +404,14 @@ export async function handleSurveyComponent(
 						{ components: [] },
 					);
 					const result = await sendSurveyBroadcast(env, config, surveyId);
+					await postAuditLog(env, config, {
+						title: 'Survey sent',
+						description: `Survey #${surveyId} → **${result.sent}** player(s)` +
+							(result.failed ? ` (${result.failed} failed)` : ''),
+						source: 'admin',
+						color: AuditColor.success,
+						fields: [{ name: 'Log', value: `<#${result.logChannelId}>`, inline: true }],
+					});
 					await editInteractionResponse(
 						appId,
 						token,

@@ -19,6 +19,7 @@ import {
 	listExchangeResources,
 } from './exchange-db';
 import { getGuildConfig, upsertGuildConfig } from './guild-db';
+import { AuditColor, postAuditLog } from './audit-log';
 import type { GuildConfig } from './types';
 
 function getOptionValue(options: Array<{ name: string; value?: unknown }> | undefined, name: string): unknown {
@@ -171,6 +172,13 @@ export async function handleExchangeCommand(
 
 		await upsertGuildConfig(env.STFC_DB, patch);
 		const refreshed = await getGuildConfig(env.STFC_DB, guildId);
+		await postAuditLog(env, refreshed, {
+			title: 'Exchange setup updated',
+			description: notes.join(' · ') || formatExchangeSetup(refreshed!),
+			actorId: interaction.member?.user?.id ?? interaction.user?.id,
+			source: 'admin',
+			color: AuditColor.info,
+		});
 		return interactionResponse(
 			`✅ Exchange setup updated.\n${formatExchangeSetup(refreshed!)}` +
 				(notes.length ? `\n${notes.map((n) => `• ${n}`).join('\n')}` : ''),

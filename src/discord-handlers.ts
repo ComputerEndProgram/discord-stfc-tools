@@ -37,6 +37,7 @@ import {
 import { DEFAULT_SOFT_LIMIT } from './personal-channel-plan';
 import { defaultNicknameTemplate } from './nickname-utils';
 import { createVerificationLogChannel } from './verification-log';
+import { AuditColor, createAuditLogChannel, postAuditLog } from './audit-log';
 import {
 	diplomacyChannelsEnabled,
 	ensureDiplomacyChannel,
@@ -324,7 +325,7 @@ async function handleVerifyCommand(
 
 async function handleServerSetupCommand(
 	env: Env,
-	interaction: { guild_id?: string; member?: { permissions?: string } },
+	interaction: { guild_id?: string; member?: { permissions?: string; user?: { id: string } } },
 	data: { options?: Array<{ name: string; value?: unknown }> },
 ): Promise<Response> {
 	const guildId = interaction.guild_id;
@@ -451,6 +452,25 @@ async function handleServerSetupCommand(
 				? String(nicknameTemplateRaw).trim() || defaultNicknameTemplate(mode)
 				: (existingConfig?.nickname_template?.trim() || defaultNicknameTemplate(mode));
 
+		const refreshed = await getGuildConfig(env.STFC_DB, guildId);
+		const actorId = interaction.member?.user?.id;
+		await postAuditLog(env, refreshed, {
+			title: 'Server setup updated',
+			description: `Mode **${mode}** · STFC **${server}** (${region})` +
+				(mode === 'single_alliance' ? ` · tag **${allianceTag}**` : ''),
+			actorId,
+			source: 'admin',
+			color: AuditColor.success,
+			fields: [
+				{ name: 'Nickname', value: `\`${effectiveNick}\``, inline: false },
+				{
+					name: 'Roles',
+					value: `member ${memberRoleIds.length} · guest ${guestRoleId ? 'set' : 'none'} · ranks ${operativeRoleIds.length}/${agentRoleIds.length}/${premierRoleIds.length}/${commodoreRoleIds.length}/${admiralRoleIds.length}`,
+					inline: false,
+				},
+			],
+		});
+
 		return interactionResponse(
 			`✅ Server configured!\n` +
 				`• Mode: **${mode}**\n` +
@@ -462,7 +482,8 @@ async function handleServerSetupCommand(
 				`• Operative/Agent/Premier/Commodore/Admiral roles set: ` +
 				`${operativeRoleIds.length}/${agentRoleIds.length}/${premierRoleIds.length}/${commodoreRoleIds.length}/${admiralRoleIds.length}\n\n` +
 				`New members will receive a verification DM. They can also run \`/verify\`.\n` +
-				`Nickname placeholders: \`{player_name}\` \`{alliance_tag}\` \`{rank}\` \`{rank_prefix}\` \`{rank_paren}\``,
+				`Nickname placeholders: \`{player_name}\` \`{alliance_tag}\` \`{rank}\` \`{rank_prefix}\` \`{rank_paren}\`\n` +
+				`Tip: set \`/server channels audit create:true\` for a staff audit trail, and \`/server channels log\` for verification screenshots.`,
 			true,
 		);
 	} catch (error) {
@@ -491,6 +512,7 @@ async function handleServerStatusCommand(env: Env, guildId: string | undefined):
 			`• Nickname template: \`${config.nickname_template?.trim() || defaultNicknameTemplate(config.mode)}\`` +
 			`${config.nickname_template?.trim() ? '' : ' (default)'}\n` +
 			`• Verification log: ${config.verification_log_channel_id ? `<#${config.verification_log_channel_id}>` : 'not set'}\n` +
+			`• Audit log: ${config.audit_log_channel_id ? `<#${config.audit_log_channel_id}>` : 'not set'}\n` +
 			`• Diplomacy channels: ${diplomacyChannelsEnabled(config) ? 'enabled' : 'disabled'}` +
 			(diplomacyChannelsEnabled(config)
 				? ` (${formatDiplomacyChannelMap(config.diplomacy_channel_map)})`
@@ -795,6 +817,7 @@ async function handleDiplomacyChannelsCommand(
 	guildId: string,
 	config: GuildConfig,
 	options: Array<{ name: string; value?: unknown }> | undefined,
+	actorId?: string,
 ): Promise<Response> {
 	const disableRaw = getOptionValue(options, 'disable');
 	const disable = disableRaw === true || disableRaw === 'true';
@@ -827,6 +850,12 @@ async function handleDiplomacyChannelsCommand(
 
 	if (disable) {
 		await upsertGuildConfig(env.STFC_DB, { guild_id: guildId, diplomacy_enabled: false });
+		await postAuditLog(env, { ...config, diplomacy_enabled: false }, {
+			title: 'Diplomacy channels disabled',
+			actorId,
+			source: 'admin',
+			color: AuditColor.warn,
+		});
 		return interactionResponse(
 			'✅ Diplomacy channels disabled. Existing channel links are kept but no new channels will be created.',
 			true,
@@ -895,6 +924,12 @@ async function handleDiplomacyChannelsCommand(
 
 		await upsertGuildConfig(env.STFC_DB, patch);
 		config = (await getGuildConfig(env.STFC_DB, guildId))!;
+		await postAuditLog(env, config, {
+			title: enable ? 'Diplomacy channels enabled/updated' : 'Diplomacy config updated',
+			actorId,
+			source: 'admin',
+			color: AuditColor.info,
+		});
 	}
 
 	if (createTagRaw) {
@@ -917,6 +952,13 @@ async function handleDiplomacyChannelsCommand(
 			guild_id: guildId,
 			diplomacy_enabled: true,
 			diplomacy_channel_map: nextMap,
+		});
+		await postAuditLog(env, { ...config, diplomacy_channel_map: nextMap }, {
+			title: result.created ? 'Diplomacy channel created' : 'Diplomacy channel updated',
+			description: `**[${result.tag}]** → <#${result.channelId}>`,
+			actorId,
+			source: 'admin',
+			color: AuditColor.success,
 		});
 		return interactionResponse(
 			`✅ ${result.created ? 'Created' : 'Updated'} diplomacy channel for **[${result.tag}]**: <#${result.channelId}>\n` +
@@ -948,6 +990,13 @@ async function handleDiplomacyChannelsCommand(
 			guild_id: guildId,
 			diplomacy_enabled: true,
 			diplomacy_channel_map: nextMap,
+		});
+		await postAuditLog(env, { ...config, diplomacy_channel_map: nextMap }, {
+			title: 'Diplomacy channel linked',
+			description: `**[${result.tag}]** → <#${result.channelId}>`,
+			actorId,
+			source: 'admin',
+			color: AuditColor.info,
 		});
 		return interactionResponse(
 			`✅ Linked <#${result.channelId}> as diplomacy for **[${result.tag}]**.` +
@@ -1035,6 +1084,7 @@ async function handleServerChannelsCommand(
 				`• Category map: ${formatCategoryMap(config.channel_category_map)}\n` +
 				`• Extra roles: ${config.personal_channel_extra_roles.join(', ') || 'none'}\n` +
 				`• Verification log: ${config.verification_log_channel_id ? `<#${config.verification_log_channel_id}>` : 'not set'}\n` +
+				`• Audit log: ${config.audit_log_channel_id ? `<#${config.audit_log_channel_id}>` : 'not set'}\n` +
 				`• Diplomacy: ${diplomacyChannelsEnabled(config) ? 'enabled' : 'disabled'} — ${formatDiplomacyChannelMap(config.diplomacy_channel_map)}\n` +
 				`• Linked member channels: ${players?.count ?? 0}` +
 				(config.personal_channel_archive_category_id
@@ -1177,6 +1227,14 @@ async function handleServerChannelsCommand(
 					if (patch.channel_category_map || patch.personal_channel_archive_category_id) {
 						await upsertGuildConfig(env.STFC_DB, patch);
 					}
+					const refreshed = await getGuildConfig(env.STFC_DB, guildId);
+					await postAuditLog(env, refreshed, {
+						title: 'Personal channels rebalanced',
+						description: result.summary.slice(0, 1500),
+						actorId: interaction.member?.user?.id,
+						source: 'admin',
+						color: result.ok ? AuditColor.success : AuditColor.warn,
+					});
 					await editInteractionResponse(appId, interaction.token, result.summary, true);
 				} catch (error) {
 					await editInteractionResponse(
@@ -1192,7 +1250,7 @@ async function handleServerChannelsCommand(
 	}
 
 	if (sub.name === 'diplomacy') {
-		return handleDiplomacyChannelsCommand(env, guildId, config, sub.options);
+		return handleDiplomacyChannelsCommand(env, guildId, config, sub.options, interaction.member?.user?.id);
 	}
 
 	if (sub.name === 'log') {
@@ -1264,6 +1322,92 @@ async function handleServerChannelsCommand(
 		);
 	}
 
+	if (sub.name === 'audit') {
+		const clearRaw = getOptionValue(sub.options, 'clear');
+		const clear = clearRaw === true || clearRaw === 'true';
+		const createRaw = getOptionValue(sub.options, 'create');
+		const create = createRaw === true || createRaw === 'true';
+		const channelOpt = getOptionValue(sub.options, 'channel');
+		const nameOpt = (getOptionValue(sub.options, 'name') as string | undefined)?.trim();
+		const actorId = interaction.member?.user?.id;
+
+		if (clear) {
+			await upsertGuildConfig(env.STFC_DB, {
+				guild_id: guildId,
+				audit_log_channel_id: null,
+			});
+			return interactionResponse('✅ Audit log channel cleared.', true);
+		}
+
+		if (!env.DISCORD_BOT_TOKEN) {
+			return interactionResponse('❌ DISCORD_BOT_TOKEN not configured.', true);
+		}
+
+		if (create) {
+			try {
+				const channelId = await createAuditLogChannel(
+					env.DISCORD_BOT_TOKEN,
+					guildId,
+					config,
+					nameOpt || 'bot-audit-log',
+				);
+				await upsertGuildConfig(env.STFC_DB, {
+					guild_id: guildId,
+					audit_log_channel_id: channelId,
+				});
+				const refreshed = await getGuildConfig(env.STFC_DB, guildId);
+				await postAuditLog(env, refreshed, {
+					title: 'Audit log enabled',
+					description: `This channel will receive admin and automated bot events.\nVerification screenshots still go to \`/server channels log\`.`,
+					actorId,
+					source: 'admin',
+					color: AuditColor.success,
+				});
+				const viewerNote = config.personal_channel_extra_roles.length
+					? `Viewer roles (from channel extra-roles): ${config.personal_channel_extra_roles.map((id) => `<@&${id}>`).join(', ')}`
+					: 'No extra viewer roles yet — set `/server channels extra-roles`, then recreate or edit permissions.';
+				return interactionResponse(
+					`✅ Created private audit log <#${channelId}>.\n` +
+						`• @everyone cannot view\n` +
+						`• ${viewerNote}\n\n` +
+						`Admin commands and automated bot actions will post here.`,
+					true,
+				);
+			} catch (error) {
+				return interactionResponse(
+					`❌ Failed to create audit channel: ${error instanceof Error ? error.message : 'unknown error'}`,
+					true,
+				);
+			}
+		}
+
+		const channelId = channelOpt != null ? String(channelOpt) : '';
+		if (!/^\d{15,20}$/.test(channelId)) {
+			return interactionResponse(
+				'❌ Provide `channel:` (existing), `create:true`, or `clear:true`.',
+				true,
+			);
+		}
+
+		await upsertGuildConfig(env.STFC_DB, {
+			guild_id: guildId,
+			audit_log_channel_id: channelId,
+		});
+		const refreshed = await getGuildConfig(env.STFC_DB, guildId);
+		await postAuditLog(env, refreshed, {
+			title: 'Audit log channel set',
+			description: `Audit events will post to <#${channelId}>.`,
+			actorId,
+			source: 'admin',
+			color: AuditColor.success,
+		});
+		return interactionResponse(
+			`✅ Audit log channel set to <#${channelId}>.\n` +
+				`Make sure the bot can **View Channel**, **Send Messages**, and **Embed Links** there.`,
+			true,
+		);
+	}
+
 	if (sub.name === 'map') {
 		const clearRaw = getOptionValue(sub.options, 'clear');
 		const clear = clearRaw === true || clearRaw === 'true';
@@ -1273,6 +1417,12 @@ async function handleServerChannelsCommand(
 
 		if (clear) {
 			await upsertGuildConfig(env.STFC_DB, { guild_id: guildId, channel_category_map: {} });
+			await postAuditLog(env, { ...config, channel_category_map: {} }, {
+				title: 'Personal channel map cleared',
+				actorId: interaction.member?.user?.id,
+				source: 'admin',
+				color: AuditColor.warn,
+			});
 			return interactionResponse('✅ Category map cleared. Personal channels are now disabled.', true);
 		}
 
@@ -1300,6 +1450,13 @@ async function handleServerChannelsCommand(
 		}
 
 		await upsertGuildConfig(env.STFC_DB, { guild_id: guildId, channel_category_map: nextMap });
+		await postAuditLog(env, { ...config, channel_category_map: nextMap }, {
+			title: 'Personal channel map updated',
+			description: formatCategoryMap(nextMap),
+			actorId: interaction.member?.user?.id,
+			source: 'admin',
+			color: AuditColor.info,
+		});
 		return interactionResponse(
 			`✅ Category map updated.\n• ${formatCategoryMap(nextMap)}\n\nPersonal channels will be created on verify for matching members.`,
 			true,
@@ -1313,6 +1470,12 @@ async function handleServerChannelsCommand(
 
 		if (!rolesRaw?.trim()) {
 			await upsertGuildConfig(env.STFC_DB, { guild_id: guildId, personal_channel_extra_roles: [] });
+			await postAuditLog(env, { ...config, personal_channel_extra_roles: [] }, {
+				title: 'Channel extra-roles cleared',
+				actorId: interaction.member?.user?.id,
+				source: 'admin',
+				color: AuditColor.warn,
+			});
 			return interactionResponse('✅ Channel extra roles cleared.', true);
 		}
 
@@ -1325,6 +1488,13 @@ async function handleServerChannelsCommand(
 				config.personal_channel_extra_roles.map((id) => ({ id })),
 			);
 			await upsertGuildConfig(env.STFC_DB, { guild_id: guildId, personal_channel_extra_roles: resolved.ids });
+			await postAuditLog(env, { ...config, personal_channel_extra_roles: resolved.ids }, {
+				title: 'Channel extra-roles updated',
+				description: resolved.ids.map((id) => `<@&${id}>`).join(', ') || 'none',
+				actorId: interaction.member?.user?.id,
+				source: 'admin',
+				color: AuditColor.info,
+			});
 			return interactionResponse(
 				`✅ Channel extra roles updated (${resolved.ids.length}): ${resolved.ids.join(', ')}`,
 				true,
@@ -1407,6 +1577,21 @@ async function handleServerChannelsCommand(
 			guild_id: guildId,
 			discord_user_id: discordUserId,
 			personal_channel_id: channelId,
+		});
+
+		await postAuditLog(env, config, {
+			title: 'Personal channel linked',
+			description: `<#${channelId}> → ${matchLabel}`,
+			actorId: interaction.member?.user?.id,
+			source: 'admin',
+			color: AuditColor.info,
+			fields: [
+				{
+					name: 'Permissions',
+					value: applyPermissions ? 'rewritten' : 'left unchanged',
+					inline: true,
+				},
+			],
 		});
 
 		return interactionResponse(

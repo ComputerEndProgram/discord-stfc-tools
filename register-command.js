@@ -585,6 +585,37 @@ const commands = [
 							},
 						],
 					},
+					{
+						type: 1,
+						name: 'audit',
+						description: 'Set or create the general bot audit log channel',
+						options: [
+							{
+								type: 7,
+								name: 'channel',
+								description: 'Existing text channel for bot audit events',
+								required: false,
+							},
+							{
+								type: 5,
+								name: 'create',
+								description: 'Create a private bot-audit-log channel',
+								required: false,
+							},
+							{
+								type: 3,
+								name: 'name',
+								description: 'Name when create:true (default bot-audit-log)',
+								required: false,
+							},
+							{
+								type: 5,
+								name: 'clear',
+								description: 'Disable audit log posting',
+								required: false,
+							},
+						],
+					},
 				],
 			},
 		],

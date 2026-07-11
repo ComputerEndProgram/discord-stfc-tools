@@ -20,6 +20,7 @@ import { findPlayerByIdOrName, formatPlayerSummary } from './stfc-utils';
 import { ensurePersonalChannel } from './personal-channels';
 import { ensureDiplomacyChannel, diplomacyChannelsEnabled } from './diplomacy-channels';
 import { postVerificationLog } from './verification-log';
+import { AuditColor, postAuditLog } from './audit-log';
 import type { GuildConfig, PlayerData } from './types';
 
 export const VERIFICATION_INVITE_MESSAGE = `Welcome! Please verify your STFC account to access member channels.
@@ -367,6 +368,17 @@ export async function processVerification(
 			if (diplomacyId) notes.push(`Diplomacy <#${diplomacyId}>`);
 
 			await postLog('active', notes);
+			await postAuditLog(env, config, {
+				title: 'Member verified (active)',
+				description: `<@${discordUserId}> → **${player.name}** [${player.allianceTag}]`,
+				actorId: opts?.manualByUserId ?? discordUserId,
+				source: opts?.manualByUserId ? 'admin' : 'member',
+				color: AuditColor.success,
+				fields: [
+					{ name: 'Ops', value: String(player.level), inline: true },
+					{ name: 'Notes', value: notes.join(' · ') || '—', inline: false },
+				],
+			});
 
 			return (
 				`✅ Verified and activated **${player.name}** (${player.allianceTag}, Ops ${player.level}).\n` +
@@ -378,11 +390,26 @@ export async function processVerification(
 		await applyGuestRole(token, config, guildId, discordUserId);
 		notes.push('Guest role assigned');
 		await postLog('guest', notes);
+		await postAuditLog(env, config, {
+			title: 'Member verified (guest)',
+			description: `<@${discordUserId}> → **${player.name}** [${player.allianceTag}] (expected ${config.alliance_tag ?? '—'})`,
+			actorId: opts?.manualByUserId ?? discordUserId,
+			source: opts?.manualByUserId ? 'admin' : 'member',
+			color: AuditColor.warn,
+			fields: [{ name: 'Notes', value: notes.join(' · ') || '—', inline: false }],
+		});
 		const expected = config.alliance_tag ?? 'the configured alliance';
 		return `⏳ Verified **${player.name}** but alliance **${player.allianceTag}** does not match **${expected}** — guest role assigned. We'll re-check every ${config.poll_interval_hours}h.\n\n${formatPlayerSummary(player)}`;
 	} catch (err) {
 		console.error('Discord role update failed:', err);
 		await postLog(tagMatches ? 'active' : 'guest', ['Discord role update failed']);
+		await postAuditLog(env, config, {
+			title: 'Verification Discord update failed',
+			description: `<@${discordUserId}> → **${player.name}**: ${formatDiscordApiFailure(err)}`,
+			actorId: opts?.manualByUserId ?? discordUserId,
+			source: opts?.manualByUserId ? 'admin' : 'member',
+			color: AuditColor.danger,
+		});
 		return (
 			`✅ Verified on stfc.pro but failed to update Discord roles: ${formatDiscordApiFailure(err)}` +
 			`${nicknamePermissionHint(err)}\n\n${formatPlayerSummary(player)}`
@@ -402,6 +429,8 @@ export async function inviteNewMember(
 		verification_status: 'pending_screenshot',
 	});
 
+	const config = await getGuildConfig(env.STFC_DB, guildId);
+
 	if (!env.DISCORD_BOT_TOKEN) {
 		console.warn('DISCORD_BOT_TOKEN not set — cannot send verification DM');
 		return { ok: false, errorMessage: 'DISCORD_BOT_TOKEN not configured' };
@@ -409,6 +438,13 @@ export async function inviteNewMember(
 
 	try {
 		await sendDirectMessage(env.DISCORD_BOT_TOKEN, userId, VERIFICATION_INVITE_MESSAGE);
+		await postAuditLog(env, config, {
+			title: 'Verification invite sent',
+			description: `DM sent to <@${userId}> (${username})`,
+			actorId: userId,
+			source: 'automated',
+			color: AuditColor.info,
+		});
 		return { ok: true };
 	} catch (error) {
 		// sendDirectMessage ultimately throws DiscordApiError with status/body.
@@ -423,6 +459,13 @@ export async function inviteNewMember(
 		}
 
 		console.error(`Failed to DM ${userId}:`, errorMessage);
+		await postAuditLog(env, config, {
+			title: 'Verification invite failed',
+			description: `Could not DM <@${userId}> (${username}): ${errorMessage.slice(0, 500)}`,
+			actorId: userId,
+			source: 'automated',
+			color: AuditColor.danger,
+		});
 		return { ok: false, errorMessage, status };
 	}
 }
@@ -437,12 +480,14 @@ export async function syncVerifiedPlayer(
 	if (!env.DISCORD_BOT_TOKEN || !player.allianceTag) return;
 
 	const token = env.DISCORD_BOT_TOKEN;
+	const previous = await getVerifiedPlayer(env.STFC_DB, guildId, discordUserId);
 	const tagMatches =
 		config.mode === 'multi_alliance' ||
 		(config.alliance_tag && player.allianceTag.toUpperCase() === config.alliance_tag.toUpperCase());
 
 	const grade = opsLevelToGrade(player.level);
 	const now = new Date().toISOString();
+	const nextStatus = tagMatches ? 'active' : 'guest';
 
 	await upsertVerifiedPlayer(env.STFC_DB, {
 		guild_id: guildId,
@@ -454,8 +499,19 @@ export async function syncVerifiedPlayer(
 		power: player.power,
 		grade,
 		last_synced_at: now,
-		verification_status: tagMatches ? 'active' : 'guest',
+		verification_status: nextStatus,
 	});
+
+	const changes: string[] = [];
+	if (previous?.verification_status && previous.verification_status !== nextStatus) {
+		changes.push(`status ${previous.verification_status} → ${nextStatus}`);
+	}
+	if (previous?.alliance_tag && previous.alliance_tag !== player.allianceTag) {
+		changes.push(`alliance ${previous.alliance_tag} → ${player.allianceTag}`);
+	}
+	if (previous?.alliance_rank && player.rank && previous.alliance_rank !== player.rank) {
+		changes.push(`rank ${previous.alliance_rank} → ${player.rank}`);
+	}
 
 	if (tagMatches) {
 		await applyMemberRoles(token, config, guildId, discordUserId, player.rank);
@@ -480,10 +536,25 @@ export async function syncVerifiedPlayer(
 				discord_user_id: discordUserId,
 				personal_channel_id: channelId,
 			});
+			if (!previous?.personal_channel_id) {
+				changes.push(`channel <#${channelId}>`);
+			}
 		}
 
 		await applyDiplomacyForAlliance(env, token, config, guildId, player.allianceTag);
 	} else {
 		await applyGuestRole(token, config, guildId, discordUserId);
+	}
+
+	if (changes.length > 0) {
+		await postAuditLog(env, config, {
+			title: 'Player sync update',
+			description: `<@${discordUserId}> **${player.name}**`,
+			source: 'cron',
+			color: changes.some((c) => c.startsWith('status') || c.startsWith('alliance'))
+				? AuditColor.warn
+				: AuditColor.info,
+			fields: [{ name: 'Changes', value: changes.join('\n'), inline: false }],
+		});
 	}
 }

@@ -136,6 +136,8 @@ List roles / IDs:
 
 Posts a **summary + screenshot** to a staff-only channel on each successful verify (active or guest). Screenshots are still stored in R2 when configured; the log channel is for day-to-day review without digging in storage.
 
+This is **separate** from the general [bot audit log](#4b-bot-audit-log-admin--automated-actions).
+
 ### Create a private log channel
 
 ```
@@ -163,6 +165,34 @@ Ensure the bot can **View Channel**, **Send Messages**, **Embed Links**, and **A
 ```
 /server channels log clear:true
 ```
+
+---
+
+## 4b. Bot audit log (admin + automated actions)
+
+A staff-only channel for **everything the bot does** besides verification screenshots: admin commands, role/channel changes, cron sync summaries, invites, etc.
+
+```
+/server channels audit create:true
+```
+
+Optional: `name:bot-audit-log`
+
+Or link an existing channel:
+
+```
+/server channels audit channel:#staff-bot-audit
+```
+
+Disable:
+
+```
+/server channels audit clear:true
+```
+
+Same private-channel permission pattern as the verification log (`@everyone` denied; bot + `/server channels extra-roles` can view). Prefer setting **extra-roles** first so viewers are included on create.
+
+Logged events include (non-exhaustive): `/server setup`, verify (brief — screenshots stay on the verification log), guest invites, player sync changes, personal-channel map/rebalance/link, diplomacy config, surveys sent/closed, exchange setup, daily sync / guest re-check summaries.
 
 ---
 
@@ -533,13 +563,14 @@ After create you get an ephemeral draft with buttons:
 1. [ ] Bot invited; role near top of list  
 2. [ ] `/server setup` with server, region, mode, tag, roles  
 3. [ ] `/server channels extra-roles` — officers/roles that see **all** member channels (not part of setup)  
-4. [ ] Link existing member channels with `/server channels link` if needed  
-5. [ ] `/server channels plan` then `/server channels rebalance apply:true create_missing:true` (or manual `/server channels map`)  
-6. [ ] `/server channels log create:true`  
-7. [ ] Optional: `nickname_template`, rank roles, `/server bucket`  
-8. [ ] Multi-alliance: `/server channels diplomacy enable:true write_roles:Diplomat write_ranks:Commodore,Admiral`  
-9. [ ] Optional: `/survey creators` for officers who may poll the alliance  
-10. [ ] Optional: `/exchange setup` + `/exchange resource create` for cross-alliance resources  
-11. [ ] `/server test-invite` → verify yourself → check roles, log, personal/diplomacy channels  
-12. [ ] Existing members: `/server verify user:@Them link:https://stfc.pro/…` (repeat as needed)  
-13. [ ] `/server status` looks correct  
+4. [ ] `/server channels audit create:true` — general bot audit (admin + automated actions)  
+5. [ ] `/server channels log create:true` — verification archive (screenshots; separate from audit)  
+6. [ ] Link existing member channels with `/server channels link` if needed  
+7. [ ] `/server channels plan` then `/server channels rebalance apply:true create_missing:true` (or manual `/server channels map`)  
+8. [ ] Optional: `nickname_template`, rank roles, `/server bucket`  
+9. [ ] Multi-alliance: `/server channels diplomacy enable:true write_roles:Diplomat write_ranks:Commodore,Admiral`  
+10. [ ] Optional: `/survey creators` for officers who may poll the alliance  
+11. [ ] Optional: `/exchange setup` + `/exchange resource create` for cross-alliance resources  
+12. [ ] `/server test-invite` → verify yourself → check roles, log, personal/diplomacy channels  
+13. [ ] Existing members: `/server verify user:@Them link:https://stfc.pro/…` (repeat as needed)  
+14. [ ] `/server status` looks correct  
