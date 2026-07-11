@@ -179,6 +179,31 @@ const commands = [
 			},
 			{
 				type: 1,
+				name: 'verify',
+				description: 'Admin: manually verify a member with an stfc.pro link (no DM flow)',
+				options: [
+					{
+						type: 6,
+						name: 'user',
+						description: 'Discord member to verify',
+						required: true,
+					},
+					{
+						type: 3,
+						name: 'link',
+						description: 'stfc.pro player profile URL',
+						required: true,
+					},
+					{
+						type: 11,
+						name: 'screenshot',
+						description: 'Optional screenshot of their in-game profile',
+						required: false,
+					},
+				],
+			},
+			{
+				type: 1,
 				name: 'test-invite',
 				description: 'Admin: send verification DM (simulate new member join)',
 				options: [

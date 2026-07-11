@@ -18,7 +18,7 @@ import {
 } from './guild-db';
 import { findPlayerByIdOrName, formatPlayerSummary } from './stfc-utils';
 import { inviteNewMember, processVerification } from './verification';
-import { requireGuildAdmin, resolveTargetUserId } from './discord-admin';
+import { requireGuildAdmin, resolveTargetUserId, resolveRequiredUserOption } from './discord-admin';
 import { getDiscordGatewayStatus } from './discord-gateway/wake';
 import { parseCSV, autoGenerateColumns, generateAsciiTable } from './tableUtils';
 import {
@@ -647,6 +647,67 @@ async function handleServerRankRolesCommand(
 	}
 
 	return interactionResponse(`🔎 Roles for rank ${rankKey}\n${memberRoleIds.join(', ') || 'none'}`, true);
+}
+
+async function handleServerVerifyCommand(
+	env: Env,
+	ctx: ExecutionContext,
+	interaction: {
+		guild_id?: string;
+		member?: { permissions?: string; user?: { id: string } };
+		token: string;
+		application_id?: string;
+	},
+	sub: {
+		options?: Array<{ name: string; value?: unknown; type?: number }>;
+	},
+	resolved?: {
+		attachments?: Record<string, { url: string; filename?: string }>;
+	},
+): Promise<Response> {
+	const adminError = requireGuildAdmin(interaction as any);
+	if (adminError) return adminError;
+
+	const guildId = interaction.guild_id!;
+	const adminId = interaction.member?.user?.id;
+	const targetUserId = resolveRequiredUserOption(sub.options);
+	if (!targetUserId) {
+		return interactionResponse('❌ Provide `user:` — the Discord member to verify.', true);
+	}
+
+	const link = getOptionValue(sub.options, 'link') as string | undefined;
+	if (!link?.trim()) {
+		return interactionResponse('❌ Provide `link:` — their stfc.pro profile URL.', true);
+	}
+
+	let screenshotUrl: string | undefined;
+	const screenshotOption = sub.options?.find((opt) => opt.name === 'screenshot');
+	if (screenshotOption?.value && resolved?.attachments) {
+		const attachment = resolved.attachments[String(screenshotOption.value)];
+		if (attachment?.url) screenshotUrl = attachment.url;
+	}
+
+	const appId = interaction.application_id ?? env.DISCORD_APPLICATION_ID;
+	if (!appId) {
+		return interactionResponse('❌ DISCORD_APPLICATION_ID not configured.', true);
+	}
+
+	const deferred = deferredResponse();
+	ctx.waitUntil(
+		(async () => {
+			const result = await processVerification(
+				env,
+				guildId,
+				targetUserId,
+				link.trim(),
+				screenshotUrl,
+				adminId ? { manualByUserId: adminId } : undefined,
+			);
+			await editInteractionResponse(appId, interaction.token, result, true);
+		})(),
+	);
+
+	return deferred;
 }
 
 async function handleServerTestInviteCommand(
@@ -1280,6 +1341,9 @@ export async function handleDiscordInteraction(
 			}
 			if (sub?.name === 'status') {
 				return handleServerStatusCommand(env, interaction.guild_id);
+			}
+			if (sub?.name === 'verify') {
+				return handleServerVerifyCommand(env, ctx, interaction, sub, data.resolved);
 			}
 			if (sub?.name === 'test-invite') {
 				return handleServerTestInviteCommand(env, interaction as any, sub);

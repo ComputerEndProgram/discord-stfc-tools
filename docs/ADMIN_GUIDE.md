@@ -295,6 +295,19 @@ Also happens automatically on verify/sync in **multi_alliance** mode when diplom
 
 DM flow: screenshot (optional depending on policy) → stfc.pro link → roles / nick / channel / log post.
 
+### Manual verify (existing servers)
+
+Admins can link a Discord member to an stfc.pro profile **without** the DM flow — useful when onboarding a server that already has members:
+
+```
+/server verify user:@Them link:https://stfc.pro/players/…
+/server verify user:@Them link:https://stfc.pro/players/… screenshot:<file>
+```
+
+This runs the same pipeline as self-verify (roles, nickname template, personal/diplomacy channels, verification log). The log embed notes `Manual by @Admin`. Repeat once per member; alliance guest rules still apply in single-alliance mode.
+
+Requires Administrator. Set the archive channel first (`/server channels log`) so staff can audit these posts.
+
 ### Admin testing
 
 ```
@@ -480,5 +493,6 @@ After create you get an ephemeral draft with buttons:
 7. [ ] Multi-alliance: `/server channels diplomacy enable:true write_roles:Diplomat write_ranks:Commodore,Admiral`  
 8. [ ] Optional: `/survey creators` for officers who may poll the alliance  
 9. [ ] Optional: `/exchange setup` + `/exchange resource create` for cross-alliance resources  
-10. [ ] `/server test-invite` → verify yourself → check roles, log, personal/diplomacy channels  
+10. [ ] `/server test-invite` → verify yourself → check roles, log, personal/diplomacy channels
+11. [ ] Existing members: `/server verify user:@Them link:https://stfc.pro/…` (repeat as needed)  
 11. [ ] `/server status` looks correct  

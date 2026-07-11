@@ -229,12 +229,18 @@ function nicknamePermissionHint(err: unknown): string {
 	);
 }
 
+export interface ProcessVerificationOpts {
+	/** When set, archive log notes include "Manual by <@id>" (admin verify). */
+	manualByUserId?: string;
+}
+
 export async function processVerification(
 	env: Env,
 	guildId: string,
 	discordUserId: string,
 	stfcProUrl: string,
 	screenshotUrl?: string,
+	opts?: ProcessVerificationOpts,
 ): Promise<string> {
 	const config = await getGuildConfig(env.STFC_DB, guildId);
 	if (!config) {
@@ -302,6 +308,9 @@ export async function processVerification(
 
 	const token = env.DISCORD_BOT_TOKEN;
 	const notes: string[] = [];
+	if (opts?.manualByUserId) {
+		notes.push(`Manual by <@${opts.manualByUserId}>`);
+	}
 
 	const postLog = async (status: 'active' | 'guest', logNotes: string[]) => {
 		await postVerificationLog(env, config, {

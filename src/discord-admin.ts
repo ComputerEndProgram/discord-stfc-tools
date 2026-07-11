@@ -32,3 +32,12 @@ export function resolveTargetUserId(
 	if (userOption?.value) return String(userOption.value);
 	return interaction.member?.user?.id;
 }
+
+/** Resolve required `user` option only — does not fall back to the invoker. */
+export function resolveRequiredUserOption(
+	subcommandOptions?: Array<{ name: string; value?: unknown; type?: number }>,
+): string | undefined {
+	const userOption = subcommandOptions?.find((o) => o.name === 'user');
+	if (userOption?.value == null || userOption.value === '') return undefined;
+	return String(userOption.value);
+}

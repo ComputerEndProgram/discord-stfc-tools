@@ -78,7 +78,9 @@ Worker (src/index.ts) — wakes DO on fetch + cron
 
 ### Verification & guild management
 - `/verify` — stfc.pro link + optional screenshot
+- `/server verify` — admin manual verify (user + stfc.pro link; same roles/nick/channel/log as self-verify)
 - `/server setup|status` — per-guild configuration (admin)
+- `/server channels log` — verification archive channel (create/link/clear)
 - `/player` — live stfc.pro lookup
 - Gateway DM flow: screenshot → link → roles/nickname/channels
 - Cron: member poll, guest alliance re-check, daily ops/power sync
