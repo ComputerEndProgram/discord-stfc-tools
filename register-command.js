@@ -612,7 +612,7 @@ const commands = [
 			{
 				type: 1,
 				name: 'creators',
-				description: 'Admin: who can create surveys / view results',
+				description: 'Admin: survey roles, log viewers, and log channel name',
 				options: [
 					{
 						type: 3,
@@ -623,7 +623,13 @@ const commands = [
 					{
 						type: 3,
 						name: 'results_roles',
-						description: 'Extra roles that can view results',
+						description: 'Roles that see private survey log channels + /survey results',
+						required: false,
+					},
+					{
+						type: 3,
+						name: 'log_name',
+						description: 'Log channel name template; use {id} (default survey-{id})',
 						required: false,
 					},
 				],

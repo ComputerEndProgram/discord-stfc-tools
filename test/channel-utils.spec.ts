@@ -37,6 +37,7 @@ function baseConfig(overrides: Partial<GuildConfig> = {}): GuildConfig {
 		diplomacy_name_template: null,
 		survey_creator_role_ids: [],
 		survey_results_role_ids: [],
+		survey_log_name_template: null,
 		poll_interval_hours: 6,
 		verification_enabled: true,
 		created_at: '',

@@ -313,21 +313,30 @@ Wrong alliance → guest role. Cron re-checks periodically; when the tag matches
 
 ## 7. Surveys & polls (`/survey`)
 
-Button surveys for verified players (DM or personal channel). Votes land in a private `#survey-{id}` log channel. Results use ASCII tables (buttons stay on the message — never inside tables).
+Button surveys for verified players (DM or personal channel). Votes land in a **private** log channel (default `#survey-{id}`). Results use ASCII tables (buttons stay on the message — never inside tables).
 
 ### Who can create
 
 | Setting | Default |
 |---------|---------|
 | Creators | **Administrators** only |
-| Results viewers | Survey creator + Administrators |
+| Log / results viewers | Survey creator + creator roles + Administrators |
+| Log channel name | `survey-{id}` |
 
 ```
+/survey creators                          # show current settings
 /survey creators roles:Officer,Leadership
 /survey creators results_roles:Officer
+/survey creators log_name:poll-{id}
 ```
 
 Use role IDs or `<@&id>` mentions, comma-separated. Empty `roles` clears back to admins-only.
+
+**Log channels are private:** `@everyone` cannot see them. Access is granted to the bot, the member who created the survey, configured **creator** roles, and **results_roles**. Discord Administrators can still see them via admin override.
+
+`log_name` uses `{id}` (or `{n}`) for the survey number — e.g. `event-feedback-{id}` → `#event-feedback-12`. Applies to **new** surveys only (rename `#survey-1` manually in Discord if you want).
+
+Empty `log_name` resets to `survey-{id}`.
 
 ### Create → test → send
 
@@ -347,7 +356,7 @@ Use role IDs or `<@&id>` mentions, comma-separated. Empty `roles` clears back to
 After create you get an ephemeral draft with buttons:
 
 1. **Test to me** — DM yourself (draft clicks are **not** counted)
-2. **Approve & send** — creates `#survey-{id}`, DMs/posts buttons to matched players, logs each vote
+2. **Approve & send** — creates private log channel (name from `log_name` template), DMs/posts buttons to matched players, logs each vote
 3. **Cancel** — deletes the draft
 
 ### Results & close

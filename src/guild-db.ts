@@ -85,6 +85,7 @@ function mapGuildConfig(row: any): GuildConfig {
 		diplomacy_name_template: row.diplomacy_name_template ?? null,
 		survey_creator_role_ids: parseJsonArray(row.survey_creator_role_ids),
 		survey_results_role_ids: parseJsonArray(row.survey_results_role_ids),
+		survey_log_name_template: row.survey_log_name_template ?? null,
 		poll_interval_hours: row.poll_interval_hours ?? 6,
 		verification_enabled: Boolean(row.verification_enabled ?? 1),
 		created_at: row.created_at,
@@ -280,15 +281,18 @@ async function upsertDiplomacyConfigFields(
 
 	const surveyRolesTouched =
 		Object.prototype.hasOwnProperty.call(config, 'survey_creator_role_ids') ||
-		Object.prototype.hasOwnProperty.call(config, 'survey_results_role_ids');
+		Object.prototype.hasOwnProperty.call(config, 'survey_results_role_ids') ||
+		Object.prototype.hasOwnProperty.call(config, 'survey_log_name_template');
 	if (surveyRolesTouched) {
 		const creatorsProvided = Object.prototype.hasOwnProperty.call(config, 'survey_creator_role_ids');
 		const resultsProvided = Object.prototype.hasOwnProperty.call(config, 'survey_results_role_ids');
+		const logNameProvided = Object.prototype.hasOwnProperty.call(config, 'survey_log_name_template');
 		await db
 			.prepare(
 				`UPDATE guild_configs SET
 				 survey_creator_role_ids = CASE WHEN ? = 1 THEN ? ELSE survey_creator_role_ids END,
 				 survey_results_role_ids = CASE WHEN ? = 1 THEN ? ELSE survey_results_role_ids END,
+				 survey_log_name_template = CASE WHEN ? = 1 THEN ? ELSE survey_log_name_template END,
 				 updated_at = datetime('now')
 				 WHERE guild_id = ?`,
 			)
@@ -297,6 +301,8 @@ async function upsertDiplomacyConfigFields(
 				creatorsProvided ? JSON.stringify(config.survey_creator_role_ids ?? []) : null,
 				resultsProvided ? 1 : 0,
 				resultsProvided ? JSON.stringify(config.survey_results_role_ids ?? []) : null,
+				logNameProvided ? 1 : 0,
+				logNameProvided ? (config.survey_log_name_template?.trim() || null) : null,
 				config.guild_id,
 			)
 			.run();

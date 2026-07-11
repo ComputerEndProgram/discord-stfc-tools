@@ -74,8 +74,10 @@ export interface GuildConfig {
 	diplomacy_name_template: string | null;
 	/** Roles allowed to create/send surveys (empty = Administrator only). */
 	survey_creator_role_ids: string[];
-	/** Roles allowed to view survey results in addition to the creator. */
+	/** Roles allowed to view survey results + private survey log channels (in addition to the creator). */
 	survey_results_role_ids: string[];
+	/** Discord channel name pattern for survey logs; `{id}` → survey id. Default survey-{id}. */
+	survey_log_name_template: string | null;
 	poll_interval_hours: number;
 	verification_enabled: boolean;
 	created_at: string;

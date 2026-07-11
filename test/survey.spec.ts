@@ -4,6 +4,7 @@ import {
 	buildSurveyVoteComponents,
 	formatSurveyResultsTable,
 	parseSurveyOptions,
+	resolveSurveyLogChannelName,
 } from '../src/survey-service';
 import { describeSurveyTarget } from '../src/survey-targeting';
 import type { SurveyRecord } from '../src/survey-types';
@@ -39,6 +40,7 @@ function baseConfig(overrides: Partial<GuildConfig> = {}): GuildConfig {
 		diplomacy_name_template: null,
 		survey_creator_role_ids: [],
 		survey_results_role_ids: [],
+		survey_log_name_template: null,
 		poll_interval_hours: 6,
 		verification_enabled: true,
 		created_at: '',
@@ -79,6 +81,13 @@ describe('survey helpers', () => {
 	it('parseSurveyOptions splits and caps at 5', () => {
 		expect(parseSurveyOptions(' Yes | No | Maybe ')).toEqual(['Yes', 'No', 'Maybe']);
 		expect(parseSurveyOptions('A|B|C|D|E|F')).toEqual(['A', 'B', 'C', 'D', 'E']);
+	});
+
+	it('resolveSurveyLogChannelName applies template and slugs', () => {
+		expect(resolveSurveyLogChannelName(null, 1)).toBe('survey-1');
+		expect(resolveSurveyLogChannelName('poll-{id}', 12)).toBe('poll-12');
+		expect(resolveSurveyLogChannelName('Event Feedback', 3)).toBe('event-feedback-3');
+		expect(resolveSurveyLogChannelName('  ', 7)).toBe('survey-7');
 	});
 
 	it('buildSurveyVoteComponents uses one row of buttons (not table cells)', () => {

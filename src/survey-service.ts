@@ -28,6 +28,34 @@ const DENY_VIEW = String(VIEW);
 
 const BUTTON_STYLES = [1, 3, 2, 4, 1] as const;
 
+/** Default Discord channel name for a survey vote log. */
+export const DEFAULT_SURVEY_LOG_NAME_TEMPLATE = 'survey-{id}';
+
+/**
+ * Resolve a Discord channel name from a template.
+ * Placeholders: `{id}` / `{n}` → survey id. Always includes the id to avoid collisions.
+ */
+export function resolveSurveyLogChannelName(
+	template: string | null | undefined,
+	surveyId: number,
+): string {
+	const id = String(surveyId);
+	let name = (template?.trim() || DEFAULT_SURVEY_LOG_NAME_TEMPLATE)
+		.replace(/\{id\}/gi, id)
+		.replace(/\{n\}/gi, id);
+	name = name
+		.toLowerCase()
+		.replace(/[^a-z0-9-_]+/g, '-')
+		.replace(/-+/g, '-')
+		.replace(/^-|-$/g, '')
+		.slice(0, 100);
+	if (!name) return `survey-${id}`;
+	if (!name.includes(id)) {
+		name = `${name}-${id}`.slice(0, 100);
+	}
+	return name;
+}
+
 export function parseSurveyOptions(raw: string): string[] {
 	return raw
 		.split('|')
@@ -222,13 +250,19 @@ async function ensureSurveyLogChannel(
 		{ id: botUserId, type: 1 as const, allow: STAFF_ALLOW, deny: '0' },
 		{ id: survey.created_by, type: 1 as const, allow: STAFF_ALLOW, deny: '0' },
 	];
-	for (const roleId of [...config.survey_results_role_ids, ...survey.viewer_role_ids]) {
+	const viewRoleIds = new Set([
+		...config.survey_results_role_ids,
+		...config.survey_creator_role_ids,
+		...survey.viewer_role_ids,
+	]);
+	for (const roleId of viewRoleIds) {
 		if (/^\d{15,20}$/.test(roleId)) {
 			overwrites.push({ id: roleId, type: 0, allow: STAFF_ALLOW, deny: '0' });
 		}
 	}
 
-	const channel = await createGuildTextChannel(token, guildId, `survey-${survey.id}`, {
+	const channelName = resolveSurveyLogChannelName(config.survey_log_name_template, survey.id);
+	const channel = await createGuildTextChannel(token, guildId, channelName, {
 		topic: `Survey #${survey.id}: ${survey.question.slice(0, 100)}`,
 		permissionOverwrites: overwrites,
 	});

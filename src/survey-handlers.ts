@@ -91,6 +91,7 @@ export async function handleSurveyCommand(
 		if (adminError) return adminError;
 		const rolesRaw = getOptionValue(sub.options, 'roles') as string | undefined;
 		const resultsRaw = getOptionValue(sub.options, 'results_roles') as string | undefined;
+		const logNameRaw = getOptionValue(sub.options, 'log_name') as string | undefined;
 		const patch: Partial<GuildConfig> & { guild_id: string } = { guild_id: guildId };
 		if (rolesRaw !== undefined) {
 			patch.survey_creator_role_ids = rolesRaw
@@ -104,12 +105,31 @@ export async function handleSurveyCommand(
 				.map((s) => s.trim().replace(/^<@&|>$/g, ''))
 				.filter((id) => /^\d{15,20}$/.test(id));
 		}
+		if (logNameRaw !== undefined) {
+			patch.survey_log_name_template = logNameRaw.trim() || null;
+		}
+		if (
+			rolesRaw === undefined &&
+			resultsRaw === undefined &&
+			logNameRaw === undefined
+		) {
+			return interactionResponse(
+				`📋 **Survey settings**\n` +
+					`• Creators: ${config.survey_creator_role_ids.map((id) => `<@&${id}>`).join(', ') || 'Administrators only'}\n` +
+					`• Log / results viewers: ${config.survey_results_role_ids.map((id) => `<@&${id}>`).join(', ') || 'creator + admins (+ creator roles)'}\n` +
+					`• Log channel name: \`${config.survey_log_name_template || 'survey-{id}'}\`\n\n` +
+					`Log channels are **private** (@everyone cannot see). Visible to: bot, the creator, creator roles, and results viewer roles.`,
+				true,
+			);
+		}
 		await upsertGuildConfig(env.STFC_DB, patch);
 		const refreshed = await getGuildConfig(env.STFC_DB, guildId);
 		return interactionResponse(
-			`✅ Survey permissions updated.\n` +
+			`✅ Survey settings updated.\n` +
 				`• Creators: ${refreshed!.survey_creator_role_ids.map((id) => `<@&${id}>`).join(', ') || 'Administrators only'}\n` +
-				`• Results viewers: ${refreshed!.survey_results_role_ids.map((id) => `<@&${id}>`).join(', ') || 'creator + admins'}`,
+				`• Log / results viewers: ${refreshed!.survey_results_role_ids.map((id) => `<@&${id}>`).join(', ') || 'creator + admins (+ creator roles)'}\n` +
+				`• Log channel name: \`${refreshed!.survey_log_name_template || 'survey-{id}'}\`\n` +
+				`(Applies to **new** surveys; rename existing channels in Discord if needed.)`,
 			true,
 		);
 	}
