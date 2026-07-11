@@ -388,14 +388,14 @@ Before changing anything, dump what Discord currently has on linked channels + c
 Once you find a member channel whose overwrites look right (bot can post, member + staff roles correct):
 
 ```
-/server channels permissions-template from channel:#good-example
+/server channels permissions-template-from channel:#good-example
 ```
 
 Optional: `member:@Owner` if the channel isn’t linked yet; `sync_extra_roles:false` to leave `/server channels extra-roles` unchanged (default **true** copies role overwrites into extra-roles).
 
 ```
-/server channels permissions-template show
-/server channels permissions-template clear
+/server channels permissions-template-show
+/server channels permissions-template-clear
 ```
 
 Locked templates are used for **new** personal channels and for `/server channels link` / verify when `apply_permissions` is on. Existing channels are not rewritten until you link/re-apply.
@@ -798,9 +798,9 @@ Admin wizards (DM → `menu`): **Server status**, **Server setup** (core fields)
 Discord **bots are skipped automatically** (no invite DMs). For other accounts that should never verify:
 
 ```
-/server exclude add user:@OtherBot reason:MEE6 twin
-/server exclude remove user:@OtherBot
-/server exclude list
+/server exclude-add user:@OtherBot reason:MEE6 twin
+/server exclude-remove user:@OtherBot
+/server exclude-list
 ```
 
 Excluded users never get verification invite DMs and are omitted from `/roster unverified`.

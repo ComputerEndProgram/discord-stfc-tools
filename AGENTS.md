@@ -83,7 +83,7 @@ Worker (src/index.ts) — wakes DO on fetch + cron
 - `/server channels log` — verification archive channel (create/link/clear)
 - `/server channels audit` / `urgent` — staff audit trail + high-signal alerts (e.g. DM blocked)
 - `/server channels permissions-audit` — read-only dump of existing member-channel overwrites (no sync/rewrite)
-- `/server channels permissions-template from|show|clear` — lock overwrite pattern from a sample channel for new/linked creates
+- `/server channels permissions-template-from|show|clear` — lock overwrite pattern from a sample channel for new/linked creates
 - `/server channels link` — adopt existing member channels; `apply_permissions` uses locked template (or built-in default)
 - `/player` — live stfc.pro lookup
 - Gateway DM flow: language picker → screenshot → link → roles/nickname/channels
@@ -92,11 +92,11 @@ Worker (src/index.ts) — wakes DO on fetch + cron
 - `/exchange` — cross-alliance resource donors/recipients (hub or category layout, Help/Ignore claim DMs)
 - `/language` — player preferred language for bot DMs (en/de/fr/es/pt/nl/pl/it/ru/tr/hu)
 - `/roster` — grades / ops / unverified member lists (admin or assistant roles)
-- `/server exclude` — skip Discord users from invites and unverified stats (other bots, etc.; Discord bots auto-skipped)
+- `/server exclude-add|exclude-remove|exclude-list` — skip Discord users from invites and unverified stats (other bots, etc.; Discord bots auto-skipped)
 - **DM assistant** — HAL refusal for unknown asks; Badgey voice + admin menu wizards; roster Q&A gated by `/server assistant`
 - **Discord agreement** — optional CoC gate (`/server agreement`); DM Agree button; timing before/after verify; channel react planned
 
-**Personal channel permissions (agents):** Prefer **not** Discord “sync category → children” when existing channels have per-member allows — that wipes them. Audit first (`permissions-audit`), lock a good sample (`permissions-template from`), then create/link. Template lives on `guild_configs.personal_channel_perm_template` (JSON); null = built-in bot + deny @everyone + member + `personal_channel_extra_roles`. Bot overwrite is always applied first so the bot can post surveys. Docs: `docs/ADMIN_GUIDE.md` § personal channels.
+**Personal channel permissions (agents):** Prefer **not** Discord “sync category → children” when existing channels have per-member allows — that wipes them. Audit first (`permissions-audit`), lock a good sample (`permissions-template-from`), then create/link. Template lives on `guild_configs.personal_channel_perm_template` (JSON); null = built-in bot + deny @everyone + member + `personal_channel_extra_roles`. Bot overwrite is always applied first so the bot can post surveys. Docs: `docs/ADMIN_GUIDE.md` § personal channels.
 
 ### `/lookup`
 Parses STFC share strings like `[[RONE] Player S:73559 X:628.7432 Y:43.3874]`. Supports multiple coordinates per message. Returns Unicode box-drawing table with Alliance, System, Warp, Faction, Player. Uses in-memory `SYSTEM_DATA_MAP` — **not KV**.

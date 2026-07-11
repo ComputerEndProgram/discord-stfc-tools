@@ -914,7 +914,7 @@ async function handleServerTestInviteCommand(
 	if (await isUserExcluded(env.STFC_DB, guildId, userId)) {
 		return interactionResponse(
 			`⚠️ <@${userId}> is on the exclude list — no invite DM will be sent.\n` +
-				`Remove them first with \`/server exclude remove user:@Them\`.`,
+				`Remove them first with \`/server exclude-remove user:@Them\`.`,
 			true,
 		);
 	}
@@ -937,30 +937,33 @@ async function handleServerExcludeCommand(
 	env: Env,
 	interaction: { guild_id?: string; member?: { permissions?: string; user?: { id: string } } },
 	sub: {
-		options?: Array<{
-			name: string;
-			type?: number;
-			value?: unknown;
-			options?: Array<{ name: string; value?: unknown; type?: number }>;
-		}>;
+		name: string;
+		options?: Array<{ name: string; value?: unknown; type?: number }>;
 	},
 ): Promise<Response> {
 	const adminError = requireGuildAdmin(interaction as any);
 	if (adminError) return adminError;
 
 	const guildId = interaction.guild_id!;
-	const action = sub.options?.[0];
+	const action =
+		sub.name === 'exclude-add'
+			? 'add'
+			: sub.name === 'exclude-remove'
+				? 'remove'
+				: sub.name === 'exclude-list'
+					? 'list'
+					: null;
 	if (!action) {
 		return interactionResponse(
-			'Use `/server exclude add`, `/server exclude remove`, or `/server exclude list`.',
+			'Use `/server exclude-add`, `/server exclude-remove`, or `/server exclude-list`.',
 			true,
 		);
 	}
 
-	const opts = action.options;
+	const opts = sub.options;
 	const actorId = interaction.member?.user?.id;
 
-	if (action.name === 'list') {
+	if (action === 'list') {
 		const rows = await listExcludedUsers(env.STFC_DB, guildId);
 		if (rows.length === 0) {
 			return interactionResponse(
@@ -986,7 +989,7 @@ async function handleServerExcludeCommand(
 		return interactionResponse('❌ Provide `user:`.', true);
 	}
 
-	if (action.name === 'add') {
+	if (action === 'add') {
 		const reason = (getOptionValue(opts, 'reason') as string | undefined)?.trim() || null;
 		await excludeGuildUser(env.STFC_DB, guildId, userId, {
 			reason,
@@ -1013,7 +1016,7 @@ async function handleServerExcludeCommand(
 		);
 	}
 
-	if (action.name === 'remove') {
+	if (action === 'remove') {
 		const removed = await unexcludeGuildUser(env.STFC_DB, guildId, userId);
 		if (!removed) {
 			return interactionResponse(`ℹ️ <@${userId}> was not on the exclude list.`, true);
@@ -1491,138 +1494,124 @@ async function handleServerChannelsCommand(
 		return deferred;
 	}
 
-	if (sub.name === 'permissions-template') {
-		const action = sub.options?.[0];
-		if (!action) {
+	if (sub.name === 'permissions-template-show') {
+		return interactionResponse(
+			formatPersonalChannelPermTemplate(config.personal_channel_perm_template),
+			true,
+		);
+	}
+
+	if (sub.name === 'permissions-template-clear') {
+		await upsertGuildConfig(env.STFC_DB, {
+			guild_id: guildId,
+			personal_channel_perm_template: null,
+		});
+		await postAuditLog(env, config, {
+			title: 'Personal channel permission template cleared',
+			description: 'New/linked channels will use built-in defaults again.',
+			actorId: interaction.member?.user?.id,
+			source: 'admin',
+			color: AuditColor.warn,
+		});
+		return interactionResponse(
+			'✅ Cleared locked permission template. New channels use the built-in default again.\n' +
+				formatPersonalChannelPermTemplate(null),
+			true,
+		);
+	}
+
+	if (sub.name === 'permissions-template-from') {
+		if (!env.DISCORD_BOT_TOKEN) {
+			return interactionResponse('❌ DISCORD_BOT_TOKEN not configured.', true);
+		}
+		const channelId = getOptionValue(sub.options, 'channel') as string | undefined;
+		if (!channelId || !/^\d{15,20}$/.test(channelId)) {
+			return interactionResponse('❌ Provide a valid text `channel:`.', true);
+		}
+
+		const syncExtraRaw = getOptionValue(sub.options, 'sync_extra_roles');
+		const syncExtraRoles =
+			syncExtraRaw === undefined || syncExtraRaw === null
+				? true
+				: syncExtraRaw === true || syncExtraRaw === 'true';
+
+		const memberOpt = getOptionValue(sub.options, 'member');
+		let memberUserId = memberOpt != null ? String(memberOpt) : undefined;
+
+		if (!memberUserId) {
+			const linked = await env.STFC_DB.prepare(
+				`SELECT discord_user_id FROM verified_players
+				 WHERE guild_id = ? AND personal_channel_id = ?
+				 LIMIT 1`,
+			)
+				.bind(guildId, channelId)
+				.first<{ discord_user_id: string }>();
+			memberUserId = linked?.discord_user_id;
+		}
+
+		if (!memberUserId) {
 			return interactionResponse(
-				'Use `/server channels permissions-template from|show|clear`.',
+				'❌ Could not tell which Discord user is the channel owner.\n' +
+					'Link the channel first (`/server channels link`) or pass `member:@Them`.',
 				true,
 			);
 		}
 
-		if (action.name === 'show') {
-			return interactionResponse(
-				formatPersonalChannelPermTemplate(config.personal_channel_perm_template),
-				true,
-			);
+		const known = interaction.data?.resolved?.channels?.[channelId];
+		let overwrites = known?.permission_overwrites;
+		if (!overwrites) {
+			const fetched = await fetchGuildChannel(env.DISCORD_BOT_TOKEN, channelId);
+			if (!fetched.ok) {
+				return interactionResponse(`❌ ${fetched.error}`, true);
+			}
+			overwrites = fetched.channel.permission_overwrites ?? [];
 		}
 
-		if (action.name === 'clear') {
-			await upsertGuildConfig(env.STFC_DB, {
-				guild_id: guildId,
-				personal_channel_perm_template: null,
-			});
-			await postAuditLog(env, config, {
-				title: 'Personal channel permission template cleared',
-				description: 'New/linked channels will use built-in defaults again.',
-				actorId: interaction.member?.user?.id,
-				source: 'admin',
-				color: AuditColor.warn,
-			});
-			return interactionResponse(
-				'✅ Cleared locked permission template. New channels use the built-in default again.\n' +
-					formatPersonalChannelPermTemplate(null),
-				true,
-			);
+		const botUserId = await getBotUserId(env.DISCORD_BOT_TOKEN);
+		const template = capturePersonalChannelPermTemplate({
+			guildId,
+			botUserId,
+			memberUserId,
+			channelId,
+			overwrites: overwrites.map((o) => ({
+				id: o.id,
+				type: (o.type === 1 ? 1 : 0) as 0 | 1,
+				allow: String(o.allow ?? '0'),
+				deny: String(o.deny ?? '0'),
+			})),
+			capturedBy: interaction.member?.user?.id ?? null,
+		});
+
+		const patch: Parameters<typeof upsertGuildConfig>[1] = {
+			guild_id: guildId,
+			personal_channel_perm_template: template,
+		};
+		if (syncExtraRoles) {
+			patch.personal_channel_extra_roles = template.roles.map((r) => r.role_id);
 		}
+		await upsertGuildConfig(env.STFC_DB, patch);
 
-		if (action.name === 'from') {
-			if (!env.DISCORD_BOT_TOKEN) {
-				return interactionResponse('❌ DISCORD_BOT_TOKEN not configured.', true);
-			}
-			const channelId = getOptionValue(action.options, 'channel') as string | undefined;
-			if (!channelId || !/^\d{15,20}$/.test(channelId)) {
-				return interactionResponse('❌ Provide a valid text `channel:`.', true);
-			}
+		await postAuditLog(env, { ...config, personal_channel_perm_template: template }, {
+			title: 'Personal channel permission template locked',
+			description:
+				`Captured from <#${channelId}> (member slot <@${memberUserId}>). ` +
+				`New/linked channels will use this pattern.` +
+				(syncExtraRoles ? ` Extra-roles synced (${template.roles.length}).` : ''),
+			actorId: interaction.member?.user?.id,
+			source: 'admin',
+			color: AuditColor.success,
+		});
 
-			const syncExtraRaw = getOptionValue(action.options, 'sync_extra_roles');
-			const syncExtraRoles =
-				syncExtraRaw === undefined || syncExtraRaw === null
-					? true
-					: syncExtraRaw === true || syncExtraRaw === 'true';
-
-			const memberOpt = getOptionValue(action.options, 'member');
-			let memberUserId = memberOpt != null ? String(memberOpt) : undefined;
-
-			if (!memberUserId) {
-				const linked = await env.STFC_DB.prepare(
-					`SELECT discord_user_id FROM verified_players
-					 WHERE guild_id = ? AND personal_channel_id = ?
-					 LIMIT 1`,
-				)
-					.bind(guildId, channelId)
-					.first<{ discord_user_id: string }>();
-				memberUserId = linked?.discord_user_id;
-			}
-
-			if (!memberUserId) {
-				return interactionResponse(
-					'❌ Could not tell which Discord user is the channel owner.\n' +
-						'Link the channel first (`/server channels link`) or pass `member:@Them`.',
-					true,
-				);
-			}
-
-			const known = interaction.data?.resolved?.channels?.[channelId];
-			let overwrites = known?.permission_overwrites;
-			if (!overwrites) {
-				const fetched = await fetchGuildChannel(env.DISCORD_BOT_TOKEN, channelId);
-				if (!fetched.ok) {
-					return interactionResponse(`❌ ${fetched.error}`, true);
-				}
-				overwrites = fetched.channel.permission_overwrites ?? [];
-			}
-
-			const botUserId = await getBotUserId(env.DISCORD_BOT_TOKEN);
-			const template = capturePersonalChannelPermTemplate({
-				guildId,
-				botUserId,
-				memberUserId,
-				channelId,
-				overwrites: overwrites.map((o) => ({
-					id: o.id,
-					type: (o.type === 1 ? 1 : 0) as 0 | 1,
-					allow: String(o.allow ?? '0'),
-					deny: String(o.deny ?? '0'),
-				})),
-				capturedBy: interaction.member?.user?.id ?? null,
-			});
-
-			const patch: Parameters<typeof upsertGuildConfig>[1] = {
-				guild_id: guildId,
-				personal_channel_perm_template: template,
-			};
-			if (syncExtraRoles) {
-				patch.personal_channel_extra_roles = template.roles.map((r) => r.role_id);
-			}
-			await upsertGuildConfig(env.STFC_DB, patch);
-
-			await postAuditLog(env, { ...config, personal_channel_perm_template: template }, {
-				title: 'Personal channel permission template locked',
-				description:
-					`Captured from <#${channelId}> (member slot <@${memberUserId}>). ` +
-					`New/linked channels will use this pattern.` +
-					(syncExtraRoles
-						? ` Extra-roles synced (${template.roles.length}).`
-						: ''),
-				actorId: interaction.member?.user?.id,
-				source: 'admin',
-				color: AuditColor.success,
-			});
-
-			return interactionResponse(
-				`✅ Locked permission template from <#${channelId}>.\n` +
-					`Member slot: <@${memberUserId}>\n` +
-					(syncExtraRoles
-						? `Extra-roles updated from role overwrites (${template.roles.length}).\n\n`
-						: '\n') +
-					formatPersonalChannelPermTemplate(template) +
-					`\n\n_Existing channels are unchanged. New creates / \`link\` with apply_permissions will use this template._`,
-				true,
-			);
-		}
-
-		return interactionResponse('❌ Unknown permissions-template action.', true);
+		return interactionResponse(
+			`✅ Locked permission template from <#${channelId}>.\n` +
+				`Member slot: <@${memberUserId}>\n` +
+				(syncExtraRoles
+					? `Extra-roles updated from role overwrites (${template.roles.length}).\n\n`
+					: '\n') +
+				formatPersonalChannelPermTemplate(template) +
+				`\n\n_Existing channels are unchanged. New creates / \`link\` with apply_permissions will use this template._`,
+			true,
+		);
 	}
 
 	if (sub.name === 'plan' || sub.name === 'rebalance') {
@@ -2387,7 +2376,7 @@ export async function handleDiscordInteraction(
 			if (sub?.name === 'test-invite') {
 				return handleServerTestInviteCommand(env, interaction as any, sub);
 			}
-			if (sub?.name === 'exclude') {
+			if (sub?.name === 'exclude-add' || sub?.name === 'exclude-remove' || sub?.name === 'exclude-list') {
 				return handleServerExcludeCommand(env, interaction as any, sub);
 			}
 			if (sub?.name === 'test-reset') {
