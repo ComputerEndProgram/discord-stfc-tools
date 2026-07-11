@@ -57,6 +57,7 @@ export const fr: MessageCatalog = {
 	'verify.note.manual': 'Manuel par <@{userId}>',
 
 	'verify.hint.nickname_permissions':
+	'verify.hint.role_permissions': "\n↳ Usually: bot needs **Manage Roles**, and its role must sit **above** every role it assigns (and above the member’s highest role) in Server Settings → Roles.",
 		'\n↳ Souvent : le bot a besoin de **Gérer les pseudos**, son rôle doit être **au-dessus** du membre, et Discord ne peut pas renommer le **propriétaire**.',
 
 	'verify.player_summary':

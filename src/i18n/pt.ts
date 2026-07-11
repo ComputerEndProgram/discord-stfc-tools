@@ -31,6 +31,7 @@ export const pt: MessageCatalog = {
 	'verify.note.diplomacy': 'Diplomacia <#{channelId}>',
 	'verify.note.manual': 'Manual por <@{userId}>',
 	'verify.hint.nickname_permissions': '\n↳ Normalmente: o bot precisa de **Gerir apelidos**, o seu cargo tem de estar **acima** do membro e o Discord não pode renomear o **dono do servidor**.',
+	'verify.hint.role_permissions': "\n↳ Usually: bot needs **Manage Roles**, and its role must sit **above** every role it assigns (and above the member’s highest role) in Server Settings → Roles.",
 	'verify.player_summary': '**{name}** (ID {id})\nAliança: [{alliance}] · Patente: {rank}\nOps {ops} · Poder {power}\nServidor {server} ({region})',
 	'exchange.dm.need_request': '📦 **{name}** (Ops {ops}) precisa de **{resource}**.\nAliança: [{tag}]\nToque em **Ajudar** para assumir (o primeiro ganha) ou em **Ignorar**.',
 	'exchange.dm.claimed': '🤝 **{donorName}** (Ops {ops}, [{tag}]) assumiu o seu pedido de **{resource}**!\nDiscord: <@{donorId}>\n\nQuando terminar, toque em **Concluído**. Se não puder ajudar, toque em **Pedir novamente**.',

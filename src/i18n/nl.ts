@@ -31,6 +31,7 @@ export const nl: MessageCatalog = {
 	'verify.note.diplomacy': 'Diplomatie <#{channelId}>',
 	'verify.note.manual': 'Handmatig door <@{userId}>',
 	'verify.hint.nickname_permissions': '\n↳ Meestal: de bot heeft **Bijnamen beheren** nodig, zijn rol moet **boven** die van het lid staan en Discord kan de **servereigenaar** niet hernoemen.',
+	'verify.hint.role_permissions': "\n↳ Usually: bot needs **Manage Roles**, and its role must sit **above** every role it assigns (and above the member’s highest role) in Server Settings → Roles.",
 	'verify.player_summary': '**{name}** (ID {id})\nAlliantie: [{alliance}] · Rang: {rank}\nOps {ops} · Kracht {power}\nServer {server} ({region})',
 	'exchange.dm.need_request': '📦 **{name}** (Ops {ops}) heeft **{resource}** nodig.\nAlliantie: [{tag}]\nTik op **Helpen** om de aanvraag over te nemen (wie het eerst komt, het eerst maalt), of op **Negeren**.',
 	'exchange.dm.claimed': '🤝 **{donorName}** (Ops {ops}, [{tag}]) heeft je aanvraag voor **{resource}** overgenomen!\nDiscord: <@{donorId}>\n\nTik na afloop op **Voltooid**. Kan deze persoon niet helpen, tik dan op **Opnieuw vragen**.',

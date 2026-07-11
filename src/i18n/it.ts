@@ -31,6 +31,7 @@ export const it: MessageCatalog = {
 	'verify.note.diplomacy': 'Diplomazia <#{channelId}>',
 	'verify.note.manual': 'Manuale da <@{userId}>',
 	'verify.hint.nickname_permissions': '\n↳ Di solito: il bot richiede **Gestisci soprannomi**, il suo ruolo deve essere **sopra** quello del membro e Discord non può rinominare il **proprietario del server**.',
+	'verify.hint.role_permissions': "\n↳ Usually: bot needs **Manage Roles**, and its role must sit **above** every role it assigns (and above the member’s highest role) in Server Settings → Roles.",
 	'verify.player_summary': '**{name}** (ID {id})\nAlleanza: [{alliance}] · Grado: {rank}\nOps {ops} · Potenza {power}\nServer {server} ({region})',
 	'exchange.dm.need_request': '📦 **{name}** (Ops {ops}) ha bisogno di **{resource}**.\nAlleanza: [{tag}]\nTocca **Aiuta** per prendere in carico la richiesta (vince il primo), oppure **Ignora**.',
 	'exchange.dm.claimed': '🤝 **{donorName}** (Ops {ops}, [{tag}]) ha preso in carico la tua richiesta di **{resource}**!\nDiscord: <@{donorId}>\n\nQuando hai finito, tocca **Completato**. Se non può aiutare, tocca **Chiedi di nuovo**.',

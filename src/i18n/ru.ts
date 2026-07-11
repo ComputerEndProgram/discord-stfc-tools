@@ -31,6 +31,7 @@ export const ru: MessageCatalog = {
 	'verify.note.diplomacy': 'Дипломатия <#{channelId}>',
 	'verify.note.manual': 'Вручную: <@{userId}>',
 	'verify.hint.nickname_permissions': '\n↳ Обычно: боту нужно разрешение **Управлять никнеймами**, его роль должна быть **выше** роли участника, а Discord не может переименовать **владельца сервера**.',
+	'verify.hint.role_permissions': "\n↳ Usually: bot needs **Manage Roles**, and its role must sit **above** every role it assigns (and above the member’s highest role) in Server Settings → Roles.",
 	'verify.player_summary': '**{name}** (ID {id})\nАльянс: [{alliance}] · Ранг: {rank}\nOps {ops} · Мощь {power}\nСервер {server} ({region})',
 	'exchange.dm.need_request': '📦 **{name}** (Ops {ops}) нужен **{resource}**.\nАльянс: [{tag}]\nНажмите **Помочь**, чтобы принять заявку (первый успевает), или **Игнорировать**.',
 	'exchange.dm.claimed': '🤝 **{donorName}** (Ops {ops}, [{tag}]) принял вашу заявку на **{resource}**!\nDiscord: <@{donorId}>\n\nПосле завершения нажмите **Готово**. Если он не может помочь, нажмите **Спросить снова**.',

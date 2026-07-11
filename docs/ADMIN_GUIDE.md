@@ -9,7 +9,7 @@ You need the **Administrator** permission in the Discord server for `/server` co
 ## Before you start
 
 1. Invite the bot with: **Manage Roles**, **Manage Channels**, **Manage Nicknames**, **Send Messages**, **Attach Files**, **Embed Links**.
-2. In **Server Settings → Roles**, drag the bot’s role **above** every role it will assign (member, guest, rank roles, overlays).
+2. Raise the bot in the **role hierarchy** (see below) — required for role assign and nicknames.
 3. The bot **cannot rename the server owner** (Discord limitation). Nicknames still work for other members.
 4. Members must allow DMs from server members for the join/DM verification flow.
 
@@ -18,6 +18,32 @@ Confirm the bot is live:
 ```
 /server gateway
 /server status
+```
+
+### Role hierarchy (drag the bot up)
+
+Discord only lets a bot **grant or remove roles that sit below its own role** in the list. If verify fails with `Missing Permissions` / `50013` on a `/roles/…` URL, the bot is almost always too low — **not** missing Administrator.
+
+1. Open the server → **Server Settings** (gear) → **Roles**.
+2. Find the role that belongs to the bot (usually named like the bot / application, e.g. `STFC Tools`).  
+   - Tip: open the bot’s member profile → **Roles** to see which role it has.
+3. **Drag that role upward** so it sits **above**:
+   - `@Member` / guest / every rank role (`Premier`, `Commodore`, …)
+   - every **overlay bucket** role (`Leadership`, etc.)
+   - roles you expect the bot to edit on normal members  
+   Higher in the list = higher in the hierarchy (closer to the top / Administrator).
+4. Leave **Administrator** (human admins) and any roles you do **not** want the bot to manage **above** the bot if you prefer — the bot only needs to sit above roles it **assigns**.
+5. Confirm the bot role still has **Manage Roles** (and **Manage Nicknames** if you use nicks).
+6. Retry `/server verify` (or have the member re-verify).
+
+**Do you need Administrator on the bot?** No. Hierarchy + Manage Roles is enough. Administrator is a blunt workaround and is broader than necessary.
+
+**Admins verifying themselves:** your personal admin roles are often near the top. The bot must still be above every **STFC role it assigns**. It does not need to outrank your personal `Admin` role unless that role is also in `member_roles` / buckets.
+
+Check role IDs mentioned in audit errors with:
+
+```
+/server roles
 ```
 
 ---
@@ -631,7 +657,7 @@ After create you get an ephemeral draft with buttons:
 
 | Symptom | Likely fix |
 |---------|------------|
-| Roles not assigned | Bot role **above** target roles; bot has Manage Roles |
+| Roles not assigned / `50013` on `/roles/…` | [Raise bot in role hierarchy](#role-hierarchy-drag-the-bot-up); bot needs **Manage Roles** (Administrator not required) |
 | Nickname fails (403) | Manage Nicknames; bot role above member; **owner cannot be renamed** |
 | No verification DM | Member privacy (allow DMs); `/server gateway` Ready; bot token secret set |
 | “Server not configured” | Run `/server setup` |

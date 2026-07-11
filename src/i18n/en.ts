@@ -57,6 +57,8 @@ export const en = {
 
 	'verify.hint.nickname_permissions':
 		'\n↳ Usually: bot needs **Manage Nicknames**, its role must be **above** the member, and Discord cannot rename the **server owner**.',
+	'verify.hint.role_permissions':
+		'\n↳ Usually: bot needs **Manage Roles**, and its role must sit **above** every role it assigns (and above the member’s highest role) in Server Settings → Roles.',
 
 	'verify.player_summary':
 		'**{name}** (ID {id})\nAlliance: [{alliance}] · Rank: {rank}\nOps {ops} · Power {power}\nServer {server} ({region})',

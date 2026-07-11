@@ -93,13 +93,22 @@ export async function lookupPlayerFromUrl(
 	return { player };
 }
 
-function nicknamePermissionHint(err: unknown, locale: string): string {
+function discordPermissionHint(err: unknown, locale: string): string {
 	const body = err instanceof DiscordApiError ? err.body ?? '' : '';
+	const message = err instanceof Error ? err.message : '';
 	const isMissingPerms =
 		(err instanceof DiscordApiError && err.status === 403) ||
 		body.includes('50013') ||
 		body.includes('Missing Permissions');
 	if (!isMissingPerms) return '';
+
+	const roleAssign =
+		message.includes('/roles/') ||
+		body.includes('/roles/') ||
+		(/members\/\d+\/roles\//.test(message) || /members\/\d+\/roles\//.test(body));
+	if (roleAssign) {
+		return t(locale, 'verify.hint.role_permissions');
+	}
 	return t(locale, 'verify.hint.nickname_permissions');
 }
 
@@ -365,7 +374,7 @@ export async function processVerification(
 		await finishLocale();
 		return t(locale, 'verify.result.discord_failed', {
 			error: formatDiscordApiFailure(err),
-			nickHint: nicknamePermissionHint(err, locale),
+			nickHint: discordPermissionHint(err, locale),
 			summary,
 		});
 	}

@@ -31,6 +31,7 @@ export const tr: MessageCatalog = {
 	'verify.note.diplomacy': 'Diplomasi <#{channelId}>',
 	'verify.note.manual': '<@{userId}> tarafından manuel olarak yapıldı',
 	'verify.hint.nickname_permissions': '\n↳ Genellikle: botun **Takma Adları Yönet** iznine ihtiyacı vardır, rolü üyenin rolünün **üstünde** olmalıdır ve Discord **sunucu sahibinin** adını değiştiremez.',
+	'verify.hint.role_permissions': "\n↳ Usually: bot needs **Manage Roles**, and its role must sit **above** every role it assigns (and above the member’s highest role) in Server Settings → Roles.",
 	'verify.player_summary': '**{name}** (ID {id})\nİttifak: [{alliance}] · Rütbe: {rank}\nOps {ops} · Güç {power}\nSunucu {server} ({region})',
 	'exchange.dm.need_request': '📦 **{name}** (Ops {ops}) **{resource}** kaynağına ihtiyaç duyuyor.\nİttifak: [{tag}]\nTalebi üstlenmek için **Yardım Et** düğmesine (ilk tıklayan kazanır) veya **Yoksay** düğmesine basın.',
 	'exchange.dm.claimed': '🤝 **{donorName}** (Ops {ops}, [{tag}]) **{resource}** talebinizi üstlendi!\nDiscord: <@{donorId}>\n\nİşiniz bittiğinde **Tamamlandı** düğmesine basın. Yardım edemezse **Tekrar iste** düğmesine basın.',
