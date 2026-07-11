@@ -98,4 +98,9 @@ export const pl: MessageCatalog = {
 	'agree.result.access_failed': "Agreement recorded, but updating Discord roles failed — ask an admin.",
 	'verify.note.agreement_pending': "Awaiting agreement (guest/lounge access for now)",
 	'verify.result.needs_agreement': "✅ Verified **{name}** ({tag}, Ops {level}) on stfc.pro.\nPlease accept the **Discord agreement** in your DMs to unlock full member access (guest/lounge for now).\n\n{summary}",
+	'verify.demote.dm.mismatch': 'Wykryliśmy, że Twój profil gracza na stfc.pro nie pokazuje już sojuszu **[{tag}]**. Jeśli to błąd, kliknij przycisk poniżej, aby ponownie rozpocząć weryfikację.',
+	'verify.demote.dm.missing': 'Nie znaleźliśmy już Twojego profilu gracza na stfc.pro. Jeśli to błąd, kliknij przycisk poniżej, aby ponownie rozpocząć weryfikację.',
+	'verify.demote.btn.restart': 'Restartuj weryfikację',
+	'verify.demote.restarted': '✅ Weryfikacja zrestartowana. Wyślij **zrzut ekranu** profilu w grze, a potem **link stfc.pro**.\n\nLub użyj `/verify link:<url>` na serwerze.',
+	'verify.demote.restart_failed': '❌ Nie udało się zrestartować weryfikacji. Użyj `/verify` na serwerze lub poproś admina.',
 };

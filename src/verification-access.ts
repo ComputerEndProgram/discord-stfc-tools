@@ -7,11 +7,14 @@ import {
 	DiscordApiError,
 	getGuildChannel,
 	getGuildMember,
+	openUserDmChannel,
 	patchGuildChannel,
 	removeGuildMemberRole,
+	sendMessageWithComponents,
 	setGuildMemberNickname,
+	updateMessageResponse,
 } from './discord-api';
-import { getVerifiedPlayer, upsertGuildConfig, upsertVerifiedPlayer } from './guild-db';
+import { getVerifiedPlayer, upsertGuildConfig, upsertVerifiedPlayer, getGuildConfig } from './guild-db';
 import { ensurePersonalChannel } from './personal-channels';
 import { ensureDiplomacyChannel, diplomacyChannelsEnabled } from './diplomacy-channels';
 import { buildMemberNickname, normalizeAllianceRank } from './nickname-utils';
@@ -22,6 +25,18 @@ import type { GuildConfig, PlayerData, VerifiedPlayer } from './types';
 import { findPlayerByIdOrName } from './stfc-utils';
 
 export type DemoteReason = 'alliance_mismatch' | 'player_missing' | 'admin' | 'unverified_bulk';
+
+export const VERIFY_RESTART_CUSTOM_ID_PREFIX = 'verify:restart:';
+
+export function verifyRestartCustomId(guildId: string): string {
+	return `${VERIFY_RESTART_CUSTOM_ID_PREFIX}${guildId}`;
+}
+
+export function parseVerifyRestartCustomId(customId: string): string | null {
+	if (!customId.startsWith(VERIFY_RESTART_CUSTOM_ID_PREFIX)) return null;
+	const guildId = customId.slice(VERIFY_RESTART_CUSTOM_ID_PREFIX.length);
+	return /^\d{15,20}$/.test(guildId) ? guildId : null;
+}
 
 /** Multi-alliance always matches; single-alliance requires non-empty tag equal to config.alliance_tag. */
 export function playerMatchesGuildAlliance(
@@ -118,6 +133,7 @@ export async function demotePlayerToGuest(
 	const token = env.DISCORD_BOT_TOKEN;
 	const existing = await getVerifiedPlayer(env.STFC_DB, guildId, discordUserId);
 	const hadVerifiedRow = Boolean(existing);
+	const wasAlreadyGuest = existing?.verification_status === 'guest';
 
 	if (existing) {
 		const player = opts.player;
@@ -156,6 +172,21 @@ export async function demotePlayerToGuest(
 		notes.push(`channel archived <#${existing.personal_channel_id}>`);
 	}
 
+	if (
+		!wasAlreadyGuest &&
+		hadVerifiedRow &&
+		config.mode === 'single_alliance' &&
+		opts.reason !== 'unverified_bulk'
+	) {
+		try {
+			await sendGuestDemotionDm(token, config, discordUserId, existing, opts.reason);
+			notes.push('demotion DM sent');
+		} catch (error) {
+			console.error('Guest demotion DM failed:', error);
+			notes.push('demotion DM failed');
+		}
+	}
+
 	if (!opts.skipAudit) {
 		const reasonLabel =
 			opts.reason === 'alliance_mismatch'
@@ -189,6 +220,79 @@ export async function demotePlayerToGuest(
 		hadVerifiedRow,
 		notes,
 	};
+}
+
+async function sendGuestDemotionDm(
+	token: string,
+	config: GuildConfig,
+	discordUserId: string,
+	existing: VerifiedPlayer | null,
+	reason: DemoteReason,
+): Promise<void> {
+	const locale = resolveLocale(existing?.preferred_locale);
+	const tag = (config.alliance_tag ?? '').trim() || '—';
+	const content =
+		reason === 'player_missing'
+			? t(locale, 'verify.demote.dm.missing')
+			: t(locale, 'verify.demote.dm.mismatch', { tag });
+
+	const channelId = await openUserDmChannel(token, discordUserId);
+	await sendMessageWithComponents(token, channelId, {
+		content,
+		components: [
+			{
+				type: 1,
+				components: [
+					{
+						type: 2,
+						style: 1,
+						label: t(locale, 'verify.demote.btn.restart').slice(0, 80),
+						custom_id: verifyRestartCustomId(config.guild_id),
+					},
+				],
+			},
+		],
+	});
+}
+
+/** Button from guest demotion DM — set pending_screenshot so Gateway accepts screenshot + link. */
+export async function handleVerifyRestartComponent(
+	env: Env,
+	interaction: {
+		member?: { user?: { id: string } };
+		user?: { id: string };
+		data?: { custom_id?: string };
+	},
+): Promise<Response> {
+	const customId = interaction.data?.custom_id ?? '';
+	const guildId = parseVerifyRestartCustomId(customId);
+	if (!guildId) {
+		return updateMessageResponse('❌ Unknown button.');
+	}
+
+	const userId = interaction.member?.user?.id ?? interaction.user?.id;
+	if (!userId) {
+		return updateMessageResponse('❌ Could not resolve user.');
+	}
+
+	const player = await getVerifiedPlayer(env.STFC_DB, guildId, userId);
+	const locale = resolveLocale(player?.preferred_locale);
+	const config = await getGuildConfig(env.STFC_DB, guildId);
+	if (!config) {
+		return updateMessageResponse(t(locale, 'verify.demote.restart_failed'), { components: [] });
+	}
+
+	try {
+		await upsertVerifiedPlayer(env.STFC_DB, {
+			guild_id: guildId,
+			discord_user_id: userId,
+			verification_status: 'pending_screenshot',
+		});
+		return updateMessageResponse(t(locale, 'verify.demote.restarted'), { components: [] });
+	} catch (error) {
+		console.error('Verify restart from demotion DM failed:', error);
+		return updateMessageResponse(t(locale, 'verify.demote.restart_failed'), { components: [] });
+	}
 }
 
 export interface RoleChangeResult {

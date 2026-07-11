@@ -136,4 +136,9 @@ export const hu: MessageCatalog = {
 	'agree.result.access_failed': "Agreement recorded, but updating Discord roles failed — ask an admin.",
 	'verify.note.agreement_pending': "Awaiting agreement (guest/lounge access for now)",
 	'verify.result.needs_agreement': "✅ Verified **{name}** ({tag}, Ops {level}) on stfc.pro.\nPlease accept the **Discord agreement** in your DMs to unlock full member access (guest/lounge for now).\n\n{summary}",
+	'verify.demote.dm.mismatch': 'Észleltük, hogy az stfc.pro játékosprofilod már nem a(z) **[{tag}]** szövetséget mutatja. Ha szerinted ez hiba, kattints az alábbi gombra a hitelesítés újraindításához.',
+	'verify.demote.dm.missing': 'Már nem találjuk a játékosprofilodat az stfc.pro-n. Ha szerinted ez hiba, kattints az alábbi gombra a hitelesítés újraindításához.',
+	'verify.demote.btn.restart': 'Hitelesítés újraindítása',
+	'verify.demote.restarted': '✅ Hitelesítés újraindítva. Küldj egy **képernyőképet** a játékbeli profilodról, majd az **stfc.pro linkedet**.\n\nVagy használd a `/verify link:<url>` parancsot a szerveren.',
+	'verify.demote.restart_failed': '❌ Nem sikerült újraindítani a hitelesítést. Használd a `/verify` parancsot a szerveren, vagy kérj segítséget egy admintól.',
 };

@@ -388,18 +388,24 @@ export async function sendDirectMessage(
 	userId: string,
 	content: string,
 ): Promise<{ channel_id: string; id: string }> {
-	const channelResponse = await discordFetch(token, '/users/@me/channels', {
-		method: 'POST',
-		body: JSON.stringify({ recipient_id: userId }),
-	});
-	const channel = await channelResponse.json() as { id: string };
+	const channelId = await openUserDmChannel(token, userId);
 
-	const msgResponse = await discordFetch(token, `/channels/${channel.id}/messages`, {
+	const msgResponse = await discordFetch(token, `/channels/${channelId}/messages`, {
 		method: 'POST',
 		body: JSON.stringify({ content }),
 	});
 	const msg = await msgResponse.json() as { id: string };
-	return { channel_id: channel.id, id: msg.id };
+	return { channel_id: channelId, id: msg.id };
+}
+
+/** Open (or reuse) a DM channel with a user. */
+export async function openUserDmChannel(token: string, userId: string): Promise<string> {
+	const channelResponse = await discordFetch(token, '/users/@me/channels', {
+		method: 'POST',
+		body: JSON.stringify({ recipient_id: userId }),
+	});
+	const channel = (await channelResponse.json()) as { id: string };
+	return channel.id;
 }
 
 export type DiscordButton = {

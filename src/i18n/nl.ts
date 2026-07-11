@@ -98,4 +98,9 @@ export const nl: MessageCatalog = {
 	'agree.result.access_failed': "Agreement recorded, but updating Discord roles failed — ask an admin.",
 	'verify.note.agreement_pending': "Awaiting agreement (guest/lounge access for now)",
 	'verify.result.needs_agreement': "✅ Verified **{name}** ({tag}, Ops {level}) on stfc.pro.\nPlease accept the **Discord agreement** in your DMs to unlock full member access (guest/lounge for now).\n\n{summary}",
+	'verify.demote.dm.mismatch': 'We hebben vastgesteld dat je spelersprofiel op stfc.pro niet langer de alliantie **[{tag}]** toont. Als dit een fout is, klik dan op de knop hieronder om de verificatie opnieuw te starten.',
+	'verify.demote.dm.missing': 'We konden je spelersprofiel op stfc.pro niet meer vinden. Als dit een fout is, klik dan op de knop hieronder om de verificatie opnieuw te starten.',
+	'verify.demote.btn.restart': 'Verificatie opnieuw starten',
+	'verify.demote.restarted': '✅ Verificatie opnieuw gestart. Stuur een **schermafbeelding** van je in-game profiel en daarna je **stfc.pro-link**.\n\nOf gebruik `/verify link:<url>` op de server.',
+	'verify.demote.restart_failed': '❌ Verificatie kon niet opnieuw worden gestart. Gebruik `/verify` op de server of vraag een admin.',
 };

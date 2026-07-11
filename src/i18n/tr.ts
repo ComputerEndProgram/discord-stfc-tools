@@ -98,4 +98,9 @@ export const tr: MessageCatalog = {
 	'agree.result.access_failed': "Agreement recorded, but updating Discord roles failed — ask an admin.",
 	'verify.note.agreement_pending': "Awaiting agreement (guest/lounge access for now)",
 	'verify.result.needs_agreement': "✅ Verified **{name}** ({tag}, Ops {level}) on stfc.pro.\nPlease accept the **Discord agreement** in your DMs to unlock full member access (guest/lounge for now).\n\n{summary}",
+	'verify.demote.dm.mismatch': 'stfc.pro üzerindeki oyuncu profilinizin artık **[{tag}]** ittifakını yansıtmadığını tespit ettik. Bunun bir hata olduğunu düşünüyorsanız, doğrulamayı yeniden başlatmak için aşağıdaki düğmeye tıklayın.',
+	'verify.demote.dm.missing': 'stfc.pro üzerinde oyuncu profilinizi artık bulamadık. Bunun bir hata olduğunu düşünüyorsanız, doğrulamayı yeniden başlatmak için aşağıdaki düğmeye tıklayın.',
+	'verify.demote.btn.restart': 'Doğrulamayı yeniden başlat',
+	'verify.demote.restarted': '✅ Doğrulama yeniden başlatıldı. Lütfen oyun içi profilinizin **ekran görüntüsünü**, ardından **stfc.pro bağlantınızı** gönderin.\n\nVeya sunucuda `/verify link:<url>` kullanın.',
+	'verify.demote.restart_failed': '❌ Doğrulama yeniden başlatılamadı. Sunucuda `/verify` kullanın veya bir yöneticiden yardım isteyin.',
 };

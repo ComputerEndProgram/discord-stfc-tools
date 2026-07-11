@@ -159,6 +159,19 @@ export const en = {
 	'verify.result.needs_agreement':
 		'✅ Verified **{name}** ({tag}, Ops {level}) on stfc.pro.\n' +
 		'Please accept the **Discord agreement** in your DMs to unlock full member access (guest/lounge for now).\n\n{summary}',
+
+	'verify.demote.dm.mismatch':
+		'We detected that your player profile on stfc.pro no longer reflects **[{tag}]** as your alliance. ' +
+		'If you feel this is in error, please click the button below to restart the verification process.',
+	'verify.demote.dm.missing':
+		'We could not find your player profile on stfc.pro anymore. ' +
+		'If you feel this is in error, please click the button below to restart the verification process.',
+	'verify.demote.btn.restart': 'Restart verification',
+	'verify.demote.restarted':
+		'✅ Verification restarted. Please send a **screenshot** of your in-game profile, then your **stfc.pro link**.\n\n' +
+		'Or use `/verify link:<url>` in the server.',
+	'verify.demote.restart_failed':
+		'❌ Could not restart verification. Please use `/verify` in the server, or ask an admin.',
 } as const;
 
 export type MessageKey = keyof typeof en;

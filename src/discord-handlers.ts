@@ -2628,6 +2628,10 @@ export async function handleDiscordInteraction(
 			const { handleAgreeComponent } = await import('./agreement');
 			return handleAgreeComponent(env, interaction);
 		}
+		if (customId?.startsWith('verify:restart:')) {
+			const { handleVerifyRestartComponent } = await import('./verification-access');
+			return handleVerifyRestartComponent(env, interaction);
+		}
 		if (customId?.startsWith('demote:')) {
 			const { handleDemoteComponent } = await import('./demotion-policy');
 			return handleDemoteComponent(env, interaction);
