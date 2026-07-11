@@ -1,5 +1,5 @@
 /** Supported player-facing locales (ISO 639-1). */
-export const SUPPORTED_LOCALES = ['en', 'de', 'fr', 'es', 'pt', 'nl', 'pl', 'it', 'ru', 'tr'] as const;
+export const SUPPORTED_LOCALES = ['en', 'de', 'fr', 'es', 'pt', 'nl', 'pl', 'it', 'ru', 'tr', 'hu'] as const;
 
 export type LocaleCode = (typeof SUPPORTED_LOCALES)[number];
 
@@ -17,6 +17,7 @@ export const LOCALE_NATIVE_LABELS: Record<LocaleCode, string> = {
 	it: 'Italiano',
 	ru: 'Русский',
 	tr: 'Türkçe',
+	hu: 'Magyar',
 };
 
 export function isLocaleCode(value: string | null | undefined): value is LocaleCode {

@@ -8,6 +8,7 @@ import { pl } from './pl';
 import { it } from './it';
 import { ru } from './ru';
 import { tr } from './tr';
+import { hu } from './hu';
 import {
 	DEFAULT_LOCALE,
 	LOCALE_NATIVE_LABELS,
@@ -38,6 +39,7 @@ const CATALOGS: Record<LocaleCode, MessageCatalog> = {
 	it,
 	ru,
 	tr,
+	hu,
 };
 
 export type TParams = Record<string, string | number | undefined | null>;

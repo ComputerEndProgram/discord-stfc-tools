@@ -142,7 +142,7 @@ Player-facing **DMs** (and survey delivery) are localized. On first bot contact 
 
 Stored per Discord user on `verified_players.preferred_locale`.
 
-Supported: English, Deutsch, Français, Español, Português, Nederlands, Polski, Italiano, Русский, Türkçe.
+Supported: English, Deutsch, Français, Español, Português, Nederlands, Polski, Italiano, Русский, Türkçe, Magyar.
 
 Admin ephemeral replies and shared channel pins (e.g. exchange hub) stay in English for now.
 
