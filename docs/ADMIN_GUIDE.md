@@ -851,6 +851,20 @@ Optional: put `{personal_channel}` in the source post where you want the persona
 
 Bot needs **View Channel** + **Read Message History** on the source channel. Guests / wrong-alliance members do not receive this DM.
 
+### Preview DMs (no status change)
+
+```
+/test-dm kind:invite
+/test-dm kind:agreement user:@Them
+/test-dm kind:welcome
+/test-dm kind:demote_mismatch
+/test-dm kind:all
+```
+
+These send real-looking DMs marked as admin previews. Buttons do **not** record agreement or restart verification. Prefer this over `/server test-invite` when testing copy/layout for already-verified members.
+
+`/server test-invite` is for **live** onboarding of not-yet-verified users (can set `pending_screenshot`). `/server test-reset` clears verification for a true re-test.
+
 ---
 
 ## DM assistant (Badgey / HAL)

@@ -444,7 +444,7 @@ const commands = [
 			{
 				type: 1,
 				name: 'test-invite',
-				description: 'Admin: send verification DM (simulate new member join)',
+				description: 'Admin: live invite DM (pending users only; prefer test-dm to preview)',
 				options: [
 					{
 						type: 6,
@@ -578,6 +578,32 @@ const commands = [
 						required: false,
 					},
 				],
+			},
+		],
+	},
+	{
+		name: 'test-dm',
+		description: 'Admin: preview verification/follow-up DMs (no status change)',
+		options: [
+			{
+				type: 3,
+				name: 'kind',
+				description: 'Which DM to preview',
+				required: true,
+				choices: [
+					{ name: 'Invite', value: 'invite' },
+					{ name: 'Agreement', value: 'agreement' },
+					{ name: 'Welcome', value: 'welcome' },
+					{ name: 'Demote mismatch', value: 'demote_mismatch' },
+					{ name: 'Demote missing', value: 'demote_missing' },
+					{ name: 'All', value: 'all' },
+				],
+			},
+			{
+				type: 6,
+				name: 'user',
+				description: 'User to DM (defaults to you)',
+				required: false,
 			},
 		],
 	},

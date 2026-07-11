@@ -236,21 +236,28 @@ export async function demotePlayerToGuest(
 	};
 }
 
-async function sendGuestDemotionDm(
+export async function sendGuestDemotionDm(
 	token: string,
 	config: GuildConfig,
 	discordUserId: string,
-	existing: VerifiedPlayer | null,
+	existing: Pick<VerifiedPlayer, 'preferred_locale'> | null,
 	reason: DemoteReason,
+	opts?: { preview?: boolean },
 ): Promise<void> {
 	const locale = resolveLocale(existing?.preferred_locale);
 	const tag = (config.alliance_tag ?? '').trim() || '—';
-	const content =
+	const body =
 		reason === 'player_missing'
 			? t(locale, 'verify.demote.dm.missing')
 			: t(locale, 'verify.demote.dm.mismatch', { tag });
+	const content = opts?.preview
+		? `*[Admin preview — verification status is not changed by sending this.]*\n\n${body}\n\n_Preview: the button below does not restart verification._`
+		: body;
 
 	const channelId = await openUserDmChannel(token, discordUserId);
+	const customId = opts?.preview
+		? `verify:restart-preview:${config.guild_id}`
+		: verifyRestartCustomId(config.guild_id);
 	await sendMessageWithComponents(token, channelId, {
 		content,
 		components: [
@@ -261,7 +268,7 @@ async function sendGuestDemotionDm(
 						type: 2,
 						style: 1,
 						label: t(locale, 'verify.demote.btn.restart').slice(0, 80),
-						custom_id: verifyRestartCustomId(config.guild_id),
+						custom_id: customId,
 					},
 				],
 			},

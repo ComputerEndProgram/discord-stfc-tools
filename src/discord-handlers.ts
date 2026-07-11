@@ -1123,18 +1123,84 @@ async function handleServerTestInviteCommand(
 		);
 	}
 
-	// Minimal test helper: record member + send DM invitation.
+	const before = await getVerifiedPlayer(env.STFC_DB, guildId, userId);
+	const alreadyOnboarded =
+		before &&
+		(before.verification_status === 'active' ||
+			before.verification_status === 'guest' ||
+			before.verification_status === 'verified');
+
+	if (alreadyOnboarded) {
+		return interactionResponse(
+			`ℹ️ <@${userId}> is already **${before!.verification_status}** — \`/server test-invite\` will not re-send or reset them.\n` +
+				`Use \`/test-dm kind:invite user:@Them\` to preview the invite DM without changing status.\n` +
+				`Or \`/server test-reset\` first if you truly want a live re-onboarding.`,
+			true,
+		);
+	}
+
 	await recordGuildMember(env.STFC_DB, guildId, userId, null);
 	const dm = await inviteNewMember(env, guildId, userId, 'user');
 	if (dm.ok) {
 		await markMemberInvited(env.STFC_DB, guildId, userId);
-		return interactionResponse('✅ DM sent and verification state reset for this user.', true);
+		return interactionResponse(
+			`✅ Live verification invite sent to <@${userId}>.\n` +
+				`Note: this may set status to \`pending_screenshot\` for not-yet-verified users.\n` +
+				`For previews without status changes, use \`/test-dm\`.`,
+			true,
+		);
 	}
 
 	return interactionResponse(
 		`❌ Failed to send DM: ${dm.errorMessage}${typeof dm.status === 'number' ? ` (HTTP ${dm.status})` : ''}`,
 		true,
 	);
+}
+
+async function handleServerTestDmCommand(
+	env: Env,
+	interaction: {
+		guild_id?: string;
+		member?: { permissions?: string; user?: { id: string } };
+	},
+	sub: { options?: Array<{ name: string; value?: unknown; type?: number }> },
+): Promise<Response> {
+	const adminError = requireGuildAdmin(interaction as any);
+	if (adminError) return adminError;
+
+	const guildId = interaction.guild_id!;
+	const config = await getGuildConfig(env.STFC_DB, guildId);
+	if (!config) {
+		return interactionResponse('❌ Server not configured. Run `/server setup` first.', true);
+	}
+	if (!env.DISCORD_BOT_TOKEN) {
+		return interactionResponse('❌ DISCORD_BOT_TOKEN not configured.', true);
+	}
+
+	const kindRaw = String(getOptionValue(sub.options, 'kind') ?? '');
+	const { isTestDmKind, sendTestDms } = await import('./test-dms');
+	if (!isTestDmKind(kindRaw)) {
+		return interactionResponse(
+			'❌ Provide `kind:` invite | agreement | welcome | demote_mismatch | demote_missing | all',
+			true,
+		);
+	}
+
+	const userId = resolveTargetUserId(interaction as any, sub.options);
+	if (!userId) return interactionResponse('❌ Could not resolve target user.', true);
+
+	try {
+		const { sent, skipped } = await sendTestDms(env, config, userId, kindRaw);
+		return interactionResponse(
+			`📬 **Test DM** to <@${userId}> (no verification status change)\n` +
+				(sent.length ? `• Sent: ${sent.join(', ')}\n` : '• Sent: _(none)_\n') +
+				(skipped.length ? `• Skipped:\n${skipped.map((s) => `  – ${s}`).join('\n')}` : ''),
+			true,
+		);
+	} catch (err) {
+		const msg = err instanceof Error ? err.message : String(err);
+		return interactionResponse(`❌ Test DM failed: ${msg}`, true);
+	}
 }
 
 async function handleServerExcludeCommand(
@@ -2769,9 +2835,17 @@ export async function handleDiscordInteraction(
 			const { handleDmAssistantComponent } = await import('./dm-assistant');
 			return handleDmAssistantComponent(env, interaction);
 		}
+		if (customId?.startsWith('agree:preview:')) {
+			const { handleAgreePreviewComponent } = await import('./test-dms');
+			return handleAgreePreviewComponent(env, interaction);
+		}
 		if (customId?.startsWith('agree:')) {
 			const { handleAgreeComponent } = await import('./agreement');
 			return handleAgreeComponent(env, interaction);
+		}
+		if (customId?.startsWith('verify:restart-preview:')) {
+			const { handleVerifyRestartPreviewComponent } = await import('./test-dms');
+			return handleVerifyRestartPreviewComponent(env, interaction);
 		}
 		if (customId?.startsWith('verify:restart:')) {
 			const { handleVerifyRestartComponent } = await import('./verification-access');
@@ -2894,6 +2968,10 @@ export async function handleDiscordInteraction(
 
 		if (data.name === 'channels') {
 			return handleServerChannelsCommand(env, ctx, interaction as any, data);
+		}
+
+		if (data.name === 'test-dm') {
+			return handleServerTestDmCommand(env, interaction as any, data);
 		}
 
 		if (data.name === 'diplomacy') {
