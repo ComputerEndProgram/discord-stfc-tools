@@ -116,6 +116,8 @@ function mapGuildConfig(row: any): GuildConfig {
 		exchange_admin_role_ids: parseJsonArray(row.exchange_admin_role_ids),
 		dm_query_role_ids: parseJsonArray(row.dm_query_role_ids),
 		dm_ai_enabled: Boolean(row.dm_ai_enabled ?? 0),
+		data_consent_enabled: Boolean(row.data_consent_enabled ?? 0),
+		data_consent_version: row.data_consent_version?.trim() || '1',
 		agreement_enabled: Boolean(row.agreement_enabled ?? 0),
 		agreement_timing:
 			row.agreement_timing === 'before_verify' ? 'before_verify' : 'after_verify',
@@ -151,6 +153,10 @@ function mapVerifiedPlayer(row: any): VerifiedPlayer {
 		verification_status: row.verification_status as VerificationStatus,
 		personal_channel_id: row.personal_channel_id ?? null,
 		preferred_locale: row.preferred_locale ?? null,
+		data_consent_at: row.data_consent_at ?? null,
+		data_consent_version: row.data_consent_version ?? null,
+		data_consent_choice: row.data_consent_choice ?? null,
+		data_consent_method: row.data_consent_method ?? null,
 		agreement_accepted_at: row.agreement_accepted_at ?? null,
 		agreement_version: row.agreement_version ?? null,
 		agreement_method: row.agreement_method ?? null,
@@ -481,9 +487,40 @@ async function upsertDiplomacyConfigFields(
 	}
 
 	await upsertDmAssistantConfigFields(db, config);
+	await upsertDataConsentConfigFields(db, config);
 	await upsertAgreementConfigFields(db, config);
 	await upsertDemotionPolicyField(db, config);
 	await upsertWelcomeDmConfigFields(db, config);
+}
+
+async function upsertDataConsentConfigFields(
+	db: D1Database,
+	config: Partial<GuildConfig> & { guild_id: string },
+): Promise<void> {
+	const touched =
+		Object.prototype.hasOwnProperty.call(config, 'data_consent_enabled') ||
+		Object.prototype.hasOwnProperty.call(config, 'data_consent_version');
+	if (!touched) return;
+
+	const enabledProvided = Object.prototype.hasOwnProperty.call(config, 'data_consent_enabled');
+	const versionProvided = Object.prototype.hasOwnProperty.call(config, 'data_consent_version');
+
+	await db
+		.prepare(
+			`UPDATE guild_configs SET
+			 data_consent_enabled = CASE WHEN ? = 1 THEN ? ELSE data_consent_enabled END,
+			 data_consent_version = CASE WHEN ? = 1 THEN ? ELSE data_consent_version END,
+			 updated_at = datetime('now')
+			 WHERE guild_id = ?`,
+		)
+		.bind(
+			enabledProvided ? 1 : 0,
+			enabledProvided ? (config.data_consent_enabled ? 1 : 0) : null,
+			versionProvided ? 1 : 0,
+			versionProvided ? (config.data_consent_version?.trim() || '1') : null,
+			config.guild_id,
+		)
+		.run();
 }
 
 async function upsertWelcomeDmConfigFields(
@@ -574,7 +611,7 @@ async function upsertAgreementConfigFields(
 			enabledProvided ? 1 : 0,
 			enabledProvided ? (config.agreement_enabled ? 1 : 0) : null,
 			timingProvided ? 1 : 0,
-			timingProvided ? (config.agreement_timing ?? 'after_verify') : null,
+			timingProvided ? (config.agreement_timing ?? 'before_verify') : null,
 			modeProvided ? 1 : 0,
 			modeProvided ? (config.agreement_mode ?? 'dm_button') : null,
 			channelProvided ? 1 : 0,
@@ -679,6 +716,10 @@ export async function upsertVerifiedPlayer(
 		verification_status?: VerificationStatus;
 		personal_channel_id?: string | null;
 		preferred_locale?: string | null;
+		data_consent_at?: string | null;
+		data_consent_version?: string | null;
+		data_consent_choice?: string | null;
+		data_consent_method?: string | null;
 		agreement_accepted_at?: string | null;
 		agreement_version?: string | null;
 		agreement_method?: string | null;
@@ -690,6 +731,7 @@ export async function upsertVerifiedPlayer(
 	const now = new Date().toISOString();
 	const existing = await getVerifiedPlayer(db, data.guild_id, data.discord_user_id);
 	const agreementProvided = Object.prototype.hasOwnProperty.call(data, 'agreement_accepted_at');
+	const consentProvided = Object.prototype.hasOwnProperty.call(data, 'data_consent_at');
 	const welcomeSentProvided = Object.prototype.hasOwnProperty.call(data, 'welcome_dm_sent_at');
 
 	if (!existing) {
@@ -698,9 +740,10 @@ export async function upsertVerifiedPlayer(
 				`INSERT INTO verified_players
 				(guild_id, discord_user_id, player_id, player_name, alliance_tag, alliance_rank,
 				 ops_level, power, grade, stfc_pro_url, verification_status, personal_channel_id,
-				 preferred_locale, agreement_accepted_at, agreement_version, agreement_method,
+				 preferred_locale, data_consent_at, data_consent_version, data_consent_choice, data_consent_method,
+				 agreement_accepted_at, agreement_version, agreement_method,
 				 welcome_dm_sent_at, verified_at, last_synced_at, updated_at)
-				VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+				VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 			)
 			.bind(
 				data.guild_id,
@@ -716,6 +759,10 @@ export async function upsertVerifiedPlayer(
 				data.verification_status ?? 'pending_invite',
 				data.personal_channel_id ?? null,
 				data.preferred_locale ?? null,
+				data.data_consent_at ?? null,
+				data.data_consent_version ?? null,
+				data.data_consent_choice ?? null,
+				data.data_consent_method ?? null,
 				data.agreement_accepted_at ?? null,
 				data.agreement_version ?? null,
 				data.agreement_method ?? null,
@@ -744,6 +791,10 @@ export async function upsertVerifiedPlayer(
 			 verification_status = COALESCE(?, verification_status),
 			 personal_channel_id = COALESCE(?, personal_channel_id),
 			 preferred_locale = CASE WHEN ? = 1 THEN ? ELSE preferred_locale END,
+			 data_consent_at = CASE WHEN ? = 1 THEN ? ELSE data_consent_at END,
+			 data_consent_version = CASE WHEN ? = 1 THEN ? ELSE data_consent_version END,
+			 data_consent_choice = CASE WHEN ? = 1 THEN ? ELSE data_consent_choice END,
+			 data_consent_method = CASE WHEN ? = 1 THEN ? ELSE data_consent_method END,
 			 agreement_accepted_at = CASE WHEN ? = 1 THEN ? ELSE agreement_accepted_at END,
 			 agreement_version = CASE WHEN ? = 1 THEN ? ELSE agreement_version END,
 			 agreement_method = CASE WHEN ? = 1 THEN ? ELSE agreement_method END,
@@ -766,6 +817,14 @@ export async function upsertVerifiedPlayer(
 			data.personal_channel_id ?? null,
 			localeProvided ? 1 : 0,
 			localeProvided ? (data.preferred_locale?.trim() || null) : null,
+			consentProvided ? 1 : 0,
+			consentProvided ? (data.data_consent_at?.trim() || null) : null,
+			consentProvided ? 1 : 0,
+			consentProvided ? (data.data_consent_version?.trim() || null) : null,
+			consentProvided ? 1 : 0,
+			consentProvided ? (data.data_consent_choice?.trim() || null) : null,
+			consentProvided ? 1 : 0,
+			consentProvided ? (data.data_consent_method?.trim() || null) : null,
 			agreementProvided ? 1 : 0,
 			agreementProvided ? (data.agreement_accepted_at?.trim() || null) : null,
 			agreementProvided ? 1 : 0,

@@ -122,10 +122,18 @@ export async function handleLocaleComponent(
 	const welcome = t(locale, 'verify.invite.welcome');
 
 	const { getGuildConfig } = await import('../guild-db');
-	const { needsAgreementBeforeVerify, agreementDmContent, buildAgreementComponents } =
-		await import('../agreement');
+	const { needsDataConsent, dataConsentDmContent, buildDataConsentComponents } =
+		await import('../data-consent');
 	const config = await getGuildConfig(env.STFC_DB, guildId);
 	const refreshed = await getVerifiedPlayer(env.STFC_DB, guildId, userId);
+	if (config && needsDataConsent(config, refreshed)) {
+		return updateMessageResponse(`${confirm}\n\n${dataConsentDmContent(config, locale)}`, {
+			components: buildDataConsentComponents(guildId, locale),
+		});
+	}
+
+	const { needsAgreementBeforeVerify, agreementDmContent, buildAgreementComponents } =
+		await import('../agreement');
 	if (config && needsAgreementBeforeVerify(config, refreshed)) {
 		return updateMessageResponse(`${confirm}\n\n${agreementDmContent(config, locale)}`, {
 			components: buildAgreementComponents(guildId, locale),

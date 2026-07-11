@@ -23,10 +23,13 @@ import { DEFAULT_LOCALE, resolveLocale, t } from './i18n';
 import { ensureLocaleAfterVerify, sendLanguagePickerDm } from './i18n/language-picker';
 import {
 	needsAgreementBeforeFullAccess,
-	needsAgreementBeforeVerify,
 	playerHasAcceptedAgreement,
 	sendAgreementDm,
 } from './agreement';
+import {
+	needsDataConsent,
+	sendDataConsentDm,
+} from './data-consent';
 import {
 	applyDiplomacyForAlliance,
 	applyGuestRole,
@@ -139,15 +142,15 @@ export async function processVerification(
 	}
 
 	const existingPlayer = await getVerifiedPlayer(env.STFC_DB, guildId, discordUserId);
-	if (needsAgreementBeforeVerify(config, existingPlayer)) {
+	if (needsDataConsent(config, existingPlayer)) {
 		if (env.DISCORD_BOT_TOKEN) {
 			try {
-				await sendAgreementDm(env.DISCORD_BOT_TOKEN, discordUserId, config, locale);
+				await sendDataConsentDm(env.DISCORD_BOT_TOKEN, discordUserId, config, locale);
 			} catch (err) {
-				console.error('Agreement DM (before verify) failed:', err);
+				console.error('Data consent DM (verify gate) failed:', err);
 			}
 		}
-		return t(locale, 'agree.gate.before_verify');
+		return t(locale, 'consent.gate.required');
 	}
 
 	let archivedR2Key: string | undefined;
@@ -469,6 +472,8 @@ export async function inviteNewMember(
 		const locale = resolveLocale(existing?.preferred_locale);
 		if (!existing?.preferred_locale) {
 			await sendLanguagePickerDm(env.DISCORD_BOT_TOKEN, userId, guildId);
+		} else if (config && needsDataConsent(config, existing)) {
+			await sendDataConsentDm(env.DISCORD_BOT_TOKEN, userId, config, locale);
 		} else {
 			await sendDirectMessage(env.DISCORD_BOT_TOKEN, userId, t(locale, 'verify.invite.welcome'));
 		}
@@ -476,7 +481,11 @@ export async function inviteNewMember(
 		await postAuditLog(env, config, {
 			title: 'Verification invite sent',
 			description: `DM sent to <@${userId}> (${username})` +
-				(existing?.preferred_locale ? ` · locale ${locale}` : ' · language picker'),
+				(!existing?.preferred_locale
+					? ' · language picker'
+					: config && needsDataConsent(config, existing)
+						? ' · data consent'
+						: ` · locale ${locale}`),
 			actorId: userId,
 			source: 'automated',
 			color: AuditColor.info,

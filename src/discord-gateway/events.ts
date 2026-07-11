@@ -83,14 +83,14 @@ export async function handleDirectMessage(env: Env, message: DiscordMessage): Pr
 		return;
 	}
 
-	const { needsAgreementBeforeVerify, sendAgreementDm } = await import('../agreement');
-	if (needsAgreementBeforeVerify(config, record)) {
+	const { needsDataConsent, sendDataConsentDm } = await import('../data-consent');
+	if (needsDataConsent(config, record)) {
 		try {
-			await sendAgreementDm(token, userId, config, locale);
+			await sendDataConsentDm(token, userId, config, locale);
 		} catch (err) {
-			console.error('Agreement DM failed:', err);
+			console.error('Data consent DM failed:', err);
 		}
-		await sendChannelMessage(token, message.channel_id, t(locale, 'agree.gate.before_verify'));
+		await sendChannelMessage(token, message.channel_id, t(locale, 'consent.gate.required'));
 		return;
 	}
 

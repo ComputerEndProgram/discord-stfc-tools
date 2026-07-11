@@ -135,6 +135,24 @@ export const de: MessageCatalog = {
 	'agree.result.access_failed': "Agreement recorded, but updating Discord roles failed — ask an admin.",
 	'verify.note.agreement_pending': "Awaiting agreement (guest/lounge access for now)",
 	'verify.result.needs_agreement': "✅ Verified **{name}** ({tag}, Ops {level}) on stfc.pro.\nPlease accept the **Discord agreement** in your DMs to unlock full member access (guest/lounge for now).\n\n{summary}",
+	'consent.dm.body': 'Um dich auf diesem Discord-Server zu verifizieren, müssen wir dein **Discord-Konto** mit deiner **Star Trek Fleet Command**-Spieleridentität verknüpfen (Ingame-Name und öffentliche Profildaten von stfc.pro).\n\n' +
+		'Wir nutzen diese Informationen **nur**, um deine Identität zu bestätigen, passende Rollen und Kanäle zuzuweisen und Allianz-Mitgliedschaftswerkzeuge auf diesem Server zu betreiben.',
+	'consent.dm.details': 'Mit **Ich stimme zu** willigst du in diese Verarbeitung ein. ' +
+		'Mit **Ich stimme nicht zu** führen wir keine Verifizierung durch und rufen dein stfc.pro-Profil nicht ab.\n\n' +
+		'Du kannst einen Server-Admin fragen, wie die Daten genutzt werden. Diese Einwilligung ist getrennt von einem optionalen Verhaltenskodex.',
+	'consent.dm.version': 'Einwilligungsversion: `{version}`',
+	'consent.btn.yes': 'Ich stimme zu',
+	'consent.btn.no': 'Ich stimme nicht zu',
+	'consent.result.accepted': '✅ Danke — deine Einwilligung wurde gespeichert.',
+	'consent.result.declined': 'Verstanden. Ohne diese Einwilligung können wir dich nicht verifizieren und dein stfc.pro-Profil nicht abrufen.\n\n' +
+		'Wenn du deine Meinung änderst, starte erneut mit `/verify` oder bitte einen Admin um eine neue Einladung.',
+	'consent.result.already': 'Du hast die aktuelle Einwilligung zur Datenverarbeitung bereits erteilt.',
+	'consent.result.not_required': 'Auf diesem Server ist keine Einwilligung zur Datenverarbeitung erforderlich.',
+	'consent.result.continue_verify': 'Als Nächstes: sende einen **Screenshot** deines Ingame-Profils und danach deinen **stfc.pro-Profil-Link** ' +
+		'(oder nutze `/verify link:<url>` im Server).',
+	'consent.gate.required': 'Bitte akzeptiere zuerst die **Einwilligung zur Datenverarbeitung** (Buttons in der DM oben), ' +
+		'danach Screenshot / stfc.pro-Link.',
+
 	'verify.demote.dm.mismatch': 'Wir haben festgestellt, dass dein Spielerprofil auf stfc.pro nicht mehr die Allianz **[{tag}]** zeigt. Falls das ein Fehler ist, tippe unten auf die Schaltfläche, um die Verifizierung neu zu starten.',
 	'verify.demote.dm.missing': 'Wir konnten dein Spielerprofil auf stfc.pro nicht mehr finden. Falls das ein Fehler ist, tippe unten auf die Schaltfläche, um die Verifizierung neu zu starten.',
 	'verify.demote.btn.restart': 'Verifizierung neu starten',

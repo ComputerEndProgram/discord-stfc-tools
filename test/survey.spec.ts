@@ -54,6 +54,8 @@ function baseConfig(overrides: Partial<GuildConfig> = {}): GuildConfig {
 		exchange_admin_role_ids: [],
 		dm_query_role_ids: [],
 		dm_ai_enabled: false,
+		data_consent_enabled: false,
+		data_consent_version: '1',
 		agreement_enabled: false,
 		agreement_timing: 'after_verify',
 		agreement_mode: 'dm_button',

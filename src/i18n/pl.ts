@@ -98,6 +98,32 @@ export const pl: MessageCatalog = {
 	'agree.result.access_failed': "Agreement recorded, but updating Discord roles failed — ask an admin.",
 	'verify.note.agreement_pending': "Awaiting agreement (guest/lounge access for now)",
 	'verify.result.needs_agreement': "✅ Verified **{name}** ({tag}, Ops {level}) on stfc.pro.\nPlease accept the **Discord agreement** in your DMs to unlock full member access (guest/lounge for now).\n\n{summary}",
+
+	'consent.dm.body':
+		'To verify you on this Discord server, we need to **link your Discord account** to your ' +
+		'**Star Trek Fleet Command** player identity (in-game name and public profile data from stfc.pro).\n\n' +
+		'We use this information **only** to confirm who you are, assign the correct roles and channels, ' +
+		'and operate alliance membership tools on this server.',
+	'consent.dm.details':
+		'By tapping **I agree**, you consent to this processing. ' +
+		'If you tap **I do not agree**, we will not run verification and will not look up your stfc.pro profile.\n\n' +
+		'You can ask a server admin about how this data is used. This consent is separate from any optional server code of conduct.',
+	'consent.dm.version': 'Consent version: `{version}`',
+	'consent.btn.yes': 'I agree',
+	'consent.btn.no': 'I do not agree',
+	'consent.result.accepted': '✅ Thank you — your consent has been recorded.',
+	'consent.result.declined':
+		'Understood. Without this consent we cannot verify you or look up your stfc.pro profile.\n\n' +
+		'If you change your mind later, start again with `/verify` or ask an admin to re-send the invite.',
+	'consent.result.already': 'You have already accepted the current data-processing consent.',
+	'consent.result.not_required': 'Data-processing consent is not required on this server.',
+	'consent.result.continue_verify':
+		'Next: send a **screenshot** of your in-game profile, then your **stfc.pro profile link** ' +
+		'(or use `/verify link:<url>` in the server).',
+	'consent.gate.required':
+		'Please accept **data-processing consent** first (use the buttons in the DM above), ' +
+		'then send your screenshot / stfc.pro link.',
+
 	'verify.demote.dm.mismatch': 'Wykryliśmy, że Twój profil gracza na stfc.pro nie pokazuje już sojuszu **[{tag}]**. Jeśli to błąd, kliknij przycisk poniżej, aby ponownie rozpocząć weryfikację.',
 	'verify.demote.dm.missing': 'Nie znaleźliśmy już Twojego profilu gracza na stfc.pro. Jeśli to błąd, kliknij przycisk poniżej, aby ponownie rozpocząć weryfikację.',
 	'verify.demote.btn.restart': 'Restartuj weryfikację',

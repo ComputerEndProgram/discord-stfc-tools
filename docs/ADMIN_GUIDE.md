@@ -811,22 +811,24 @@ After create you get an ephemeral draft with buttons:
 
 ---
 
-## Discord agreement / code of conduct
+## Data-processing consent (GDPR) + optional CoC
 
-Optional gate for **single-** or **multi-alliance** servers. Members must accept via a **DM “I agree” button** (channel reactions planned next). Acceptance is logged to **audit** and, on promote, noted on the **verification log**.
+Two separate gates:
 
-| Timing | Behaviour |
-|--------|-----------|
-| `after_verify` (default) | stfc.pro verify succeeds; member gets **guest/lounge** until they agree, then full member roles |
-| `before_verify` | Must agree before screenshot / stfc.pro link is accepted |
+| Gate | Command | When | Purpose |
+|------|---------|------|---------|
+| **Data consent** | `/server consent` | **Before** screenshot / stfc.pro lookup | Link Discord ↔ player identity; Yes/No buttons; logged to audit |
+| **Code of conduct** | `/server agreement` | **After** verify (guest lounge until accept) | Optional server rules; can still link a CoC channel |
 
 ```
-/server agreement
-/server agreement enabled:true timing:after_verify channel:#discord-agreement version:2026-07
-/server agreement enabled:false
+/server consent
+/server consent enabled:true version:2026-07
+/server agreement enabled:true timing:after_verify channel:#code-of-conduct version:2026-07
 ```
 
-Bump `version` when the CoC changes to force re-accept. `mode:channel_react` is reserved — DM button is used until reaction support ships.
+**Onboarding order when data consent is on:** language (if needed) → consent Yes/No → verification instructions → screenshot + link → (optional CoC) → welcome DM.
+
+Bump `version` on either gate to re-prompt after policy changes.
 
 ---
 

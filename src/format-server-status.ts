@@ -31,7 +31,8 @@ export function formatServerStatus(config: GuildConfig): string {
 		`• Guest role: ${config.guest_role_id ?? 'none'}\n` +
 		`• DM query roles: ${config.dm_query_role_ids.map((id) => `<@&${id}>`).join(', ') || 'Administrators only'}\n` +
 		`• DM AI: ${config.dm_ai_enabled ? 'enabled (opt-in)' : 'disabled'}\n` +
-		`• Agreement: ${config.agreement_enabled ? `on (${config.agreement_timing}, ${config.agreement_mode})` : 'off'}` +
+		`• Data consent: ${config.data_consent_enabled ? `on (v${config.data_consent_version ?? '1'})` : 'off'}\n` +
+		`• CoC agreement: ${config.agreement_enabled ? `on (${config.agreement_timing}, ${config.agreement_mode})` : 'off'}` +
 		(config.agreement_channel_id ? ` → <#${config.agreement_channel_id}>` : '') +
 		`\n` +
 		`• Personal channels: ${personalChannelsEnabled(config) ? 'enabled' : 'disabled'}\n` +

@@ -1,11 +1,12 @@
 import { describe, expect, it } from 'vitest';
 import {
-	needsAgreementBeforeFullAccess,
-	needsAgreementBeforeVerify,
-	playerHasAcceptedAgreement,
-	parseAgreeCustomId,
-	agreeCustomId,
-} from '../src/agreement';
+	needsDataConsent,
+	parseConsentCustomId,
+	playerHasDataConsent,
+	consentYesCustomId,
+	consentNoCustomId,
+	requiredDataConsentVersion,
+} from '../src/data-consent';
 import type { GuildConfig } from '../src/types';
 
 function cfg(overrides: Partial<GuildConfig> = {}): GuildConfig {
@@ -52,14 +53,14 @@ function cfg(overrides: Partial<GuildConfig> = {}): GuildConfig {
 		exchange_admin_role_ids: [],
 		dm_query_role_ids: [],
 		dm_ai_enabled: false,
-		data_consent_enabled: false,
+		data_consent_enabled: true,
 		data_consent_version: '1',
-		agreement_enabled: true,
+		agreement_enabled: false,
 		agreement_timing: 'after_verify',
 		agreement_mode: 'dm_button',
 		agreement_channel_id: null,
 		agreement_message_id: null,
-		agreement_version: '2026-07',
+		agreement_version: null,
 		demotion_policy: 'approval',
 		welcome_dm_enabled: false,
 		welcome_dm_channel_id: null,
@@ -72,47 +73,55 @@ function cfg(overrides: Partial<GuildConfig> = {}): GuildConfig {
 	};
 }
 
-describe('agreement gates', () => {
-	it('disabled = always accepted', () => {
-		const c = cfg({ agreement_enabled: false });
-		expect(playerHasAcceptedAgreement(c, null)).toBe(true);
-		expect(needsAgreementBeforeVerify(c, null)).toBe(false);
-		expect(needsAgreementBeforeFullAccess(c, null)).toBe(false);
+describe('data consent', () => {
+	it('disabled = no gate', () => {
+		const c = cfg({ data_consent_enabled: false });
+		expect(needsDataConsent(c, null)).toBe(false);
+		expect(playerHasDataConsent(c, null)).toBe(true);
 	});
 
-	it('after_verify gates full access until accept', () => {
-		const c = cfg({ agreement_timing: 'after_verify' });
-		expect(needsAgreementBeforeVerify(c, null)).toBe(false);
-		expect(needsAgreementBeforeFullAccess(c, null)).toBe(true);
+	it('enabled blocks until accepted at current version', () => {
+		const c = cfg();
+		expect(needsDataConsent(c, null)).toBe(true);
 		expect(
-			needsAgreementBeforeFullAccess(c, {
-				agreement_accepted_at: '2026-07-11',
-				agreement_version: '2026-07',
+			playerHasDataConsent(c, {
+				data_consent_at: '2026-07-11',
+				data_consent_version: '1',
+				data_consent_choice: 'accepted',
+			}),
+		).toBe(true);
+		expect(
+			needsDataConsent(c, {
+				data_consent_at: '2026-07-11',
+				data_consent_version: '1',
+				data_consent_choice: 'declined',
+			}),
+		).toBe(true);
+	});
+
+	it('version bump requires re-consent', () => {
+		const c = cfg({ data_consent_version: '2' });
+		expect(requiredDataConsentVersion(c)).toBe('2');
+		expect(
+			playerHasDataConsent(c, {
+				data_consent_at: '2026-07-11',
+				data_consent_version: '1',
+				data_consent_choice: 'accepted',
 			}),
 		).toBe(false);
 	});
 
-	it('before_verify CoC no longer gates verify (use data consent)', () => {
-		const c = cfg({ agreement_timing: 'before_verify' });
-		expect(needsAgreementBeforeVerify(c, null)).toBe(false);
-		expect(needsAgreementBeforeFullAccess(c, null)).toBe(false);
-	});
-
-	it('version mismatch requires re-accept', () => {
-		const c = cfg({ agreement_version: '2026-08' });
-		expect(
-			playerHasAcceptedAgreement(c, {
-				agreement_accepted_at: '2026-07-01',
-				agreement_version: '2026-07',
-			}),
-		).toBe(false);
-	});
-
-	it('parses agree custom ids', () => {
-		expect(agreeCustomId('123456789012345678')).toBe('agree:123456789012345678');
-		expect(parseAgreeCustomId('agree:123456789012345678')).toEqual({
+	it('parses yes/no custom ids', () => {
+		expect(consentYesCustomId('123456789012345678')).toBe('consent:yes:123456789012345678');
+		expect(consentNoCustomId('123456789012345678')).toBe('consent:no:123456789012345678');
+		expect(parseConsentCustomId('consent:yes:123456789012345678')).toEqual({
 			guildId: '123456789012345678',
+			choice: 'accepted',
 		});
-		expect(parseAgreeCustomId('agree:nope')).toBeNull();
+		expect(parseConsentCustomId('consent:no:123456789012345678')).toEqual({
+			guildId: '123456789012345678',
+			choice: 'declined',
+		});
+		expect(parseConsentCustomId('consent:maybe:1')).toBeNull();
 	});
 });

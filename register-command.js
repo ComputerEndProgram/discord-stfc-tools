@@ -316,23 +316,42 @@ const commands = [
 			},
 			{
 				type: 1,
-				name: 'agreement',
-				description: 'Admin: Discord agreement / CoC gate (DM button; reaction later)',
+				name: 'consent',
+				description: 'Admin: GDPR data-processing consent (before verify)',
 				options: [
 					{
 						type: 5,
 						name: 'enabled',
-						description: 'Require agreement acceptance',
+						description: 'Require Yes/No data consent before stfc.pro verify',
+						required: false,
+					},
+					{
+						type: 3,
+						name: 'version',
+						description: 'Bump to re-prompt (e.g. 2026-07)',
+						required: false,
+					},
+				],
+			},
+			{
+				type: 1,
+				name: 'agreement',
+				description: 'Admin: optional CoC after verify (DM button)',
+				options: [
+					{
+						type: 5,
+						name: 'enabled',
+						description: 'Require CoC acceptance after verify (guest lounge until agree)',
 						required: false,
 					},
 					{
 						type: 3,
 						name: 'timing',
-						description: 'before_verify or after_verify (default after = guest lounge until agree)',
+						description: 'Prefer after_verify for CoC (before_verify is legacy)',
 						required: false,
 						choices: [
-							{ name: 'After verify (guest lounge until agree)', value: 'after_verify' },
-							{ name: 'Before verify (must agree first)', value: 'before_verify' },
+							{ name: 'After verify (guest lounge until CoC)', value: 'after_verify' },
+							{ name: 'Before verify (legacy — use /server consent)', value: 'before_verify' },
 						],
 					},
 					{
@@ -348,7 +367,7 @@ const commands = [
 					{
 						type: 7,
 						name: 'channel',
-						description: 'Channel containing the agreement / CoC (linked in DM)',
+						description: 'Channel containing the CoC (linked in DM)',
 						required: false,
 						channel_types: [0],
 					},
@@ -592,6 +611,7 @@ const commands = [
 				required: true,
 				choices: [
 					{ name: 'Invite', value: 'invite' },
+					{ name: 'Data consent', value: 'consent' },
 					{ name: 'Agreement', value: 'agreement' },
 					{ name: 'Welcome', value: 'welcome' },
 					{ name: 'Demote mismatch', value: 'demote_mismatch' },

@@ -122,13 +122,20 @@ export interface GuildConfig {
 	dm_query_role_ids: string[];
 	/** When true and Workers AI is bound, allow optional NLP intent classification for DMs. */
 	dm_ai_enabled: boolean;
-	/** Require Discord agreement / CoC acceptance before or after verify. */
+	/**
+	 * GDPR-style consent to link Discord ↔ STFC player data (before verification).
+	 * Independent of the optional CoC (`agreement_*`).
+	 */
+	data_consent_enabled: boolean;
+	/** Bump to re-prompt consent after policy changes. */
+	data_consent_version: string | null;
+	/** Optional Discord CoC / server rules (after verify when enabled). */
 	agreement_enabled: boolean;
-	/** before_verify = block screenshot/link until agree; after_verify = lounge/guest until agree (default). */
+	/** CoC timing: after_verify (lounge until accept). before_verify is legacy → prefer data_consent. */
 	agreement_timing: AgreementTiming;
 	/** dm_button (v1) | channel_react (planned). */
 	agreement_mode: AgreementMode;
-	/** Optional channel to link in the agreement DM (existing CoC / Discord Agreement). */
+	/** Optional channel to link in the CoC DM. */
 	agreement_channel_id: string | null;
 	/** Optional message ID for future channel-reaction mode. */
 	agreement_message_id: string | null;
@@ -191,7 +198,13 @@ export interface VerifiedPlayer {
 	personal_channel_id: string | null;
 	/** Player-facing bot language (en, de, …). Null until chosen. */
 	preferred_locale: string | null;
-	/** When the member accepted the Discord agreement / CoC (if required). */
+	/** GDPR data-processing consent (link Discord ↔ stfc.pro). */
+	data_consent_at: string | null;
+	data_consent_version: string | null;
+	/** accepted | declined */
+	data_consent_choice: string | null;
+	data_consent_method: string | null;
+	/** When the member accepted the Discord CoC (if required). */
 	agreement_accepted_at: string | null;
 	/** Version string they accepted (should match guild_configs.agreement_version). */
 	agreement_version: string | null;

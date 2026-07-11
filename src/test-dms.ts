@@ -9,6 +9,7 @@ import {
 	updateMessageResponse,
 } from './discord-api';
 import { agreementDmContent } from './agreement';
+import { dataConsentDmContent, buildDataConsentComponents } from './data-consent';
 import { getVerifiedPlayer } from './guild-db';
 import { resolveLocale, t } from './i18n';
 import {
@@ -21,6 +22,7 @@ import type { GuildConfig } from './types';
 
 export type TestDmKind =
 	| 'invite'
+	| 'consent'
 	| 'agreement'
 	| 'welcome'
 	| 'demote_mismatch'
@@ -29,6 +31,7 @@ export type TestDmKind =
 
 export const TEST_DM_KINDS: TestDmKind[] = [
 	'invite',
+	'consent',
 	'agreement',
 	'welcome',
 	'demote_mismatch',
@@ -66,6 +69,32 @@ export async function sendInvitePreviewDm(
 	}
 	await sendDirectMessage(token, userId, PREVIEW_PREFIX + t(locale, 'verify.invite.welcome'));
 	return 'invite (welcome text)';
+}
+
+export async function sendConsentPreviewDm(
+	token: string,
+	userId: string,
+	config: GuildConfig,
+	locale: string,
+): Promise<string> {
+	if (!config.data_consent_enabled) {
+		throw new Error('Data consent is disabled — enable with `/server consent enabled:true`.');
+	}
+	const channelId = await openUserDmChannel(token, userId);
+	await sendMessageWithComponents(token, channelId, {
+		content:
+			PREVIEW_PREFIX +
+			dataConsentDmContent(config, locale) +
+			'\n\n_Preview: buttons below do not record consent._',
+		components: buildDataConsentComponents(config.guild_id, locale).map((row) => ({
+			...row,
+			components: row.components.map((btn) => ({
+				...btn,
+				custom_id: btn.custom_id.replace('consent:', 'consent-preview:'),
+			})),
+		})),
+	});
+	return 'consent';
 }
 
 export async function sendAgreementPreviewDm(
@@ -165,7 +194,7 @@ export async function sendTestDms(
 
 	const kinds: Exclude<TestDmKind, 'all'>[] =
 		kind === 'all'
-			? ['invite', 'agreement', 'welcome', 'demote_mismatch']
+			? ['invite', 'consent', 'agreement', 'welcome', 'demote_mismatch']
 			: [kind];
 
 	for (const k of kinds) {
@@ -173,6 +202,8 @@ export async function sendTestDms(
 			await run('invite', () =>
 				sendInvitePreviewDm(token, config.guild_id, userId, player?.preferred_locale),
 			);
+		} else if (k === 'consent') {
+			await run('consent', () => sendConsentPreviewDm(token, userId, config, locale));
 		} else if (k === 'agreement') {
 			await run('agreement', () => sendAgreementPreviewDm(token, userId, config, locale));
 		} else if (k === 'welcome') {

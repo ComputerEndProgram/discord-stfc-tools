@@ -3,6 +3,7 @@ import {
 	deferredResponse,
 	editInteractionResponse,
 	interactionResponse,
+	updateMessageResponse,
 	listGuildRoles,
 	listGuildChannels,
 	createGuildRole,
@@ -659,6 +660,62 @@ async function handleServerAssistantCommand(
 	);
 }
 
+async function handleServerConsentCommand(
+	env: Env,
+	interaction: { guild_id?: string; member?: { permissions?: string } },
+	sub: { options?: Array<{ name: string; value?: unknown }> },
+): Promise<Response> {
+	const adminError = requireGuildAdmin(interaction);
+	if (adminError) return adminError;
+
+	const guildId = interaction.guild_id!;
+	const config = await getGuildConfig(env.STFC_DB, guildId);
+	if (!config) {
+		return interactionResponse('❌ Server not configured. Run `/server setup` first.', true);
+	}
+
+	const enabledRaw = getOptionValue(sub.options, 'enabled');
+	const versionRaw = getOptionValue(sub.options, 'version') as string | undefined;
+	const anyOpt = enabledRaw !== undefined || versionRaw !== undefined;
+
+	if (!anyOpt) {
+		return interactionResponse(
+			`🔐 **Data-processing consent** (before verify)\n` +
+				`• Enabled: ${config.data_consent_enabled ? 'yes' : 'no'}\n` +
+				`• Version: \`${config.data_consent_version ?? '1'}\`\n\n` +
+				`Members must accept linking Discord ↔ stfc.pro before verification runs.\n` +
+				`Optional CoC remains under \`/server agreement\` (after verify).\n\n` +
+				`Example:\n\`/server consent enabled:true version:2026-07\``,
+			true,
+		);
+	}
+
+	const patch: Partial<import('./types').GuildConfig> & { guild_id: string } = { guild_id: guildId };
+	if (enabledRaw === true || enabledRaw === 'true') patch.data_consent_enabled = true;
+	if (enabledRaw === false || enabledRaw === 'false') patch.data_consent_enabled = false;
+	if (versionRaw !== undefined) {
+		patch.data_consent_version = String(versionRaw).trim() || '1';
+	}
+
+	await upsertGuildConfig(env.STFC_DB, patch);
+	const refreshed = await getGuildConfig(env.STFC_DB, guildId);
+	await postAuditLog(env, refreshed, {
+		title: 'Data consent settings updated',
+		description:
+			`Enabled: **${refreshed?.data_consent_enabled ? 'yes' : 'no'}** · ` +
+			`Version: \`${refreshed?.data_consent_version ?? '1'}\``,
+		source: 'admin',
+		color: AuditColor.info,
+	});
+
+	return interactionResponse(
+		`✅ Data consent settings updated.\n` +
+			`• Enabled: ${refreshed?.data_consent_enabled ? 'yes' : 'no'}\n` +
+			`• Version: \`${refreshed?.data_consent_version ?? '1'}\``,
+		true,
+	);
+}
+
 async function handleServerAgreementCommand(
 	env: Env,
 	interaction: { guild_id?: string; member?: { permissions?: string } },
@@ -692,14 +749,14 @@ async function handleServerAgreementCommand(
 
 	if (!anyOpt) {
 		return interactionResponse(
-			`📜 **Discord agreement**\n` +
+			`📜 **Code of conduct / Discord agreement** (after verify)\n` +
 				`• Enabled: ${config.agreement_enabled ? 'yes' : 'no'}\n` +
-				`• Timing: \`${config.agreement_timing}\` (after_verify = guest lounge until agree)\n` +
-				`• Mode: \`${config.agreement_mode}\` (channel_react planned — DM button used for now)\n` +
+				`• Timing: \`${config.agreement_timing}\` (use after_verify for CoC; data consent is \`/server consent\`)\n` +
+				`• Mode: \`${config.agreement_mode}\`\n` +
 				`• Channel: ${config.agreement_channel_id ? `<#${config.agreement_channel_id}>` : 'not set'}\n` +
 				`• Message ID: ${config.agreement_message_id ?? '—'}\n` +
 				`• Version: ${config.agreement_version ?? '—'}\n\n` +
-				`Example:\n\`/server agreement enabled:true timing:after_verify channel:#discord-agreement version:2026-07\``,
+				`Example:\n\`/server agreement enabled:true timing:after_verify channel:#code-of-conduct version:2026-07\``,
 			true,
 		);
 	}
@@ -2835,6 +2892,16 @@ export async function handleDiscordInteraction(
 			const { handleDmAssistantComponent } = await import('./dm-assistant');
 			return handleDmAssistantComponent(env, interaction);
 		}
+		if (customId?.startsWith('consent-preview:')) {
+			return updateMessageResponse(
+				'✅ Preview only — data consent was **not** recorded. Status unchanged.',
+				{ components: [] },
+			);
+		}
+		if (customId?.startsWith('consent:')) {
+			const { handleDataConsentComponent } = await import('./data-consent');
+			return handleDataConsentComponent(env, interaction);
+		}
 		if (customId?.startsWith('agree:preview:')) {
 			const { handleAgreePreviewComponent } = await import('./test-dms');
 			return handleAgreePreviewComponent(env, interaction);
@@ -2927,6 +2994,9 @@ export async function handleDiscordInteraction(
 			}
 			if (sub?.name === 'assistant') {
 				return handleServerAssistantCommand(env, interaction as any, sub);
+			}
+			if (sub?.name === 'consent') {
+				return handleServerConsentCommand(env, interaction as any, sub);
 			}
 			if (sub?.name === 'agreement') {
 				return handleServerAgreementCommand(env, interaction as any, sub);

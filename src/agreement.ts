@@ -38,14 +38,11 @@ export function playerHasAcceptedAgreement(
 }
 
 export function needsAgreementBeforeVerify(
-	config: GuildConfig,
-	player: Pick<VerifiedPlayer, 'agreement_accepted_at' | 'agreement_version'> | null | undefined,
+	_config: GuildConfig,
+	_player: Pick<VerifiedPlayer, 'agreement_accepted_at' | 'agreement_version'> | null | undefined,
 ): boolean {
-	return (
-		config.agreement_enabled &&
-		config.agreement_timing === 'before_verify' &&
-		!playerHasAcceptedAgreement(config, player)
-	);
+	// Pre-verify gating is handled by data-consent.ts (GDPR). CoC uses after_verify only.
+	return false;
 }
 
 /** After stfc.pro verify: withhold full member access (lounge/guest) until agree. */
@@ -258,10 +255,7 @@ export async function handleAgreeComponent(
 		}
 	}
 
-	const beforeHint =
-		config.agreement_timing === 'before_verify'
-			? `\n\n${t(locale, 'agree.result.continue_verify')}`
-			: '';
+	const beforeHint = '';
 
 	return updateMessageResponse(
 		`${t(locale, 'agree.result.accepted')}${accessNote ? `\n\n${accessNote}` : ''}${beforeHint}`,

@@ -139,13 +139,13 @@ export const en = {
 	// --- Discord agreement / CoC ---
 	'agree.btn.accept': 'I agree',
 	'agree.dm.body':
-		'Please read this server\'s **Discord agreement / code of conduct**, then tap **I agree** below to continue.',
+		'Please read this server\'s **code of conduct / Discord agreement**, then tap **I agree** below to continue.',
 	'agree.dm.channel_link': 'Read it here: <#{channelId}>',
 	'agree.dm.version': 'Agreement version: `{version}`',
 	'agree.dm.react_coming_soon':
 		'_Channel reaction acceptance is coming soon — for now, please use the button below._',
 	'agree.gate.before_verify':
-		'Please accept the Discord agreement first (tap **I agree** in the DM above), then send your screenshot / stfc.pro link.',
+		'Please accept data-processing consent first (tap **I agree** in the DM above), then send your screenshot / stfc.pro link.',
 	'agree.result.accepted': '✅ Agreement recorded. Thank you!',
 	'agree.result.already': 'You have already accepted the current agreement.',
 	'agree.result.not_required': 'No agreement is required on this server.',
@@ -155,7 +155,32 @@ export const en = {
 	'agree.result.guest_ok': 'Agreement recorded. You remain on the guest roster until your alliance matches.',
 	'agree.result.access_failed': 'Agreement recorded, but updating Discord roles failed — ask an admin.',
 
-	'verify.note.agreement_pending': 'Awaiting agreement (guest/lounge access for now)',
+	'consent.dm.body':
+		'To verify you on this Discord server, we need to **link your Discord account** to your ' +
+		'**Star Trek Fleet Command** player identity (in-game name and public profile data from stfc.pro).\n\n' +
+		'We use this information **only** to confirm who you are, assign the correct roles and channels, ' +
+		'and operate alliance membership tools on this server.',
+	'consent.dm.details':
+		'By tapping **I agree**, you consent to this processing. ' +
+		'If you tap **I do not agree**, we will not run verification and will not look up your stfc.pro profile.\n\n' +
+		'You can ask a server admin about how this data is used. This consent is separate from any optional server code of conduct.',
+	'consent.dm.version': 'Consent version: `{version}`',
+	'consent.btn.yes': 'I agree',
+	'consent.btn.no': 'I do not agree',
+	'consent.result.accepted': '✅ Thank you — your consent has been recorded.',
+	'consent.result.declined':
+		'Understood. Without this consent we cannot verify you or look up your stfc.pro profile.\n\n' +
+		'If you change your mind later, start again with `/verify` or ask an admin to re-send the invite.',
+	'consent.result.already': 'You have already accepted the current data-processing consent.',
+	'consent.result.not_required': 'Data-processing consent is not required on this server.',
+	'consent.result.continue_verify':
+		'Next: send a **screenshot** of your in-game profile, then your **stfc.pro profile link** ' +
+		'(or use `/verify link:<url>` in the server).',
+	'consent.gate.required':
+		'Please accept **data-processing consent** first (use the buttons in the DM above), ' +
+		'then send your screenshot / stfc.pro link.',
+
+	'verify.note.agreement_pending': 'Awaiting CoC agreement (guest/lounge access for now)',
 	'verify.result.needs_agreement':
 		'✅ Verified **{name}** ({tag}, Ops {level}) on stfc.pro.\n' +
 		'Please accept the **Discord agreement** in your DMs to unlock full member access (guest/lounge for now).\n\n{summary}',
