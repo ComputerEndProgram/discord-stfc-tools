@@ -15,6 +15,7 @@ import {
 	resetVerification,
 	upsertVerifiedPlayer,
 	findVerifiedPlayersForLink,
+	listPlayersForPersonalChannels,
 } from './guild-db';
 import { findPlayerByIdOrName, formatPlayerSummary } from './stfc-utils';
 import { inviteNewMember, processVerification } from './verification';
@@ -28,7 +29,12 @@ import {
 } from './systemUtils';
 import type { GuildMode, StfcRegion, GuildConfig } from './types';
 import { parseCategoryMapInput, formatCategoryMap, personalChannelsEnabled } from './channel-utils';
-import { linkExistingPersonalChannel } from './personal-channels';
+import {
+	linkExistingPersonalChannel,
+	planPersonalChannels,
+	rebalancePersonalChannels,
+} from './personal-channels';
+import { DEFAULT_SOFT_LIMIT } from './personal-channel-plan';
 import { defaultNicknameTemplate } from './nickname-utils';
 import { createVerificationLogChannel } from './verification-log';
 import {
@@ -974,7 +980,13 @@ async function handleDiplomacyChannelsCommand(
 
 async function handleServerChannelsCommand(
 	env: Env,
-	interaction: { guild_id?: string; member?: { permissions?: string; user?: { id: string } } },
+	ctx: ExecutionContext,
+	interaction: {
+		guild_id?: string;
+		member?: { permissions?: string; user?: { id: string } };
+		token: string;
+		application_id?: string;
+	},
 	channelsGroup: { options?: Array<{ name: string; value?: unknown; type?: number; options?: Array<{ name: string; value?: unknown; type?: number }> }> },
 ): Promise<Response> {
 	const adminError = requireGuildAdmin(interaction);
@@ -995,18 +1007,146 @@ async function handleServerChannelsCommand(
 			.bind(guildId)
 			.first<{ count: number }>();
 
+		let occupancyBlock = '';
+		if (env.DISCORD_BOT_TOKEN && personalChannelsEnabled(config)) {
+			try {
+				const planPlayers = await listPlayersForPersonalChannels(env.STFC_DB, guildId);
+				const planned = await planPersonalChannels(env.DISCORD_BOT_TOKEN, guildId, config, {
+					players: planPlayers,
+				});
+				if (planned.currentOccupancy.length > 0) {
+					occupancyBlock =
+						`\n**Occupancy**\n` +
+						planned.currentOccupancy
+							.map((o) => {
+								const mark = o.discordChildren >= DEFAULT_SOFT_LIMIT ? ' ⚠' : '';
+								return `• \`${o.range}\` <#${o.categoryId}> — ${o.discordChildren}/${DEFAULT_SOFT_LIMIT}${mark}`;
+							})
+							.join('\n');
+				}
+			} catch {
+				/* status still useful without occupancy */
+			}
+		}
+
 		return interactionResponse(
 			`📂 **Personal channel configuration**\n` +
-				`• Enabled: ${personalChannelsEnabled(config) ? 'yes' : 'no (set category map)'}\n` +
+				`• Enabled: ${personalChannelsEnabled(config) ? 'yes' : 'no (set category map or run rebalance)'}\n` +
 				`• Category map: ${formatCategoryMap(config.channel_category_map)}\n` +
 				`• Extra roles: ${config.personal_channel_extra_roles.join(', ') || 'none'}\n` +
 				`• Verification log: ${config.verification_log_channel_id ? `<#${config.verification_log_channel_id}>` : 'not set'}\n` +
 				`• Diplomacy: ${diplomacyChannelsEnabled(config) ? 'enabled' : 'disabled'} — ${formatDiplomacyChannelMap(config.diplomacy_channel_map)}\n` +
-				`• Linked member channels: ${players?.count ?? 0}\n\n` +
-				`Buckets use the member's first letter (e.g. A-F, G-M). Run \`/server categories\` for IDs.\n` +
-				`Set log with \`/server channels log\`. Diplomacy: \`/server channels diplomacy\`.`,
+				`• Linked member channels: ${players?.count ?? 0}` +
+				occupancyBlock +
+				`\n\nBuckets use first letter (A–Z; non-letters → \`#\`). ` +
+				`Plan: \`/server channels plan\`. Apply: \`/server channels rebalance apply:true\`.`,
 			true,
 		);
+	}
+
+	if (sub.name === 'plan' || sub.name === 'rebalance') {
+		const softLimitRaw = getOptionValue(sub.options, 'soft_limit');
+		const softLimit =
+			softLimitRaw != null && Number.isFinite(Number(softLimitRaw))
+				? Math.max(10, Math.min(50, Number(softLimitRaw)))
+				: DEFAULT_SOFT_LIMIT;
+
+		if (sub.name === 'plan') {
+			if (!env.DISCORD_BOT_TOKEN) {
+				return interactionResponse('❌ DISCORD_BOT_TOKEN not configured.', true);
+			}
+			const players = await listPlayersForPersonalChannels(env.STFC_DB, guildId);
+			const result = await planPersonalChannels(env.DISCORD_BOT_TOKEN, guildId, config, {
+				players,
+				softLimit,
+			});
+			return interactionResponse(
+				`${result.summary}\n\nPreview only. Run \`/server channels rebalance apply:true\` to apply.`,
+				true,
+			);
+		}
+
+		// rebalance
+		const applyRaw = getOptionValue(sub.options, 'apply');
+		const apply = applyRaw === true || applyRaw === 'true';
+		const nameTemplate = (getOptionValue(sub.options, 'name_template') as string | undefined)?.trim();
+		const renameRaw = getOptionValue(sub.options, 'rename_categories');
+		const renameCategories =
+			renameRaw === undefined || renameRaw === null
+				? true
+				: renameRaw === true || renameRaw === 'true';
+		const createRaw = getOptionValue(sub.options, 'create_categories');
+		const createCategories =
+			createRaw === undefined || createRaw === null
+				? true
+				: createRaw === true || createRaw === 'true';
+
+		if (!apply) {
+			if (!env.DISCORD_BOT_TOKEN) {
+				return interactionResponse('❌ DISCORD_BOT_TOKEN not configured.', true);
+			}
+			const players = await listPlayersForPersonalChannels(env.STFC_DB, guildId);
+			const result = await planPersonalChannels(env.DISCORD_BOT_TOKEN, guildId, config, {
+				players,
+				softLimit,
+			});
+			const templateNote = nameTemplate || 'Member Channels {range}';
+			return interactionResponse(
+				`${result.summary}\n\n` +
+					`**Preview only** (apply:false).\n` +
+					`• Name template: \`${templateNote}\`\n` +
+					`• Rename categories: ${renameCategories ? 'yes' : 'no'}\n` +
+					`• Create categories: ${createCategories ? 'yes' : 'no'}\n\n` +
+					`Run again with \`apply:true\` to create/rename categories, update the map, and move channels.`,
+				true,
+			);
+		}
+
+		if (!env.DISCORD_BOT_TOKEN) {
+			return interactionResponse('❌ DISCORD_BOT_TOKEN not configured.', true);
+		}
+		if (config.mode !== 'single_alliance') {
+			return interactionResponse(
+				'❌ Personal channel rebalance is for single-alliance servers. Current mode: multi_alliance.',
+				true,
+			);
+		}
+
+		const appId = interaction.application_id ?? env.DISCORD_APPLICATION_ID;
+		if (!appId) {
+			return interactionResponse('❌ DISCORD_APPLICATION_ID not configured.', true);
+		}
+
+		const deferred = deferredResponse();
+		ctx.waitUntil(
+			(async () => {
+				try {
+					const players = await listPlayersForPersonalChannels(env.STFC_DB, guildId);
+					const result = await rebalancePersonalChannels(env.DISCORD_BOT_TOKEN!, guildId, config, {
+						players,
+						softLimit,
+						nameTemplate,
+						renameCategories,
+						createCategories,
+					});
+					if (Object.keys(result.newMap).length > 0) {
+						await upsertGuildConfig(env.STFC_DB, {
+							guild_id: guildId,
+							channel_category_map: result.newMap,
+						});
+					}
+					await editInteractionResponse(appId, interaction.token, result.summary, true);
+				} catch (error) {
+					await editInteractionResponse(
+						appId,
+						interaction.token,
+						`❌ Rebalance failed: ${error instanceof Error ? error.message : 'unknown error'}`,
+						true,
+					);
+				}
+			})(),
+		);
+		return deferred;
 	}
 
 	if (sub.name === 'diplomacy') {
@@ -1367,7 +1507,7 @@ export async function handleDiscordInteraction(
 				return handleServerCategoriesCommand(env, interaction as any, sub);
 			}
 			if (sub?.name === 'channels') {
-				return handleServerChannelsCommand(env, interaction as any, sub);
+				return handleServerChannelsCommand(env, ctx, interaction as any, sub);
 			}
 		}
 

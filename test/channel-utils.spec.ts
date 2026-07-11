@@ -62,6 +62,15 @@ describe('channel-utils', () => {
 		expect(categoryForPlayerName(config, 'Adam')).toBe('cat-af');
 		expect(categoryForPlayerName(config, 'Hannah')).toBe('cat-gm');
 		expect(categoryForPlayerName(config, 'Zoe')).toBeUndefined();
+		expect(categoryForPlayerName(config, '9lives')).toBeUndefined();
+	});
+
+	it('categoryForPlayerName treats # as after Z', () => {
+		const config = baseConfig({
+			channel_category_map: { 'A-Z': 'cat-az', '#': 'cat-hash' },
+		});
+		expect(categoryForPlayerName(config, 'Adam')).toBe('cat-az');
+		expect(categoryForPlayerName(config, '1abc')).toBe('cat-hash');
 	});
 
 	it('slugPersonalChannelName sanitizes names', () => {

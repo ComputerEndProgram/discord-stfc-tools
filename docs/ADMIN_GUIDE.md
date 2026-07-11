@@ -170,23 +170,45 @@ Ensure the bot can **View Channel**, **Send Messages**, **Embed Links**, and **A
 
 ### Auto-create (single-alliance)
 
-1. Create Discord **categories** (e.g. `Members A–F`, `Members G–M`).
-2. Map letter ranges:
+Buckets use the **first letter** of the in-game name (`A`–`Z`). Names starting with a digit or symbol go in `#` (non-alphabetic), always at the end of the alphabet (e.g. range `N-#`).
+
+**Recommended:** let the bot plan and apply categories (handles Discord’s ~50 channels/category limit):
+
+```
+/server channels plan
+/server channels rebalance apply:true
+```
+
+That creates/renames categories like `Member Channels A-M` / `Member Channels N-#`, updates the map, and moves linked member channels.
+
+Options:
+
+| Option | Default | Description |
+|--------|---------|-------------|
+| `soft_limit` | `45` | Target max channels per category (headroom under Discord’s 50) |
+| `name_template` | `Member Channels {range}` | Category name; `{range}` → `A-M`, `N-#`, etc. |
+| `rename_categories` | `true` | Rename existing mapped categories to match new ranges |
+| `create_categories` | `true` | Create extra categories when more buckets are needed |
+| `apply` | `false` | Preview only unless `true` |
+
+The planner splits **fairly evenly** under the soft limit (50 players → two ~25 buckets, not 45+5). Re-run when occupancy nears the limit (`/server channels status` shows counts).
+
+**Manual map** (if you prefer to create categories yourself):
 
 ```
 /server categories
-/server channels map category_map:A-F=111...,G-M=222...,N-Z=333...
+/server channels map category_map:A-M=111...,N-#=222...
 ```
 
-Or one range at a time: `range:A-F` + `category_id:…`.
+Or one range at a time: `range:A-M` + `category_id:…`.
 
-3. Roles that can see **all** personal channels (officers, diplomats):
+Roles that can see **all** personal channels (officers, diplomats):
 
 ```
 /server channels extra-roles roles:@Officer,@Diplomat
 ```
 
-4. On verify, the bot creates a private channel for the member in the matching category (name slug from player name), with access for the member + extra-roles.
+On verify, the bot creates a private channel for the member in the matching category (name slug from player name), with access for the member + extra-roles.
 
 Clear mappings (disables auto-create):
 
@@ -487,7 +509,7 @@ After create you get an ephemeral draft with buttons:
 1. [ ] Bot invited; role near top of list  
 2. [ ] `/server setup` with server, region, mode, tag, roles  
 3. [ ] `/server channels extra-roles` for officers who see all member channels  
-4. [ ] `/server channels map` (single-alliance personal channels) **or** plan to `/server channels link` existing ones  
+4. [ ] `/server channels plan` then `/server channels rebalance apply:true` (or manual `/server channels map`) — link existing channels with `/server channels link` first if needed  
 5. [ ] `/server channels log create:true`  
 6. [ ] Optional: `nickname_template`, rank roles, `/server bucket`  
 7. [ ] Multi-alliance: `/server channels diplomacy enable:true write_roles:Diplomat write_ranks:Commodore,Admiral`  

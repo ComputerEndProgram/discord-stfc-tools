@@ -593,7 +593,7 @@ Mock Discord REST and stfc.pro in Worker tests; use D1 local binding for integra
 2. ~~Guild schema + `/server setup`~~ — done
 3. ~~Gateway DM verification~~ — done
 4. Multi-alliance role tagging
-5. Personal channel category configuration command
+5. ~~Personal channel category configuration command~~ — done (`/server channels map|plan|rebalance`)
 6. ~~Button surveys / polls (`/survey`)~~ — done
 7. Daily sync polish + grade-based survey targeting refinements
 8. Optional: drop legacy officer tables from D1

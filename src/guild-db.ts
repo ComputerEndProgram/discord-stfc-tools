@@ -548,6 +548,31 @@ export async function listActiveVerifiedPlayers(db: D1Database, guildId: string)
 }
 
 /**
+ * Verified members used for personal-channel planning/rebalance.
+ * Includes active/verified (and guests with a linked channel).
+ */
+export async function listPlayersForPersonalChannels(
+	db: D1Database,
+	guildId: string,
+): Promise<VerifiedPlayer[]> {
+	const { results } = await db
+		.prepare(
+			`SELECT * FROM verified_players
+			 WHERE guild_id = ?
+			   AND player_name IS NOT NULL
+			   AND TRIM(player_name) != ''
+			   AND (
+			     verification_status IN ('verified', 'active')
+			     OR personal_channel_id IS NOT NULL
+			   )
+			 ORDER BY LOWER(player_name)`,
+		)
+		.bind(guildId)
+		.all();
+	return (results ?? []).map(mapVerifiedPlayer);
+}
+
+/**
  * Resolve a verified player for channel linking by Discord user ID, STFC player ID,
  * or in-game player name (exact, case-insensitive).
  */

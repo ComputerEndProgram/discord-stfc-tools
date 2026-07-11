@@ -396,6 +396,60 @@ const commands = [
 					},
 					{
 						type: 1,
+						name: 'plan',
+						description: 'Dry-run: suggest letter-range category splits from member names',
+						options: [
+							{
+								type: 4,
+								name: 'soft_limit',
+								description: 'Max channels per category (default 45)',
+								required: false,
+								min_value: 10,
+								max_value: 50,
+							},
+						],
+					},
+					{
+						type: 1,
+						name: 'rebalance',
+						description: 'Create/rename categories, update map, and move member channels',
+						options: [
+							{
+								type: 5,
+								name: 'apply',
+								description: 'Actually apply changes (default false = preview only)',
+								required: false,
+							},
+							{
+								type: 4,
+								name: 'soft_limit',
+								description: 'Max channels per category (default 45)',
+								required: false,
+								min_value: 10,
+								max_value: 50,
+							},
+							{
+								type: 3,
+								name: 'name_template',
+								description: 'Category name template (default: Member Channels {range})',
+								required: false,
+							},
+							{
+								type: 5,
+								name: 'rename_categories',
+								description: 'Rename existing mapped categories to match new ranges (default true)',
+								required: false,
+							},
+							{
+								type: 5,
+								name: 'create_categories',
+								description: 'Create Discord categories when more buckets are needed (default true)',
+								required: false,
+							},
+						],
+					},
+					{
+						type: 1,
 						name: 'diplomacy',
 						description: 'Configure multi-alliance diplomacy channels (per alliance tag)',
 						options: [

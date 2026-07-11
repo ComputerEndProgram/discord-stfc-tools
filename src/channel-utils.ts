@@ -1,23 +1,25 @@
 import type { GuildConfig } from './types';
+import {
+	letterInRange,
+	letterKeyForName,
+	parseLetterRange,
+	type LetterKey,
+} from './personal-channel-plan';
 
 /** Personal channels are enabled when category buckets are configured. */
 export function personalChannelsEnabled(config: GuildConfig): boolean {
 	return Object.keys(config.channel_category_map).length > 0;
 }
 
-/** Pick a Discord category ID from the player's first letter. */
+/** Pick a Discord category ID from the player's first letter (A–Z, else `#`). */
 export function categoryForPlayerName(config: GuildConfig, playerName: string): string | undefined {
-	const letter = playerName.trim().charAt(0).toUpperCase();
-	if (!letter) return undefined;
+	if (!playerName.trim()) return undefined;
+	const letter: LetterKey = letterKeyForName(playerName);
 
 	for (const [range, categoryId] of Object.entries(config.channel_category_map)) {
-		const parts = range.toUpperCase().split('-');
-		if (parts.length === 2) {
-			const [start, end] = parts;
-			if (letter >= start && letter <= end) return categoryId;
-		} else if (range.toUpperCase() === letter) {
-			return categoryId;
-		}
+		const parsed = parseLetterRange(range);
+		if (!parsed) continue;
+		if (letterInRange(letter, parsed.start, parsed.end)) return categoryId;
 	}
 	return undefined;
 }
