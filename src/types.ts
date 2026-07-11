@@ -80,6 +80,12 @@ export interface GuildConfig {
 	survey_log_name_template: string | null;
 	/** Category for newly created survey log channels. */
 	survey_log_category_id: string | null;
+	/** Resource exchange layout: hub (one channel) | category (channel per resource) | null = off. */
+	exchange_layout: 'hub' | 'category' | null;
+	exchange_hub_channel_id: string | null;
+	exchange_category_id: string | null;
+	/** Roles allowed to manage exchange resources (empty = Administrator only). */
+	exchange_admin_role_ids: string[];
 	poll_interval_hours: number;
 	verification_enabled: boolean;
 	created_at: string;

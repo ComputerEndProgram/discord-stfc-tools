@@ -668,6 +668,150 @@ const commands = [
 			},
 		],
 	},
+	{
+		name: 'exchange',
+		description: 'Cross-alliance resource exchange (donors / recipients)',
+		options: [
+			{
+				type: 1,
+				name: 'setup',
+				description: 'Admin: hub or category layout for resource exchange',
+				options: [
+					{
+						type: 3,
+						name: 'layout',
+						description: 'hub = one channel; category = channel per resource',
+						required: false,
+						choices: [
+							{ name: 'Hub (one channel, pinned posts)', value: 'hub' },
+							{ name: 'Category (channel per resource)', value: 'category' },
+						],
+					},
+					{
+						type: 7,
+						name: 'channel',
+						description: 'Hub text channel (layout hub)',
+						required: false,
+						channel_types: [0],
+					},
+					{
+						type: 7,
+						name: 'category',
+						description: 'Category for per-resource channels',
+						required: false,
+						channel_types: [4],
+					},
+					{
+						type: 5,
+						name: 'create_category',
+						description: 'Create a category named Resource Exchange (or category_name)',
+						required: false,
+					},
+					{
+						type: 3,
+						name: 'category_name',
+						description: 'Name when create_category:true',
+						required: false,
+					},
+					{
+						type: 3,
+						name: 'admin_roles',
+						description: 'Roles that can manage resources (comma-separated)',
+						required: false,
+					},
+					{
+						type: 5,
+						name: 'clear',
+						description: 'Clear exchange layout settings',
+						required: false,
+					},
+				],
+			},
+			{
+				type: 2,
+				name: 'resource',
+				description: 'Manage exchange resources',
+				options: [
+					{
+						type: 1,
+						name: 'create',
+						description: 'Create a resource (roles + pin + optional channel)',
+						options: [
+							{
+								type: 3,
+								name: 'name',
+								description: 'Resource name (e.g. Crystal)',
+								required: true,
+							},
+						],
+					},
+					{
+						type: 1,
+						name: 'list',
+						description: 'List exchange resources',
+					},
+					{
+						type: 1,
+						name: 'disable',
+						description: 'Disable a resource (unpin, close buttons)',
+						options: [
+							{
+								type: 4,
+								name: 'id',
+								description: 'Resource id from /exchange resource list',
+								required: false,
+							},
+							{
+								type: 3,
+								name: 'name',
+								description: 'Resource name or slug',
+								required: false,
+							},
+						],
+					},
+				],
+			},
+			{
+				type: 1,
+				name: 'donate',
+				description: 'Register as a donor for a resource',
+				options: [
+					{
+						type: 3,
+						name: 'resource',
+						description: 'Resource name or slug',
+						required: true,
+					},
+				],
+			},
+			{
+				type: 1,
+				name: 'undonate',
+				description: 'Stop being a donor for a resource',
+				options: [
+					{
+						type: 3,
+						name: 'resource',
+						description: 'Resource name or slug',
+						required: true,
+					},
+				],
+			},
+			{
+				type: 1,
+				name: 'need',
+				description: 'Request a resource (notifies cross-alliance donors)',
+				options: [
+					{
+						type: 3,
+						name: 'resource',
+						description: 'Resource name or slug',
+						required: true,
+					},
+				],
+			},
+		],
+	},
 ];
 
 async function registerCommands() {

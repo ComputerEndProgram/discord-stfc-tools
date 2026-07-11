@@ -87,6 +87,13 @@ function mapGuildConfig(row: any): GuildConfig {
 		survey_results_role_ids: parseJsonArray(row.survey_results_role_ids),
 		survey_log_name_template: row.survey_log_name_template ?? null,
 		survey_log_category_id: row.survey_log_category_id ?? null,
+		exchange_layout:
+			row.exchange_layout === 'hub' || row.exchange_layout === 'category'
+				? row.exchange_layout
+				: null,
+		exchange_hub_channel_id: row.exchange_hub_channel_id ?? null,
+		exchange_category_id: row.exchange_category_id ?? null,
+		exchange_admin_role_ids: parseJsonArray(row.exchange_admin_role_ids),
 		poll_interval_hours: row.poll_interval_hours ?? 6,
 		verification_enabled: Boolean(row.verification_enabled ?? 1),
 		created_at: row.created_at,
@@ -309,6 +316,40 @@ async function upsertDiplomacyConfigFields(
 				logNameProvided ? (config.survey_log_name_template?.trim() || null) : null,
 				logCategoryProvided ? 1 : 0,
 				logCategoryProvided ? (config.survey_log_category_id?.trim() || null) : null,
+				config.guild_id,
+			)
+			.run();
+	}
+
+	const exchangeTouched =
+		Object.prototype.hasOwnProperty.call(config, 'exchange_layout') ||
+		Object.prototype.hasOwnProperty.call(config, 'exchange_hub_channel_id') ||
+		Object.prototype.hasOwnProperty.call(config, 'exchange_category_id') ||
+		Object.prototype.hasOwnProperty.call(config, 'exchange_admin_role_ids');
+	if (exchangeTouched) {
+		const layoutProvided = Object.prototype.hasOwnProperty.call(config, 'exchange_layout');
+		const hubProvided = Object.prototype.hasOwnProperty.call(config, 'exchange_hub_channel_id');
+		const catProvided = Object.prototype.hasOwnProperty.call(config, 'exchange_category_id');
+		const adminProvided = Object.prototype.hasOwnProperty.call(config, 'exchange_admin_role_ids');
+		await db
+			.prepare(
+				`UPDATE guild_configs SET
+				 exchange_layout = CASE WHEN ? = 1 THEN ? ELSE exchange_layout END,
+				 exchange_hub_channel_id = CASE WHEN ? = 1 THEN ? ELSE exchange_hub_channel_id END,
+				 exchange_category_id = CASE WHEN ? = 1 THEN ? ELSE exchange_category_id END,
+				 exchange_admin_role_ids = CASE WHEN ? = 1 THEN ? ELSE exchange_admin_role_ids END,
+				 updated_at = datetime('now')
+				 WHERE guild_id = ?`,
+			)
+			.bind(
+				layoutProvided ? 1 : 0,
+				layoutProvided ? (config.exchange_layout ?? null) : null,
+				hubProvided ? 1 : 0,
+				hubProvided ? (config.exchange_hub_channel_id?.trim() || null) : null,
+				catProvided ? 1 : 0,
+				catProvided ? (config.exchange_category_id?.trim() || null) : null,
+				adminProvided ? 1 : 0,
+				adminProvided ? JSON.stringify(config.exchange_admin_role_ids ?? []) : null,
 				config.guild_id,
 			)
 			.run();

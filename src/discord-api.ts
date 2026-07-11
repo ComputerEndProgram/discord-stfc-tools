@@ -418,6 +418,46 @@ export async function setChannelPermission(
 	});
 }
 
+export async function pinChannelMessage(
+	token: string,
+	channelId: string,
+	messageId: string,
+): Promise<void> {
+	await discordFetch(token, `/channels/${channelId}/pins/${messageId}`, {
+		method: 'PUT',
+	});
+}
+
+export async function unpinChannelMessage(
+	token: string,
+	channelId: string,
+	messageId: string,
+): Promise<void> {
+	await discordFetch(token, `/channels/${channelId}/pins/${messageId}`, {
+		method: 'DELETE',
+	});
+}
+
+export async function editChannelMessage(
+	token: string,
+	channelId: string,
+	messageId: string,
+	opts: {
+		content?: string;
+		embeds?: DiscordEmbed[];
+		components?: DiscordActionRow[];
+	},
+): Promise<void> {
+	await discordFetch(token, `/channels/${channelId}/messages/${messageId}`, {
+		method: 'PATCH',
+		body: JSON.stringify({
+			content: opts.content,
+			embeds: opts.embeds,
+			components: opts.components,
+		}),
+	});
+}
+
 /** Deferred interaction follow-up (for slow stfc.pro lookups). */
 export async function editInteractionResponse(
 	applicationId: string,

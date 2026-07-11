@@ -311,7 +311,52 @@ Wrong alliance → guest role. Cron re-checks periodically; when the tag matches
 
 ---
 
-## 7. Surveys & polls (`/survey`)
+## 7. Resource exchange (`/exchange`)
+
+Cross-alliance resource matching (best for **multi_alliance**). Same-alliance donors are never notified. Verified players only.
+
+### Setup (admin)
+
+Two layouts:
+
+| Layout | Behaviour |
+|--------|-----------|
+| **hub** | One channel; each resource gets a **pinned** post with buttons |
+| **category** | One text channel **per resource** under a category; each pinned |
+
+```
+/exchange setup layout:hub channel:#resource-exchange
+/exchange setup layout:category create_category:true category_name:Resource Exchange
+/exchange setup admin_roles:Officer
+```
+
+Bot role must sit **above** the Donor / Need roles it creates.
+
+### Resources
+
+```
+/exchange resource create name:Crystal
+/exchange resource list
+/exchange resource disable name:Crystal
+```
+
+Creates Discord roles `{Name} Donor` and `{Name} Need`, posts + pins **Register as donor** / **Stop donating** / **I need this** / **I no longer need this**.
+
+### Player flow
+
+1. Donor registers (button or `/exchange donate resource:Crystal`)
+2. Recipient taps **I need this** (or `/exchange need`) → eligible donors get a DM (name + ops) with **Help** / **Ignore**
+3. First **Help** wins → recipient gets donor details + **Completed** / **Ask again**
+4. **Ask again** re-notifies current cross-alliance donors
+5. **I no longer need this** cancels an open/claimed request (e.g. resolved offline); notifies the claimer if someone had claimed Help
+
+Same-alliance donors are **never** notified (tags compared case-insensitively).
+
+Slash `donate` / `need` / `undonate` must be run in that resource’s channel (hub or dedicated).
+
+---
+
+## 8. Surveys & polls (`/survey`)
 
 Button surveys for verified players (DM or personal channel). Votes land in a **private** log channel (default `#survey-{id}`). Results use ASCII tables (buttons stay on the message — never inside tables).
 
@@ -377,7 +422,7 @@ After create you get an ephemeral draft with buttons:
 
 ---
 
-## 8. Other `/server` commands
+## 9. Other `/server` commands
 
 | Command | Purpose |
 |---------|---------|
@@ -391,18 +436,19 @@ After create you get an ephemeral draft with buttons:
 
 ---
 
-## 9. Utility commands (everyone)
+## 10. Utility commands (everyone)
 
 | Command | Purpose |
 |---------|---------|
 | `/player` | Live stfc.pro lookup (needs `/server setup`) |
 | `/lookup` | Coordinate share-string lookup |
 | `/table` / `/tablehelp` | CSV → ASCII table |
-| `/survey …` | Surveys / polls (creator roles; see §7) |
+| `/survey …` | Surveys / polls (creator roles; see §8) |
+| `/exchange …` | Resource exchange (see §7) |
 
 ---
 
-## 10. Troubleshooting
+## 11. Troubleshooting
 
 | Symptom | Likely fix |
 |---------|------------|
@@ -418,6 +464,8 @@ After create you get an ephemeral draft with buttons:
 | Survey create denied | Admin or `/survey creators` role; run `/server setup` first |
 | Survey DM missing | Member allows DMs from server members; bot can message them |
 | Zero matched players | Check `target` filters vs verified roster (`/survey list` shows target count) |
+| Exchange no donors notified | Need cross-alliance donors; verify alliance tags differ |
+| Exchange role assign fails | Bot role above `{Resource} Donor` / `Need` roles |
 
 ---
 
@@ -431,5 +479,6 @@ After create you get an ephemeral draft with buttons:
 6. [ ] Optional: `nickname_template`, rank roles, `/server bucket`  
 7. [ ] Multi-alliance: `/server channels diplomacy enable:true write_roles:Diplomat write_ranks:Commodore,Admiral`  
 8. [ ] Optional: `/survey creators` for officers who may poll the alliance  
-9. [ ] `/server test-invite` → verify yourself → check roles, log, personal/diplomacy channels  
-10. [ ] `/server status` looks correct  
+9. [ ] Optional: `/exchange setup` + `/exchange resource create` for cross-alliance resources  
+10. [ ] `/server test-invite` → verify yourself → check roles, log, personal/diplomacy channels  
+11. [ ] `/server status` looks correct  

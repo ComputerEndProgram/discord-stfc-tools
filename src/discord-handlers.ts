@@ -1223,6 +1223,10 @@ export async function handleDiscordInteraction(
 			const { handleSurveyComponent } = await import('./survey-handlers');
 			return handleSurveyComponent(env, ctx, interaction);
 		}
+		if (customId?.startsWith('exch:')) {
+			const { handleExchangeComponent } = await import('./exchange-handlers');
+			return handleExchangeComponent(env, ctx, interaction);
+		}
 		return interactionResponse('❌ Unknown button.', true);
 	}
 
@@ -1232,6 +1236,11 @@ export async function handleDiscordInteraction(
 		if (data.name === 'survey') {
 			const { handleSurveyCommand } = await import('./survey-handlers');
 			return handleSurveyCommand(env, ctx, interaction, data);
+		}
+
+		if (data.name === 'exchange') {
+			const { handleExchangeCommand } = await import('./exchange-handlers');
+			return handleExchangeCommand(env, ctx, interaction, data);
 		}
 
 		if (data.name === 'lookup') {
