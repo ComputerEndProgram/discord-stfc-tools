@@ -574,6 +574,30 @@ After create you get an ephemeral draft with buttons:
 
 ---
 
+## DM assistant (Badgey / HAL)
+
+Verified members (and admins) can **DM the bot** outside of verification:
+
+| Message | Behaviour |
+|---------|-----------|
+| Unrecognized question / request | HAL: *I'm sorry \{name\}, I'm afraid I can't do that.* |
+| Unknown / not verified | Badgey invite to join & verify |
+| `menu` / `admin` / `help` | Admin button wizard (Administrator or Manage Server required) |
+| Roster questions (e.g. “how many G6?”) | Allowed for admins, or roles set below |
+
+Admin wizards (DM → `menu`): **Server status**, **Server setup** (core fields), **Verification log**, **Audit log**.
+
+```
+/server assistant                          # show settings
+/server assistant roles:@Officer,@Leadership
+/server assistant roles:                   # clear → admins only
+/server assistant ai:true                  # guild flag only; still needs ENABLE_WORKERS_AI + DM_AI_ENABLED
+```
+
+**Cost:** Roster answers and wizards use D1 + buttons — **no Workers AI**. Optional AI intent assist is off by default and hard-capped per day if enabled.
+
+---
+
 ## Quick checklist (new alliance server)
 
 1. [ ] Bot invited; role near top of list  
@@ -591,3 +615,5 @@ After create you get an ephemeral draft with buttons:
 13. [ ] `/server test-invite` → verify yourself → check roles, log, personal/diplomacy channels  
 14. [ ] Existing members: `/server verify user:@Them link:https://stfc.pro/…` (repeat as needed)  
 15. [ ] `/server status` looks correct  
+16. [ ] Optional: `/server assistant roles:…` for who may ask roster questions in DMs  
+17. [ ] Optional: DM the bot as admin and say **menu** to try guided setup  

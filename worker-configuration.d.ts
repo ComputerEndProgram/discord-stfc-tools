@@ -8,9 +8,15 @@ declare namespace Cloudflare {
 		DISCORD_APPLICATION_ID?: string;
 		WORKER_URL?: string;
 		ENVIRONMENT?: string;
+		/** Global kill-switch for DM Workers AI (default off). Set "true" to allow. */
+		DM_AI_ENABLED?: string;
+		/** Max Workers AI requests per UTC day before hard-stop (default 50). */
+		DM_AI_DAILY_LIMIT?: string;
 		SYSTEM_DATA?: KVNamespace;
 		STFC_DB: D1Database;
 		VERIFICATION_ASSETS?: R2Bucket;
+		/** Optional Workers AI binding — only used when DM AI is explicitly enabled. */
+		AI?: Ai;
 		DISCORD_GATEWAY?: DurableObjectNamespace<import('./src/discord-gateway/DiscordGateway').DiscordGateway>;
 	}
 }

@@ -183,6 +183,25 @@ const commands = [
 			},
 			{
 				type: 1,
+				name: 'assistant',
+				description: 'Admin: DM assistant roster query roles and optional AI flag',
+				options: [
+					{
+						type: 3,
+						name: 'roles',
+						description: 'Roles that may ask roster questions in DMs (empty = admins only)',
+						required: false,
+					},
+					{
+						type: 5,
+						name: 'ai',
+						description: 'Enable optional Workers AI intent assist for this guild (default off)',
+						required: false,
+					},
+				],
+			},
+			{
+				type: 1,
 				name: 'verify',
 				description: 'Admin: manually verify a member with an stfc.pro link (no DM flow)',
 				options: [

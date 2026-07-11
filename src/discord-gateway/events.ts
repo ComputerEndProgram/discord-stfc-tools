@@ -7,6 +7,7 @@ import {
 	languagePickerPrompt,
 	sendLanguagePickerDm,
 } from '../i18n/language-picker';
+import { handleDmAssistantMessage } from '../dm-assistant';
 import { extractStfcProUrls, pickImageAttachmentUrl } from './dm-handler';
 import type { DiscordMessage } from './protocol';
 import type { VerificationStatus } from '../types';
@@ -23,12 +24,14 @@ export async function handleDirectMessage(env: Env, message: DiscordMessage): Pr
 
 	const pending = await getPendingVerificationsForUser(env.STFC_DB, userId);
 	if (pending.length === 0) {
-		await sendChannelMessage(token, message.channel_id, t('en', 'verify.dm.no_pending'));
+		await handleDmAssistantMessage(env, message);
 		return;
 	}
 
 	if (pending.length > 1) {
-		await sendChannelMessage(token, message.channel_id, t('en', 'verify.dm.multi_guild'));
+		const player = await getVerifiedPlayer(env.STFC_DB, pending[0].guild_id, userId);
+		const locale = resolveLocale(player?.preferred_locale);
+		await sendChannelMessage(token, message.channel_id, t(locale, 'verify.dm.multi_guild'));
 		return;
 	}
 

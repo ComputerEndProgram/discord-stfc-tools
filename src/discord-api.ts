@@ -50,7 +50,15 @@ export interface DiscordRole {
 	hoist: boolean;
 	managed: boolean;
 	mentionable: boolean;
+	/** Permission bitfield as decimal string. */
+	permissions?: string;
 	// Not all fields are typed; we keep it minimal for formatting.
+}
+
+export interface DiscordGuildInfo {
+	id: string;
+	name: string;
+	owner_id: string;
 }
 
 export interface DiscordChannel {
@@ -101,6 +109,30 @@ export async function listGuildRoles(
 		method: 'GET',
 	});
 	return (await response.json()) as DiscordRole[];
+}
+
+export async function getGuild(token: string, guildId: string): Promise<DiscordGuildInfo | null> {
+	try {
+		const response = await discordFetch(token, `/guilds/${guildId}`, { method: 'GET' });
+		return (await response.json()) as DiscordGuildInfo;
+	} catch {
+		return null;
+	}
+}
+
+export async function getGuildMember(
+	token: string,
+	guildId: string,
+	userId: string,
+): Promise<DiscordGuildMember | null> {
+	try {
+		const response = await discordFetch(token, `/guilds/${guildId}/members/${userId}`, {
+			method: 'GET',
+		});
+		return (await response.json()) as DiscordGuildMember;
+	} catch {
+		return null;
+	}
 }
 
 export async function listGuildChannels(token: string, guildId: string): Promise<DiscordChannel[]> {

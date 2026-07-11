@@ -81,6 +81,20 @@ function generateWranglerConfig() {
     });
   }
 
+  // Optional Workers AI — only when explicitly enabled (avoids surprise usage).
+  // Also requires guild dm_ai_enabled + env DM_AI_ENABLED=true at runtime.
+  if (String(process.env.ENABLE_WORKERS_AI || '').toLowerCase() === 'true') {
+    configTemplate.ai = { binding: 'AI' };
+    console.log('📝 Workers AI binding enabled (ENABLE_WORKERS_AI=true)');
+  }
+
+  if (process.env.DM_AI_ENABLED) {
+    configTemplate.vars.DM_AI_ENABLED = process.env.DM_AI_ENABLED;
+  }
+  if (process.env.DM_AI_DAILY_LIMIT) {
+    configTemplate.vars.DM_AI_DAILY_LIMIT = process.env.DM_AI_DAILY_LIMIT;
+  }
+
   const outputPath = path.join(__dirname, 'wrangler.json');
   fs.writeFileSync(outputPath, JSON.stringify(configTemplate, null, 2));
 

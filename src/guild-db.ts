@@ -96,6 +96,8 @@ function mapGuildConfig(row: any): GuildConfig {
 		exchange_hub_channel_id: row.exchange_hub_channel_id ?? null,
 		exchange_category_id: row.exchange_category_id ?? null,
 		exchange_admin_role_ids: parseJsonArray(row.exchange_admin_role_ids),
+		dm_query_role_ids: parseJsonArray(row.dm_query_role_ids),
+		dm_ai_enabled: Boolean(row.dm_ai_enabled ?? 0),
 		poll_interval_hours: row.poll_interval_hours ?? 6,
 		verification_enabled: Boolean(row.verification_enabled ?? 1),
 		created_at: row.created_at,
@@ -189,6 +191,7 @@ export async function upsertGuildConfig(
 		await upsertDiplomacyConfigFields(db, config);
 		await upsertPersonalChannelArchiveField(db, config);
 		await upsertAuditLogChannelField(db, config);
+		await upsertDmAssistantConfigFields(db, config);
 		return;
 	}
 
@@ -393,6 +396,34 @@ async function upsertDiplomacyConfigFields(
 			)
 			.run();
 	}
+
+	await upsertDmAssistantConfigFields(db, config);
+}
+
+async function upsertDmAssistantConfigFields(
+	db: D1Database,
+	config: Partial<GuildConfig> & { guild_id: string },
+): Promise<void> {
+	const rolesProvided = Object.prototype.hasOwnProperty.call(config, 'dm_query_role_ids');
+	const aiProvided = Object.prototype.hasOwnProperty.call(config, 'dm_ai_enabled');
+	if (!rolesProvided && !aiProvided) return;
+
+	await db
+		.prepare(
+			`UPDATE guild_configs SET
+			 dm_query_role_ids = CASE WHEN ? = 1 THEN ? ELSE dm_query_role_ids END,
+			 dm_ai_enabled = CASE WHEN ? = 1 THEN ? ELSE dm_ai_enabled END,
+			 updated_at = datetime('now')
+			 WHERE guild_id = ?`,
+		)
+		.bind(
+			rolesProvided ? 1 : 0,
+			rolesProvided ? JSON.stringify(config.dm_query_role_ids ?? []) : null,
+			aiProvided ? 1 : 0,
+			aiProvided ? (config.dm_ai_enabled ? 1 : 0) : null,
+			config.guild_id,
+		)
+		.run();
 }
 
 export async function getKnownMemberIds(db: D1Database, guildId: string): Promise<Set<string>> {
@@ -698,4 +729,229 @@ export async function getMembersNeedingInvite(db: D1Database, guildId: string): 
 		.bind(guildId)
 		.all();
 	return (results ?? []) as unknown as GuildMemberRecord[];
+}
+
+/** Verified / active / guest rows for a Discord user across all guilds. */
+export async function listVerifiedGuildsForUser(
+	db: D1Database,
+	discordUserId: string,
+): Promise<VerifiedPlayer[]> {
+	const { results } = await db
+		.prepare(
+			`SELECT * FROM verified_players
+			 WHERE discord_user_id = ?
+			 AND verification_status IN ('verified', 'active', 'guest')
+			 ORDER BY updated_at DESC`,
+		)
+		.bind(discordUserId)
+		.all();
+	return (results ?? []).map(mapVerifiedPlayer);
+}
+
+/** Any verified_players row for locale / name (prefer active statuses). */
+export async function getAnyPlayerRecordForUser(
+	db: D1Database,
+	discordUserId: string,
+): Promise<VerifiedPlayer | null> {
+	const verified = await listVerifiedGuildsForUser(db, discordUserId);
+	if (verified.length > 0) return verified[0];
+	const row = await db
+		.prepare(
+			`SELECT * FROM verified_players WHERE discord_user_id = ? ORDER BY updated_at DESC LIMIT 1`,
+		)
+		.bind(discordUserId)
+		.first();
+	return row ? mapVerifiedPlayer(row) : null;
+}
+
+const DM_SESSION_TTL_MINUTES = 60;
+
+function mapDmSession(row: Record<string, unknown>): import('./types').DmSession {
+	let payload: Record<string, unknown> = {};
+	try {
+		const raw = row.payload_json;
+		if (typeof raw === 'string' && raw) {
+			const parsed = JSON.parse(raw);
+			if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+				payload = parsed as Record<string, unknown>;
+			}
+		}
+	} catch {
+		payload = {};
+	}
+	return {
+		discord_user_id: String(row.discord_user_id),
+		guild_id: row.guild_id != null ? String(row.guild_id) : null,
+		flow: String(row.flow),
+		step: String(row.step ?? 'start'),
+		payload,
+		updated_at: String(row.updated_at ?? ''),
+	};
+}
+
+function isDmSessionStale(updatedAt: string): boolean {
+	const t = Date.parse(updatedAt);
+	if (!Number.isFinite(t)) return true;
+	return Date.now() - t > DM_SESSION_TTL_MINUTES * 60 * 1000;
+}
+
+export async function getDmSession(
+	db: D1Database,
+	discordUserId: string,
+): Promise<import('./types').DmSession | null> {
+	const row = await db
+		.prepare(`SELECT * FROM dm_sessions WHERE discord_user_id = ?`)
+		.bind(discordUserId)
+		.first();
+	if (!row) return null;
+	const session = mapDmSession(row as Record<string, unknown>);
+	if (isDmSessionStale(session.updated_at)) {
+		await clearDmSession(db, discordUserId);
+		return null;
+	}
+	return session;
+}
+
+export async function upsertDmSession(
+	db: D1Database,
+	session: {
+		discord_user_id: string;
+		guild_id?: string | null;
+		flow: string;
+		step: string;
+		payload?: Record<string, unknown>;
+	},
+): Promise<void> {
+	const now = new Date().toISOString();
+	await db
+		.prepare(
+			`INSERT INTO dm_sessions (discord_user_id, guild_id, flow, step, payload_json, updated_at)
+			 VALUES (?, ?, ?, ?, ?, ?)
+			 ON CONFLICT(discord_user_id) DO UPDATE SET
+			  guild_id = excluded.guild_id,
+			  flow = excluded.flow,
+			  step = excluded.step,
+			  payload_json = excluded.payload_json,
+			  updated_at = excluded.updated_at`,
+		)
+		.bind(
+			session.discord_user_id,
+			session.guild_id ?? null,
+			session.flow,
+			session.step,
+			JSON.stringify(session.payload ?? {}),
+			now,
+		)
+		.run();
+}
+
+export async function clearDmSession(db: D1Database, discordUserId: string): Promise<void> {
+	await db.prepare(`DELETE FROM dm_sessions WHERE discord_user_id = ?`).bind(discordUserId).run();
+}
+
+export async function cleanupStaleDmSessions(db: D1Database): Promise<number> {
+	const cutoff = new Date(Date.now() - DM_SESSION_TTL_MINUTES * 60 * 1000).toISOString();
+	const result = await db
+		.prepare(`DELETE FROM dm_sessions WHERE updated_at < ?`)
+		.bind(cutoff)
+		.run();
+	return result.meta?.changes ?? 0;
+}
+
+export async function countPlayersByGrade(
+	db: D1Database,
+	guildId: string,
+): Promise<Array<{ grade: number; count: number }>> {
+	const { results } = await db
+		.prepare(
+			`SELECT grade, COUNT(*) AS count FROM verified_players
+			 WHERE guild_id = ?
+			 AND verification_status IN ('verified', 'active', 'guest')
+			 AND grade IS NOT NULL
+			 GROUP BY grade
+			 ORDER BY grade`,
+		)
+		.bind(guildId)
+		.all();
+	return (results ?? []).map((r) => ({
+		grade: Number((r as { grade: number }).grade),
+		count: Number((r as { count: number }).count),
+	}));
+}
+
+export async function countPlayersForGrade(
+	db: D1Database,
+	guildId: string,
+	grade: number,
+): Promise<number> {
+	const row = await db
+		.prepare(
+			`SELECT COUNT(*) AS count FROM verified_players
+			 WHERE guild_id = ?
+			 AND verification_status IN ('verified', 'active', 'guest')
+			 AND grade = ?`,
+		)
+		.bind(guildId, grade)
+		.first<{ count: number }>();
+	return Number(row?.count ?? 0);
+}
+
+export async function countPlayersByAlliance(
+	db: D1Database,
+	guildId: string,
+): Promise<Array<{ alliance_tag: string; count: number }>> {
+	const { results } = await db
+		.prepare(
+			`SELECT COALESCE(alliance_tag, '—') AS alliance_tag, COUNT(*) AS count
+			 FROM verified_players
+			 WHERE guild_id = ?
+			 AND verification_status IN ('verified', 'active', 'guest')
+			 GROUP BY alliance_tag
+			 ORDER BY count DESC`,
+		)
+		.bind(guildId)
+		.all();
+	return (results ?? []).map((r) => ({
+		alliance_tag: String((r as { alliance_tag: string }).alliance_tag),
+		count: Number((r as { count: number }).count),
+	}));
+}
+
+export async function countPlayersByStatus(
+	db: D1Database,
+	guildId: string,
+): Promise<Array<{ verification_status: string; count: number }>> {
+	const { results } = await db
+		.prepare(
+			`SELECT verification_status, COUNT(*) AS count FROM verified_players
+			 WHERE guild_id = ?
+			 AND verification_status IN ('verified', 'active', 'guest')
+			 GROUP BY verification_status
+			 ORDER BY verification_status`,
+		)
+		.bind(guildId)
+		.all();
+	return (results ?? []).map((r) => ({
+		verification_status: String((r as { verification_status: string }).verification_status),
+		count: Number((r as { count: number }).count),
+	}));
+}
+
+export async function getDmAiUsage(db: D1Database, day: string): Promise<number> {
+	const row = await db
+		.prepare(`SELECT request_count FROM dm_ai_usage WHERE day = ?`)
+		.bind(day)
+		.first<{ request_count: number }>();
+	return Number(row?.request_count ?? 0);
+}
+
+export async function incrementDmAiUsage(db: D1Database, day: string): Promise<number> {
+	await db
+		.prepare(
+			`INSERT INTO dm_ai_usage (day, request_count) VALUES (?, 1)
+			 ON CONFLICT(day) DO UPDATE SET request_count = request_count + 1`,
+		)
+		.bind(day)
+		.run();
+	return getDmAiUsage(db, day);
 }

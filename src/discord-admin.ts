@@ -1,8 +1,14 @@
 /** Discord permission bit: Administrator */
 export const ADMINISTRATOR = 0x8n;
+/** Discord permission bit: Manage Guild */
+export const MANAGE_GUILD = 0x20n;
 
 export function isGuildAdministrator(permissions: string | undefined): boolean {
 	return (BigInt(permissions ?? '0') & ADMINISTRATOR) !== 0n;
+}
+
+export function hasAdminOrManageGuild(permissions: bigint): boolean {
+	return (permissions & ADMINISTRATOR) !== 0n || (permissions & MANAGE_GUILD) !== 0n;
 }
 
 export function requireGuildAdmin(

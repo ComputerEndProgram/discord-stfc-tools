@@ -504,27 +504,80 @@ async function handleServerStatusCommand(env: Env, guildId: string | undefined):
 		return interactionResponse('❌ Server not configured. Run `/server setup` first.', true);
 	}
 
+	const { formatServerStatus } = await import('./format-server-status');
+	return interactionResponse(formatServerStatus(config), true);
+}
+
+async function handleServerAssistantCommand(
+	env: Env,
+	interaction: { guild_id?: string; member?: { permissions?: string } },
+	sub: { options?: Array<{ name: string; value?: unknown }> },
+): Promise<Response> {
+	const adminError = requireGuildAdmin(interaction);
+	if (adminError) return adminError;
+
+	const guildId = interaction.guild_id!;
+	const config = await getGuildConfig(env.STFC_DB, guildId);
+	if (!config) {
+		return interactionResponse('❌ Server not configured. Run `/server setup` first.', true);
+	}
+
+	const rolesRaw = getOptionValue(sub.options, 'roles') as string | undefined;
+	const aiRaw = getOptionValue(sub.options, 'ai');
+	const patch: Partial<GuildConfig> & { guild_id: string } = { guild_id: guildId };
+
+	if (rolesRaw !== undefined) {
+		const trimmed = String(rolesRaw).trim();
+		if (!trimmed) {
+			patch.dm_query_role_ids = [];
+		} else {
+			const tokens = trimmed.split(/[,;\s]+/).map((t) => t.trim()).filter(Boolean);
+			const ids: string[] = [];
+			for (const tok of tokens) {
+				const m = tok.match(/^(?:<@&)?(\d{15,20})>?$/);
+				if (m) ids.push(m[1]);
+			}
+			if (ids.length === 0 && env.DISCORD_BOT_TOKEN) {
+				const roles = await listGuildRoles(env.DISCORD_BOT_TOKEN, guildId);
+				for (const tok of tokens) {
+					const found = roles.find((r) => r.name.toLowerCase() === tok.toLowerCase());
+					if (found) ids.push(found.id);
+				}
+			}
+			patch.dm_query_role_ids = ids;
+		}
+	}
+
+	if (aiRaw === true || aiRaw === 'true') patch.dm_ai_enabled = true;
+	if (aiRaw === false || aiRaw === 'false') patch.dm_ai_enabled = false;
+
+	if (rolesRaw === undefined && aiRaw === undefined) {
+		return interactionResponse(
+			`🤖 **DM assistant**\n` +
+				`• Query roles: ${config.dm_query_role_ids.map((id) => `<@&${id}>`).join(', ') || 'Administrators only'}\n` +
+				`• Guild AI flag: ${config.dm_ai_enabled ? 'on' : 'off'} (also needs env \`DM_AI_ENABLED=true\` + AI binding)\n\n` +
+				`Admins can DM the bot and say **menu** for guided setup.\n` +
+				`Set roles: \`/server assistant roles:@Officer,@Leadership\`\n` +
+				`Clear roles: \`/server assistant roles:\` (empty = admins only)`,
+			true,
+		);
+	}
+
+	await upsertGuildConfig(env.STFC_DB, patch);
+	const refreshed = await getGuildConfig(env.STFC_DB, guildId);
+	await postAuditLog(env, refreshed, {
+		title: 'DM assistant settings updated',
+		description:
+			`Query roles: ${refreshed?.dm_query_role_ids.map((id) => `<@&${id}>`).join(', ') || 'Administrators only'}\n` +
+			`AI: ${refreshed?.dm_ai_enabled ? 'on' : 'off'}`,
+		source: 'admin',
+		color: AuditColor.info,
+	});
+
 	return interactionResponse(
-		`📋 **Server configuration**\n` +
-			`• Mode: ${config.mode}\n` +
-			`• STFC server: ${config.stfc_server} (${config.stfc_region})\n` +
-			`• Alliance tag: ${config.alliance_tag ?? '—'}\n` +
-			`• Nickname template: \`${config.nickname_template?.trim() || defaultNicknameTemplate(config.mode)}\`` +
-			`${config.nickname_template?.trim() ? '' : ' (default)'}\n` +
-			`• Verification log: ${config.verification_log_channel_id ? `<#${config.verification_log_channel_id}>` : 'not set'}\n` +
-			`• Audit log: ${config.audit_log_channel_id ? `<#${config.audit_log_channel_id}>` : 'not set'}\n` +
-			`• Diplomacy channels: ${diplomacyChannelsEnabled(config) ? 'enabled' : 'disabled'}` +
-			(diplomacyChannelsEnabled(config)
-				? ` (${formatDiplomacyChannelMap(config.diplomacy_channel_map)})`
-				: '') +
-			`\n` +
-			`• Verification: ${config.verification_enabled ? 'enabled' : 'disabled'}\n` +
-			`• Poll interval: ${config.poll_interval_hours}h\n` +
-			`• Member roles: ${config.member_role_ids.join(', ') || 'none'}\n` +
-			`• Guest role: ${config.guest_role_id ?? 'none'}\n` +
-			`• Personal channels: ${personalChannelsEnabled(config) ? 'enabled' : 'disabled'}\n` +
-			`• Category map: ${formatCategoryMap(config.channel_category_map)}\n` +
-			`• Channel extra roles: ${config.personal_channel_extra_roles.join(', ') || 'none'}`,
+		`✅ DM assistant updated.\n` +
+			`• Query roles: ${refreshed?.dm_query_role_ids.map((id) => `<@&${id}>`).join(', ') || 'Administrators only'}\n` +
+			`• Guild AI flag: ${refreshed?.dm_ai_enabled ? 'on' : 'off'}`,
 		true,
 	);
 }
@@ -1659,6 +1712,10 @@ export async function handleDiscordInteraction(
 			const { handleExchangeComponent } = await import('./exchange-handlers');
 			return handleExchangeComponent(env, ctx, interaction);
 		}
+		if (customId?.startsWith('dma:')) {
+			const { handleDmAssistantComponent } = await import('./dm-assistant');
+			return handleDmAssistantComponent(env, interaction);
+		}
 		return interactionResponse('❌ Unknown button.', true);
 	}
 
@@ -1721,6 +1778,9 @@ export async function handleDiscordInteraction(
 			}
 			if (sub?.name === 'status') {
 				return handleServerStatusCommand(env, interaction.guild_id);
+			}
+			if (sub?.name === 'assistant') {
+				return handleServerAssistantCommand(env, interaction as any, sub);
 			}
 			if (sub?.name === 'verify') {
 				return handleServerVerifyCommand(env, ctx, interaction, sub, data.resolved);

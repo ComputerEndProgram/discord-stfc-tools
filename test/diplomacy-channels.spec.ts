@@ -44,6 +44,8 @@ function baseConfig(overrides: Partial<GuildConfig> = {}): GuildConfig {
 		exchange_hub_channel_id: null,
 		exchange_category_id: null,
 		exchange_admin_role_ids: [],
+		dm_query_role_ids: [],
+		dm_ai_enabled: false,
 		poll_interval_hours: 6,
 		verification_enabled: true,
 		created_at: '',

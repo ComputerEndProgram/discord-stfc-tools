@@ -10,6 +10,13 @@ export async function runMemberPoll(env: Env): Promise<void> {
 	await wakeDiscordGateway(env);
 	// REST poll remains as fallback when Gateway is disconnected
 	await syncGuildMembers(env);
+	try {
+		const { cleanupStaleDmSessions } = await import('./guild-db');
+		const n = await cleanupStaleDmSessions(env.STFC_DB);
+		if (n > 0) console.log(`Cron: cleaned ${n} stale DM sessions`);
+	} catch (err) {
+		console.error('DM session cleanup failed (non-fatal):', err);
+	}
 	console.log('Cron: member poll complete');
 }
 

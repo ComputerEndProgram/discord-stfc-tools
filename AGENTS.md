@@ -87,6 +87,7 @@ Worker (src/index.ts) — wakes DO on fetch + cron
 - `/survey` — button polls (role/rank/level/grade/user targeting); private log channel; ASCII result tables
 - `/exchange` — cross-alliance resource donors/recipients (hub or category layout, Help/Ignore claim DMs)
 - `/language` — player preferred language for bot DMs (en/de/fr/es/pt/nl/pl/it/ru/tr/hu)
+- **DM assistant** — HAL refusal for unknown asks; Badgey voice + admin menu wizards; roster Q&A gated by `/server assistant`
 
 ### `/lookup`
 Parses STFC share strings like `[[RONE] Player S:73559 X:628.7432 Y:43.3874]`. Supports multiple coordinates per message. Returns Unicode box-drawing table with Alliance, System, Warp, Faction, Player. Uses in-memory `SYSTEM_DATA_MAP` — **not KV**.
@@ -118,6 +119,7 @@ src/
   guild-db.ts              # STFC_DB access
   survey-*.ts              # Surveys / button polls
   stfc-utils.ts            # stfc.pro client
+  dm-assistant/            # DM HAL/Badgey router, admin wizards, roster Q&A
   systemUtils.ts           # Coordinate lookup
   systemData.ts            # Bundled systems (generated — do not hand-edit)
   tableUtils.ts            # CSV tables
