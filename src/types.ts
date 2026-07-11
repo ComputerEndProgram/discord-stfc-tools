@@ -57,6 +57,8 @@ export interface GuildConfig {
 	verification_log_channel_id: string | null;
 	channel_category_map: Record<string, string>;
 	personal_channel_extra_roles: string[];
+	/** Category for member channels no longer linked to a verified player. */
+	personal_channel_archive_category_id: string | null;
 	/** Multi-alliance: create/link one diplomacy channel per alliance tag. */
 	diplomacy_enabled: boolean;
 	diplomacy_category_id: string | null;

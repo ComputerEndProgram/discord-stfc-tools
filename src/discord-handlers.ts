@@ -1037,6 +1037,9 @@ async function handleServerChannelsCommand(
 				`• Verification log: ${config.verification_log_channel_id ? `<#${config.verification_log_channel_id}>` : 'not set'}\n` +
 				`• Diplomacy: ${diplomacyChannelsEnabled(config) ? 'enabled' : 'disabled'} — ${formatDiplomacyChannelMap(config.diplomacy_channel_map)}\n` +
 				`• Linked member channels: ${players?.count ?? 0}` +
+				(config.personal_channel_archive_category_id
+					? `\n• Archive category: <#${config.personal_channel_archive_category_id}>`
+					: '') +
 				occupancyBlock +
 				`\n\nBuckets use first letter (A–Z; non-letters → \`#\`). ` +
 				`Plan: \`/server channels plan\`. Apply: \`/server channels rebalance apply:true\`.`,
@@ -1080,6 +1083,17 @@ async function handleServerChannelsCommand(
 			createRaw === undefined || createRaw === null
 				? true
 				: createRaw === true || createRaw === 'true';
+		const createMissingRaw = getOptionValue(sub.options, 'create_missing');
+		const createMissing = createMissingRaw === true || createMissingRaw === 'true';
+		const archiveUnlinkedRaw = getOptionValue(sub.options, 'archive_unlinked');
+		const archiveUnlinked =
+			archiveUnlinkedRaw === undefined || archiveUnlinkedRaw === null
+				? true
+				: archiveUnlinkedRaw === true || archiveUnlinkedRaw === 'true';
+		const archiveCategoryOpt = getOptionValue(sub.options, 'archive_category');
+		const archiveCategoryId =
+			archiveCategoryOpt != null ? String(archiveCategoryOpt) : undefined;
+		const archiveName = (getOptionValue(sub.options, 'archive_name') as string | undefined)?.trim();
 
 		if (!apply) {
 			if (!env.DISCORD_BOT_TOKEN) {
@@ -1096,8 +1110,19 @@ async function handleServerChannelsCommand(
 					`**Preview only** (apply:false).\n` +
 					`• Name template: \`${templateNote}\`\n` +
 					`• Rename categories: ${renameCategories ? 'yes' : 'no'}\n` +
-					`• Create categories: ${createCategories ? 'yes' : 'no'}\n\n` +
-					`Run again with \`apply:true\` to create/rename categories, update the map, and move channels.`,
+					`• Create categories: ${createCategories ? 'yes' : 'no'}\n` +
+					`• Create missing channels: ${createMissing ? 'yes' : 'no'}\n` +
+					`• Archive unlinked: ${archiveUnlinked ? 'yes' : 'no'}\n` +
+					`• Archive target: ${
+						archiveCategoryId
+							? `<#${archiveCategoryId}>`
+							: archiveName
+								? `\`${archiveName}\``
+								: config.personal_channel_archive_category_id
+									? `<#${config.personal_channel_archive_category_id}>`
+									: '`Member Channels Archive` (create if needed)'
+					}\n\n` +
+					`Run again with \`apply:true\` to create/rename categories, update the map, move/create channels, and archive unlinked.`,
 				true,
 			);
 		}
@@ -1128,12 +1153,29 @@ async function handleServerChannelsCommand(
 						nameTemplate,
 						renameCategories,
 						createCategories,
+						createMissing,
+						archiveUnlinked,
+						archiveCategoryId,
+						archiveName,
+						onChannelCreated: async (player, channelId) => {
+							await upsertVerifiedPlayer(env.STFC_DB, {
+								guild_id: guildId,
+								discord_user_id: player.discord_user_id,
+								personal_channel_id: channelId,
+							});
+						},
 					});
+					const patch: Parameters<typeof upsertGuildConfig>[1] = {
+						guild_id: guildId,
+					};
 					if (Object.keys(result.newMap).length > 0) {
-						await upsertGuildConfig(env.STFC_DB, {
-							guild_id: guildId,
-							channel_category_map: result.newMap,
-						});
+						patch.channel_category_map = result.newMap;
+					}
+					if (result.archiveCategoryId) {
+						patch.personal_channel_archive_category_id = result.archiveCategoryId;
+					}
+					if (patch.channel_category_map || patch.personal_channel_archive_category_id) {
+						await upsertGuildConfig(env.STFC_DB, patch);
 					}
 					await editInteractionResponse(appId, interaction.token, result.summary, true);
 				} catch (error) {

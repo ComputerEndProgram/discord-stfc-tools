@@ -28,6 +28,7 @@ function baseConfig(overrides: Partial<GuildConfig> = {}): GuildConfig {
 		overlay_buckets: {},
 		channel_category_map: {},
 		personal_channel_extra_roles: [],
+		personal_channel_archive_category_id: null,
 		alliance_role_prefix: null,
 		nickname_template: null,
 		verification_log_channel_id: null,
@@ -135,6 +136,25 @@ describe('personal-channel-plan', () => {
 	it('applyCategoryNameTemplate', () => {
 		expect(applyCategoryNameTemplate('Member Channels {range}', 'A-M')).toBe('Member Channels A-M');
 		expect(applyCategoryNameTemplate('Member Channels {range}', 'N-#')).toBe('Member Channels N-#');
+	});
+});
+
+describe('findUnlinkedMemberChannels', () => {
+	it('finds text channels in member categories that are not linked', async () => {
+		const { findUnlinkedMemberChannels } = await import('../src/personal-channels');
+		const channels = [
+			{ id: 'linked', name: 'adam', type: 0, parent_id: 'cat-am' },
+			{ id: 'orphan', name: 'old-player', type: 0, parent_id: 'cat-am' },
+			{ id: 'elsewhere', name: 'general', type: 0, parent_id: 'other' },
+			{ id: 'cat-am', name: 'Member Channels A-M', type: 4, parent_id: null },
+		];
+		const unlinked = findUnlinkedMemberChannels(
+			channels,
+			new Set(['cat-am']),
+			new Set(['linked']),
+			null,
+		);
+		expect(unlinked.map((c) => c.id)).toEqual(['orphan']);
 	});
 });
 

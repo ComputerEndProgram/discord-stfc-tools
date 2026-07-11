@@ -181,7 +181,7 @@ Buckets use the **first letter** of the in-game name (`A`–`Z`). Names starting
 
 That creates/renames categories like `Member Channels A-M` / `Member Channels N-#`, updates the map, and moves linked member channels.
 
-Options:
+The planner splits **fairly evenly** under the soft limit (50 players → two ~25 buckets, not 45+5). Re-run when occupancy nears the limit (`/server channels status` shows counts).
 
 | Option | Default | Description |
 |--------|---------|-------------|
@@ -189,9 +189,18 @@ Options:
 | `name_template` | `Member Channels {range}` | Category name; `{range}` → `A-M`, `N-#`, etc. |
 | `rename_categories` | `true` | Rename existing mapped categories to match new ranges |
 | `create_categories` | `true` | Create extra categories when more buckets are needed |
+| `create_missing` | `false` | Create personal channels for verified players who have none |
+| `archive_unlinked` | `true` | Move text channels in member categories that are **not** linked to any player into the archive |
+| `archive_category` | — | Existing Discord category to use as archive |
+| `archive_name` | `Member Channels Archive` | Find or create archive category by name |
 | `apply` | `false` | Preview only unless `true` |
 
-The planner splits **fairly evenly** under the soft limit (50 players → two ~25 buckets, not 45+5). Re-run when occupancy nears the limit (`/server channels status` shows counts).
+**Workflow for an existing server:**
+
+1. Verify players (`/verify` or `/server verify`).
+2. `/server channels link` for members who already have a channel (rebalance will **not** guess links by name).
+3. `/server channels plan` — review suggested ranges, missing channels, and unlinked channels.
+4. `/server channels rebalance apply:true create_missing:true` — splits categories, creates missing channels, moves linked ones, archives unlinked ones.
 
 **Manual map** (if you prefer to create categories yourself):
 

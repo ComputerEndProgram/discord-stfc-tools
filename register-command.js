@@ -446,6 +446,31 @@ const commands = [
 								description: 'Create Discord categories when more buckets are needed (default true)',
 								required: false,
 							},
+							{
+								type: 5,
+								name: 'create_missing',
+								description: 'Create personal channels for verified players who have none (default false)',
+								required: false,
+							},
+							{
+								type: 5,
+								name: 'archive_unlinked',
+								description: 'Move unlinked member-category channels to archive (default true)',
+								required: false,
+							},
+							{
+								type: 7,
+								name: 'archive_category',
+								description: 'Existing archive category',
+								required: false,
+								channel_types: [4],
+							},
+							{
+								type: 3,
+								name: 'archive_name',
+								description: 'Find or create archive category by name (default: Member Channels Archive)',
+								required: false,
+							},
 						],
 					},
 					{

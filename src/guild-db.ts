@@ -70,6 +70,7 @@ function mapGuildConfig(row: any): GuildConfig {
 		verification_log_channel_id: row.verification_log_channel_id ?? null,
 		channel_category_map: parseJsonObject(row.channel_category_map),
 		personal_channel_extra_roles: parseJsonArray(row.personal_channel_extra_roles),
+		personal_channel_archive_category_id: row.personal_channel_archive_category_id ?? null,
 		diplomacy_enabled: Boolean(row.diplomacy_enabled ?? 0),
 		diplomacy_category_id: row.diplomacy_category_id ?? null,
 		diplomacy_channel_map: parseJsonObject(row.diplomacy_channel_map),
@@ -184,6 +185,7 @@ export async function upsertGuildConfig(
 			)
 			.run();
 		await upsertDiplomacyConfigFields(db, config);
+		await upsertPersonalChannelArchiveField(db, config);
 		return;
 	}
 
@@ -236,6 +238,23 @@ export async function upsertGuildConfig(
 		.run();
 
 	await upsertDiplomacyConfigFields(db, config);
+	await upsertPersonalChannelArchiveField(db, config);
+}
+
+async function upsertPersonalChannelArchiveField(
+	db: D1Database,
+	config: Partial<GuildConfig> & { guild_id: string },
+): Promise<void> {
+	if (!Object.prototype.hasOwnProperty.call(config, 'personal_channel_archive_category_id')) return;
+	await db
+		.prepare(
+			`UPDATE guild_configs SET
+			 personal_channel_archive_category_id = ?,
+			 updated_at = datetime('now')
+			 WHERE guild_id = ?`,
+		)
+		.bind(config.personal_channel_archive_category_id?.trim() || null, config.guild_id)
+		.run();
 }
 
 async function upsertDiplomacyConfigFields(
