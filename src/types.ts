@@ -61,6 +61,8 @@ export interface GuildConfig {
 	verification_log_channel_id: string | null;
 	/** Channel for general bot audit (admin commands + automated actions). */
 	audit_log_channel_id: string | null;
+	/** High-signal staff alerts (e.g. verification DM blocked) — optional, separate from audit. */
+	urgent_notify_channel_id: string | null;
 	channel_category_map: Record<string, string>;
 	personal_channel_extra_roles: string[];
 	/** Category for member channels no longer linked to a verified player. */

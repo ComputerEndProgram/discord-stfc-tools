@@ -71,6 +71,7 @@ function mapGuildConfig(row: any): GuildConfig {
 		nickname_template: row.nickname_template ?? null,
 		verification_log_channel_id: row.verification_log_channel_id ?? null,
 		audit_log_channel_id: row.audit_log_channel_id ?? null,
+		urgent_notify_channel_id: row.urgent_notify_channel_id ?? null,
 		channel_category_map: parseJsonObject(row.channel_category_map),
 		personal_channel_extra_roles: parseJsonArray(row.personal_channel_extra_roles),
 		personal_channel_archive_category_id: row.personal_channel_archive_category_id ?? null,
@@ -203,6 +204,7 @@ export async function upsertGuildConfig(
 		await upsertDiplomacyConfigFields(db, config);
 		await upsertPersonalChannelArchiveField(db, config);
 		await upsertAuditLogChannelField(db, config);
+		await upsertUrgentNotifyChannelField(db, config);
 		await upsertDmAssistantConfigFields(db, config);
 		await upsertAgreementConfigFields(db, config);
 		return;
@@ -259,6 +261,7 @@ export async function upsertGuildConfig(
 	await upsertDiplomacyConfigFields(db, config);
 	await upsertPersonalChannelArchiveField(db, config);
 	await upsertAuditLogChannelField(db, config);
+	await upsertUrgentNotifyChannelField(db, config);
 }
 
 async function upsertAuditLogChannelField(
@@ -274,6 +277,22 @@ async function upsertAuditLogChannelField(
 			 WHERE guild_id = ?`,
 		)
 		.bind(config.audit_log_channel_id?.trim() || null, config.guild_id)
+		.run();
+}
+
+async function upsertUrgentNotifyChannelField(
+	db: D1Database,
+	config: Partial<GuildConfig> & { guild_id: string },
+): Promise<void> {
+	if (!Object.prototype.hasOwnProperty.call(config, 'urgent_notify_channel_id')) return;
+	await db
+		.prepare(
+			`UPDATE guild_configs SET
+			 urgent_notify_channel_id = ?,
+			 updated_at = datetime('now')
+			 WHERE guild_id = ?`,
+		)
+		.bind(config.urgent_notify_channel_id?.trim() || null, config.guild_id)
 		.run();
 }
 

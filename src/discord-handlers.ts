@@ -38,6 +38,7 @@ import { DEFAULT_SOFT_LIMIT } from './personal-channel-plan';
 import { defaultNicknameTemplate } from './nickname-utils';
 import { createVerificationLogChannel } from './verification-log';
 import { AuditColor, createAuditLogChannel, postAuditLog } from './audit-log';
+import { createUrgentNotifyChannel, postUrgentNotify } from './urgent-notify';
 import {
 	diplomacyChannelsEnabled,
 	ensureDiplomacyChannel,
@@ -1228,6 +1229,7 @@ async function handleServerChannelsCommand(
 				`• Extra roles: ${config.personal_channel_extra_roles.join(', ') || 'none'}\n` +
 				`• Verification log: ${config.verification_log_channel_id ? `<#${config.verification_log_channel_id}>` : 'not set'}\n` +
 				`• Audit log: ${config.audit_log_channel_id ? `<#${config.audit_log_channel_id}>` : 'not set'}\n` +
+				`• Urgent alerts: ${config.urgent_notify_channel_id ? `<#${config.urgent_notify_channel_id}>` : 'not set'}\n` +
 				`• Diplomacy: ${diplomacyChannelsEnabled(config) ? 'enabled' : 'disabled'} — ${formatDiplomacyChannelMap(config.diplomacy_channel_map)}\n` +
 				`• Linked member channels: ${players?.count ?? 0}` +
 				(config.personal_channel_archive_category_id
@@ -1546,6 +1548,93 @@ async function handleServerChannelsCommand(
 		});
 		return interactionResponse(
 			`✅ Audit log channel set to <#${channelId}>.\n` +
+				`Make sure the bot can **View Channel**, **Send Messages**, and **Embed Links** there.`,
+			true,
+		);
+	}
+
+	if (sub.name === 'urgent') {
+		const clearRaw = getOptionValue(sub.options, 'clear');
+		const clear = clearRaw === true || clearRaw === 'true';
+		const createRaw = getOptionValue(sub.options, 'create');
+		const create = createRaw === true || createRaw === 'true';
+		const channelOpt = getOptionValue(sub.options, 'channel');
+		const nameOpt = (getOptionValue(sub.options, 'name') as string | undefined)?.trim();
+		const actorId = interaction.member?.user?.id;
+
+		if (clear) {
+			await upsertGuildConfig(env.STFC_DB, {
+				guild_id: guildId,
+				urgent_notify_channel_id: null,
+			});
+			return interactionResponse('✅ Urgent notify channel cleared.', true);
+		}
+
+		if (!env.DISCORD_BOT_TOKEN) {
+			return interactionResponse('❌ DISCORD_BOT_TOKEN not configured.', true);
+		}
+
+		if (create) {
+			try {
+				const channelId = await createUrgentNotifyChannel(
+					env.DISCORD_BOT_TOKEN,
+					guildId,
+					config,
+					nameOpt || 'bot-urgent',
+				);
+				await upsertGuildConfig(env.STFC_DB, {
+					guild_id: guildId,
+					urgent_notify_channel_id: channelId,
+				});
+				const refreshed = await getGuildConfig(env.STFC_DB, guildId);
+				await postUrgentNotify(env, refreshed, {
+					content:
+						'✅ Urgent alerts channel online! I will ping here when something needs admin attention ' +
+						'(for example: I cannot DM a member because their privacy settings block server DMs). ' +
+						'The full audit trail still goes to the audit log.',
+					title: 'Urgent alerts enabled',
+					actorId,
+					color: AuditColor.success,
+				});
+				const viewerNote = config.personal_channel_extra_roles.length
+					? `Viewer roles (from channel extra-roles): ${config.personal_channel_extra_roles.map((id) => `<@&${id}>`).join(', ')}`
+					: 'No extra viewer roles yet — set `/server channels extra-roles`, then recreate or edit permissions.';
+				return interactionResponse(
+					`✅ Created private urgent alerts <#${channelId}>.\n` +
+						`• @everyone cannot view\n` +
+						`• ${viewerNote}\n\n` +
+						`High-signal events (e.g. verification DM blocked) post here. Full detail stays on \`/server channels audit\`.`,
+					true,
+				);
+			} catch (error) {
+				return interactionResponse(
+					`❌ Failed to create urgent channel: ${error instanceof Error ? error.message : 'unknown error'}`,
+					true,
+				);
+			}
+		}
+
+		const channelId = channelOpt != null ? String(channelOpt) : '';
+		if (!/^\d{15,20}$/.test(channelId)) {
+			return interactionResponse(
+				'❌ Provide `channel:` (existing), `create:true`, or `clear:true`.',
+				true,
+			);
+		}
+
+		await upsertGuildConfig(env.STFC_DB, {
+			guild_id: guildId,
+			urgent_notify_channel_id: channelId,
+		});
+		const refreshed = await getGuildConfig(env.STFC_DB, guildId);
+		await postUrgentNotify(env, refreshed, {
+			content: `✅ Urgent alerts will post to <#${channelId}>. Standing by for actionable incidents!`,
+			title: 'Urgent notify channel set',
+			actorId,
+			color: AuditColor.success,
+		});
+		return interactionResponse(
+			`✅ Urgent notify channel set to <#${channelId}>.\n` +
 				`Make sure the bot can **View Channel**, **Send Messages**, and **Embed Links** there.`,
 			true,
 		);

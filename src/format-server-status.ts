@@ -14,6 +14,7 @@ export function formatServerStatus(config: GuildConfig): string {
 		`${config.nickname_template?.trim() ? '' : ' (default)'}\n` +
 		`• Verification log: ${config.verification_log_channel_id ? `<#${config.verification_log_channel_id}>` : 'not set'}\n` +
 		`• Audit log: ${config.audit_log_channel_id ? `<#${config.audit_log_channel_id}>` : 'not set'}\n` +
+		`• Urgent alerts: ${config.urgent_notify_channel_id ? `<#${config.urgent_notify_channel_id}>` : 'not set'}\n` +
 		`• Diplomacy channels: ${diplomacyChannelsEnabled(config) ? 'enabled' : 'disabled'}` +
 		(diplomacyChannelsEnabled(config)
 			? ` (${formatDiplomacyChannelMap(config.diplomacy_channel_map)})`

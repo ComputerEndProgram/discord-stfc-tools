@@ -105,7 +105,7 @@ Renders CSV as ASCII tables. Accepts inline `csv_data` or `.csv` attachment (max
 | `GET /gateway/status` | Gateway DO connection state |
 | `GET /systems` | First 10 bundled systems |
 
-**Logging:** `/server channels log` = verification screenshots/summaries; `/server channels audit` = general admin + automated bot events (separate channels).
+**Logging:** `/server channels log` = verification screenshots/summaries; `/server channels audit` = general admin + automated bot events; `/server channels urgent` = optional high-signal alerts (e.g. DM blocked).
 
 ---
 

@@ -312,6 +312,34 @@ Logged events include (non-exhaustive): `/server setup`, verify (brief — scree
 
 ---
 
+## 4c. Urgent alerts (action needed)
+
+Optional high-signal channel for events that need an admin to notice quickly — **not** the full audit trail. Today this includes **verification DM blocked (403)** when a member’s privacy settings prevent bot DMs.
+
+```
+/server channels urgent create:true
+```
+
+Optional: `name:bot-urgent`
+
+Or link an existing channel:
+
+```
+/server channels urgent channel:#staff-urgent
+```
+
+Disable:
+
+```
+/server channels urgent clear:true
+```
+
+Same private-channel pattern as audit/log (`@everyone` denied; bot + `/server channels extra-roles` can view). Prefer setting **extra-roles** first.
+
+Urgent posts use a short Badgey-style message so they stand out from routine audit embeds. The same event is still written to the audit log when configured.
+
+---
+
 ## 5. Personal / member channels
 
 ### Permissions (set this first)
@@ -659,8 +687,8 @@ After create you get an ephemeral draft with buttons:
 |---------|------------|
 | Roles not assigned / `50013` on `/roles/…` | [Raise bot in role hierarchy](#role-hierarchy-drag-the-bot-up); bot needs **Manage Roles** (Administrator not required) |
 | Nickname fails (403) | Manage Nicknames; bot role above member; **owner cannot be renamed** |
-| No verification DM / `DM open failed: 403` | Member privacy: **User Settings → Privacy** or server privacy — allow DMs from server members; or they blocked the bot. Use `/verify` in-channel as fallback; retry with `/server test-invite` after they fix privacy. After one 403 the bot stops auto-retrying that member |
-| Repeat “Verification invite failed” for people already verified | Fixed in code: manual `/server verify` now marks invited; already `active`/`guest` members are skipped by the invite cron. Redeploy to pick up |
+| No verification DM / `DM open failed: 403` | Member privacy: **User Settings → Privacy** or server privacy — allow DMs from server members; or they blocked the bot. Use `/verify` in-channel as fallback; retry with `/server test-invite` after they fix privacy. After one 403 the bot stops auto-retrying that member (and posts to `/server channels urgent` if set) |
+| Repeat “Verification invite failed” for people already verified | Fixed: manual `/server verify` marks invited; already `active`/`guest` are skipped; clobbered `pending_*` rows with player data are auto-restored. Redeploy to pick up — **no re-verify needed** if Discord roles still look correct |
 | “Server not configured” | Run `/server setup` |
 | Log channel silent | `/server channels log` set; bot can attach files; redeploy after feature add |
 | Personal channel not created | Single-alliance + category map set; check `/server channels status` |
@@ -723,17 +751,18 @@ Admin wizards (DM → `menu`): **Server status**, **Server setup** (core fields)
 1. [ ] Bot invited; role near top of list  
 2. [ ] `/server setup` with server, region, mode, tag, roles  
 3. [ ] `/server channels extra-roles` — officers/roles that see **all** member channels (not part of setup)  
-4. [ ] `/server channels audit create:true` — general bot audit (admin + automated actions)  
-5. [ ] `/server channels log create:true` — verification archive (screenshots; separate from audit)  
-6. [ ] Members pick language on first DM (or `/language`) — player-facing messages are localized  
-7. [ ] Link existing member channels with `/server channels link` if needed  
-8. [ ] `/server channels plan` then `/server channels rebalance apply:true create_missing:true` (or manual `/server channels map`)  
-9. [ ] Optional: `nickname_template`, rank roles, `/server bucket`  
-10. [ ] Multi-alliance: `/server channels diplomacy enable:true write_roles:Diplomat write_ranks:Commodore,Admiral`  
-11. [ ] Optional: `/survey creators` for officers who may poll the alliance  
-12. [ ] Optional: `/exchange setup` + `/exchange resource create` for cross-alliance resources  
-13. [ ] `/server test-invite` → verify yourself → check roles, log, personal/diplomacy channels  
-14. [ ] Existing members: `/server verify user:@Them link:https://stfc.pro/…` (repeat as needed)  
-15. [ ] `/server status` looks correct  
-16. [ ] Optional: `/server assistant roles:…` for who may ask roster questions in DMs  
+4. [ ] `/server channels audit create:true` — general bot audit (admin + automated actions)
+5. [ ] `/server channels urgent create:true` — high-signal alerts (DM blocked, etc.; optional)
+6. [ ] `/server channels log create:true` — verification archive (screenshots; separate from audit)
+7. [ ] Members pick language on first DM (or `/language`) — player-facing messages are localized  
+8. [ ] Link existing member channels with `/server channels link` if needed  
+9. [ ] `/server channels plan` then `/server channels rebalance apply:true create_missing:true` (or manual `/server channels map`)  
+10. [ ] Optional: `nickname_template`, rank roles, `/server bucket`  
+11. [ ] Multi-alliance: `/server channels diplomacy enable:true write_roles:Diplomat write_ranks:Commodore,Admiral`  
+12. [ ] Optional: `/survey creators` for officers who may poll the alliance  
+13. [ ] Optional: `/exchange setup` + `/exchange resource create` for cross-alliance resources  
+14. [ ] `/server test-invite` → verify yourself → check roles, log, personal/diplomacy channels  
+15. [ ] Existing members: `/server verify user:@Them link:https://stfc.pro/…` (repeat as needed)  
+16. [ ] `/server status` looks correct  
+17. [ ] Optional: `/server assistant roles:…` for who may ask roster questions in DMs  
 17. [ ] Optional: DM the bot as admin and say **menu** to try guided setup  

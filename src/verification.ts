@@ -17,6 +17,7 @@ import { parseStfcProUrl, resolveSearchTerm } from './stfc-url';
 import { findPlayerByIdOrName } from './stfc-utils';
 import { postVerificationLog } from './verification-log';
 import { AuditColor, postAuditLog } from './audit-log';
+import { postUrgentNotify } from './urgent-notify';
 import { DEFAULT_LOCALE, resolveLocale, t } from './i18n';
 import { ensureLocaleAfterVerify, sendLanguagePickerDm } from './i18n/language-picker';
 import {
@@ -399,6 +400,7 @@ export async function inviteNewMember(
 	username: string,
 ): Promise<DmResult> {
 	const existing = await getVerifiedPlayer(env.STFC_DB, guildId, userId);
+	const config = await getGuildConfig(env.STFC_DB, guildId);
 	const alreadyDone =
 		existing &&
 		(existing.verification_status === 'active' ||
@@ -412,13 +414,37 @@ export async function inviteNewMember(
 		return { ok: true };
 	}
 
+	// Older invite bug reset status to pending_* while leaving player_id / verified_at.
+	// Restore without forcing a re-verify or another DM attempt.
+	const clobbered =
+		existing &&
+		existing.player_id != null &&
+		existing.verified_at &&
+		(existing.verification_status === 'pending_screenshot' ||
+			existing.verification_status === 'pending_link' ||
+			existing.verification_status === 'pending_invite');
+	if (clobbered && existing) {
+		const tagMatches =
+			!config ||
+			config.mode === 'multi_alliance' ||
+			(config.alliance_tag &&
+				existing.alliance_tag &&
+				existing.alliance_tag.toUpperCase() === config.alliance_tag.toUpperCase());
+		await upsertVerifiedPlayer(env.STFC_DB, {
+			guild_id: guildId,
+			discord_user_id: userId,
+			verification_status: tagMatches ? 'active' : 'guest',
+		});
+		await recordGuildMember(env.STFC_DB, guildId, userId, username);
+		await markMemberInvited(env.STFC_DB, guildId, userId);
+		return { ok: true };
+	}
+
 	await upsertVerifiedPlayer(env.STFC_DB, {
 		guild_id: guildId,
 		discord_user_id: userId,
 		verification_status: 'pending_screenshot',
 	});
-
-	const config = await getGuildConfig(env.STFC_DB, guildId);
 
 	if (!env.DISCORD_BOT_TOKEN) {
 		console.warn('DISCORD_BOT_TOKEN not set — cannot send verification DM');
@@ -468,6 +494,20 @@ export async function inviteNewMember(
 			source: 'automated',
 			color: AuditColor.danger,
 		});
+		if (is403) {
+			await postUrgentNotify(env, config, {
+				content:
+					`🚨 Attention, administrators! I couldn't DM <@${userId}> (**${username}**) — ` +
+					`their Discord privacy settings likely block DMs from server members (or they blocked me).\n\n` +
+					`Ask them to enable **Allow direct messages from server members** for this server, then run ` +
+					`\`/server test-invite\` — or have them use \`/verify\` in-channel. Standing by!`,
+				title: 'Verification DM blocked',
+				description: errorMessage.slice(0, 500),
+				actorId: userId,
+				color: AuditColor.danger,
+				fields: [{ name: 'Username', value: username.slice(0, 100), inline: true }],
+			});
+		}
 		return { ok: false, errorMessage, status };
 	}
 }

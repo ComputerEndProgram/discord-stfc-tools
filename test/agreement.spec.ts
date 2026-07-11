@@ -27,6 +27,7 @@ function cfg(overrides: Partial<GuildConfig> = {}): GuildConfig {
 		nickname_template: null,
 		verification_log_channel_id: null,
 		audit_log_channel_id: null,
+		urgent_notify_channel_id: null,
 		channel_category_map: {},
 		personal_channel_extra_roles: [],
 		personal_channel_archive_category_id: null,

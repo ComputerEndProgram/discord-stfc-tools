@@ -697,6 +697,37 @@ const commands = [
 							},
 						],
 					},
+					{
+						type: 1,
+						name: 'urgent',
+						description: 'Set or create the urgent staff alert channel (DM blocked, etc.)',
+						options: [
+							{
+								type: 7,
+								name: 'channel',
+								description: 'Existing text channel for urgent alerts',
+								required: false,
+							},
+							{
+								type: 5,
+								name: 'create',
+								description: 'Create a private bot-urgent channel',
+								required: false,
+							},
+							{
+								type: 3,
+								name: 'name',
+								description: 'Name when create:true (default bot-urgent)',
+								required: false,
+							},
+							{
+								type: 5,
+								name: 'clear',
+								description: 'Disable urgent alert posting',
+								required: false,
+							},
+						],
+					},
 				],
 			},
 		],

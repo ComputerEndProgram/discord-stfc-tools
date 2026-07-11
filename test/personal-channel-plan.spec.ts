@@ -33,6 +33,7 @@ function baseConfig(overrides: Partial<GuildConfig> = {}): GuildConfig {
 		nickname_template: null,
 		verification_log_channel_id: null,
 		audit_log_channel_id: null,
+		urgent_notify_channel_id: null,
 		diplomacy_enabled: false,
 		diplomacy_category_id: null,
 		diplomacy_channel_map: {},
