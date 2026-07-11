@@ -30,7 +30,11 @@ async function discordFetch(
 
 	if (!response.ok) {
 		const body = await response.text();
-		throw new DiscordApiError(`Discord API ${path} failed`, response.status, body);
+		throw new DiscordApiError(
+			`Discord API ${path} failed (HTTP ${response.status})${body ? `: ${body.slice(0, 200)}` : ''}`,
+			response.status,
+			body,
+		);
 	}
 
 	return response;

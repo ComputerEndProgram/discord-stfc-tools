@@ -356,9 +356,14 @@ When the bot creates a channel, updates one on verify, or links with `apply_perm
 
 | Target | Access |
 |--------|--------|
+| **Bot** (first) | View, Send, Embed, Attach, Read History — required for surveys and other posts |
 | `@everyone` | Deny View Channel |
 | The member | View, Send Messages, Read Message History |
 | Extra-roles | Same as the member |
+
+The bot overwrite is applied **before** denying `@everyone`, so the bot never locks itself out. Newly created channels include these overwrites at create time.
+
+If linking an **existing** private channel fails on permissions, give the bot **View Channel** (and **Manage Channels**) on that channel or its category, then retry — or use `apply_permissions:false` and add the bot overwrite manually.
 
 Do this **before** `/server channels rebalance … create_missing:true` or bulk `/server channels link`, so new and rewritten channels get the right access. Changing extra-roles later does **not** rewrite existing channels until the next create/update/link that applies permissions.
 
@@ -695,7 +700,8 @@ After create you get an ephemeral draft with buttons:
 | “Server not configured” | Run `/server setup` |
 | Log channel silent | `/server channels log` set; bot can attach files; redeploy after feature add |
 | Personal channel not created | Single-alliance + category map set; check `/server channels status` |
-| `/server channels link` fails / “not a text channel” | Pick a **text** channel (not a category). If the bot can’t see the channel, grant it **View Channel** there (member channels often deny @everyone). Redeploy for clearer errors; re-register commands so the picker only lists text/announcement |
+| `/server channels link` fails / “not a text channel” | Pick a **text** channel (not a category). Redeploy + re-register commands |
+| `/server channels link` permission overwrite fails | Bot needs **Manage Channels** + **View Channel** on that channel/category. After deploy, link still saves and reports which overwrites failed; bot is granted View/Send first so it can post surveys |
 | Diplomacy channel not created | Multi-alliance + `/server channels diplomacy enable:true`; rank write roles must exist from setup |
 | Link finds no player | Member must verify first, or use `user:@Member` |
 | stfc.pro lookup fails | Bot falls back to HTML scrape for numeric player IDs; confirm URL/server/region |

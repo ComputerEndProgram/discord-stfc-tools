@@ -1976,23 +1976,29 @@ async function handleServerChannelsCommand(
 			description: `<#${channelId}> → ${matchLabel}`,
 			actorId: interaction.member?.user?.id,
 			source: 'admin',
-			color: AuditColor.info,
+			color: result.permissionWarnings?.length ? AuditColor.warn : AuditColor.info,
 			fields: [
 				{
 					name: 'Permissions',
-					value: applyPermissions ? 'rewritten' : 'left unchanged',
+					value: !applyPermissions
+						? 'left unchanged'
+						: result.permissionWarnings?.length
+							? `partial — ${result.permissionWarnings.slice(0, 3).join('; ')}`
+							: 'rewritten (bot + member + extra-roles)',
 					inline: true,
 				},
 			],
 		});
 
-		return interactionResponse(
-			`✅ Linked <#${channelId}> to ${matchLabel}.` +
-				(applyPermissions
-					? ' Applied bot channel permissions (member + extra-roles).'
-					: ' Left existing channel permissions unchanged.'),
-			true,
-		);
+		const permNote = !applyPermissions
+			? ' Left existing channel permissions unchanged.'
+			: result.permissionWarnings?.length
+				? `\n⚠️ Linked, but some permission overwrites failed:\n` +
+					result.permissionWarnings.map((w) => `• ${w}`).join('\n') +
+					`\n\nGrant the bot **Manage Channels** + **View Channel** on this channel (or its category), then re-run link — or edit overwrites manually so the bot can **View** and **Send**.`
+				: ' Applied permissions (bot can post here; member + extra-roles can view/send).';
+
+		return interactionResponse(`✅ Linked <#${channelId}> to ${matchLabel}.${permNote}`, true);
 	}
 
 	return interactionResponse(`❌ Unknown channels subcommand: ${sub.name}`, true);

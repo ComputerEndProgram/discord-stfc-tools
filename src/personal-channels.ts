@@ -5,9 +5,12 @@ import {
 	createGuildTextChannel,
 	fetchGuildChannel,
 	getGuildChannel,
+	getBotUserId,
 	isLinkableGuildTextChannel,
 	describeChannelType,
 	setChannelPermission,
+	DiscordApiError,
+	type ChannelPermissionOverwrite,
 	type DiscordChannel,
 } from './discord-api';
 import { categoryForPlayerName, personalChannelsEnabled, slugPersonalChannelName } from './channel-utils';
@@ -25,27 +28,88 @@ import {
 import type { GuildConfig, VerifiedPlayer } from './types';
 
 const VIEW_CHANNEL = '1024';
-const MEMBER_PERMS = String(0x400 | 0x800 | 0x10000); // view + send + read history
+/** Member: view + send + read history */
+const MEMBER_PERMS = String(0x400 | 0x800 | 0x10000);
+/** Bot: view + send + embed + attach + read history (surveys / posts in member channels) */
+const BOT_PERMS = String(0x400 | 0x800 | 0x4000 | 0x8000 | 0x10000);
 const DEFAULT_ARCHIVE_NAME = 'Member Channels Archive';
 
 export type PersonalChannelResult =
-	| { ok: true; channelId: string; created: boolean; moved: boolean; renamed: boolean }
+	| {
+			ok: true;
+			channelId: string;
+			created: boolean;
+			moved: boolean;
+			renamed: boolean;
+			permissionWarnings?: string[];
+	  }
 	| { ok: false; error: string };
 
-async function applyPersonalChannelPermissions(
+function formatPermError(targetLabel: string, err: unknown): string {
+	if (err instanceof DiscordApiError) {
+		const hint =
+			err.status === 403
+				? ' (bot needs **Manage Channels**; role must be above any role it overwrites; grant **View Channel** on the channel/category first)'
+				: '';
+		return `${targetLabel}: HTTP ${err.status}${hint}`;
+	}
+	return `${targetLabel}: ${err instanceof Error ? err.message : 'unknown error'}`;
+}
+
+/**
+ * Permission overwrites for a private member channel.
+ * Bot is listed first so it keeps access after @everyone is denied.
+ */
+export async function buildPersonalChannelOverwrites(
+	token: string,
+	guildId: string,
+	userId: string,
+	config: GuildConfig,
+): Promise<ChannelPermissionOverwrite[]> {
+	const botUserId = await getBotUserId(token);
+	const overwrites: ChannelPermissionOverwrite[] = [
+		{ id: botUserId, type: 1, allow: BOT_PERMS, deny: '0' },
+		{ id: guildId, type: 0, allow: '0', deny: VIEW_CHANNEL },
+		{ id: userId, type: 1, allow: MEMBER_PERMS, deny: '0' },
+	];
+	for (const roleId of config.personal_channel_extra_roles) {
+		if (!/^\d{15,20}$/.test(roleId)) continue;
+		overwrites.push({ id: roleId, type: 0, allow: MEMBER_PERMS, deny: '0' });
+	}
+	return overwrites;
+}
+
+/**
+ * Apply personal-channel permissions. Always grants the bot View/Send first
+ * (needed for surveys and other posts). Non-fatal overwrite failures become warnings.
+ */
+export async function applyPersonalChannelPermissions(
 	token: string,
 	guildId: string,
 	channelId: string,
 	userId: string,
 	config: GuildConfig,
-): Promise<void> {
-	// Deny @everyone — guild snowflake doubles as the @everyone role ID.
-	await setChannelPermission(token, channelId, guildId, '0', VIEW_CHANNEL, 0);
-	await setChannelPermission(token, channelId, userId, MEMBER_PERMS, '0', 1);
-	for (const roleId of config.personal_channel_extra_roles) {
-		if (!/^\d{15,20}$/.test(roleId)) continue;
-		await setChannelPermission(token, channelId, roleId, MEMBER_PERMS, '0', 0);
+): Promise<{ warnings: string[] }> {
+	const warnings: string[] = [];
+	const overwrites = await buildPersonalChannelOverwrites(token, guildId, userId, config);
+
+	for (const ow of overwrites) {
+		try {
+			await setChannelPermission(token, channelId, ow.id, ow.allow, ow.deny, ow.type);
+		} catch (err) {
+			const label =
+				ow.type === 1 && ow.id !== userId
+					? 'bot'
+					: ow.id === guildId
+						? '@everyone'
+						: ow.id === userId
+							? 'member'
+							: `role ${ow.id}`;
+			warnings.push(formatPermError(label, err));
+		}
 	}
+
+	return { warnings };
 }
 
 /**
@@ -88,7 +152,12 @@ export async function ensurePersonalChannel(
 			}
 		}
 
-		const channel = await createGuildTextChannel(token, guildId, channelName, targetCategoryId);
+		const overwrites = await buildPersonalChannelOverwrites(token, guildId, userId, config);
+		const channel = await createGuildTextChannel(token, guildId, channelName, {
+			parentId: targetCategoryId ?? undefined,
+			permissionOverwrites: overwrites,
+		});
+		// Re-apply in case Discord dropped sync/overwrites; soft-fail warnings ignored on create.
 		await applyPersonalChannelPermissions(token, guildId, channel.id, userId, config);
 		return { ok: true, channelId: channel.id, created: true, moved: false, renamed: false };
 	} catch (error) {
@@ -136,10 +205,25 @@ export async function linkExistingPersonalChannel(
 	}
 
 	try {
+		let permissionWarnings: string[] | undefined;
 		if (opts?.applyPermissions !== false) {
-			await applyPersonalChannelPermissions(token, guildId, channelId, userId, config);
+			const { warnings } = await applyPersonalChannelPermissions(
+				token,
+				guildId,
+				channelId,
+				userId,
+				config,
+			);
+			permissionWarnings = warnings.length ? warnings : undefined;
 		}
-		return { ok: true, channelId, created: false, moved: false, renamed: false };
+		return {
+			ok: true,
+			channelId,
+			created: false,
+			moved: false,
+			renamed: false,
+			permissionWarnings,
+		};
 	} catch (error) {
 		const message = error instanceof Error ? error.message : 'unknown error';
 		return { ok: false, error: message };
