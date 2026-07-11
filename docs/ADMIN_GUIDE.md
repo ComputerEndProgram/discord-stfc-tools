@@ -106,29 +106,103 @@ Nicks are truncated to Discord’s **32** character limit.
 
 ## 3. Rank roles and overlay buckets
 
+On verify (and daily sync), an **active** member receives the **union** of:
+
+1. `member_roles` (everyone who matches the alliance)
+2. The matching per-rank list (`premier_roles`, `admiral_roles`, …)
+3. Every **overlay bucket** whose `ranks` list includes their in-game rank
+
+Guests only get `guest_role` (member/rank/bucket roles are stripped).
+
 ### Per-rank roles
 
-Set on `/server setup` (`operative_roles`, `agent_roles`, …). On verify, the bot grants **member_roles** plus the matching rank roles.
+Set on `/server setup` (`operative_roles`, `agent_roles`, `premier_roles`, `commodore_roles`, `admiral_roles`). Use these for roles that belong to **one** rank only (e.g. `@Premier`).
 
-Preview without changing anything:
+Preview the resolved set without changing anything:
 
 ```
+/server rank-roles rank:Premier
 /server rank-roles rank:Admiral
 ```
 
-### Overlay buckets (e.g. leadership)
-
-Extra roles for a set of ranks:
-
-```
-/server bucket name:leadership ranks:Premier,Commodore,Admiral role_ids:@Officer,@Diplomat create_if_missing:true
-```
-
-List roles / IDs:
+List Discord role names → IDs:
 
 ```
 /server roles
+/server roles limit:50
 ```
+
+Role fields accept **IDs**, **@mentions**, or **exact role names** (comma-separated). Prefer `@mention` or ID when matching an existing layout so renames do not create duplicates.
+
+### Overlay buckets (shared roles across ranks)
+
+A **bucket** is a named overlay: “these Discord roles go to anyone whose in-game rank is in this list.” Typical use: Leadership / Officer / Diplomat shared by Premier+Commodore+Admiral.
+
+| Option | Required | Meaning |
+|--------|----------|---------|
+| `name` | Yes | Bucket key (e.g. `leadership`). Re-running the same name **replaces** that bucket. |
+| `ranks` | Yes | Comma-separated: `Operative`, `Agent`, `Premier`, `Commodore`, `Admiral` |
+| `role_ids` | No* | Discord roles to grant (IDs, mentions, or names). Omit / empty → **clears** the bucket. |
+| `create_if_missing` | No | `true` = create roles by name if missing. Leave **false/off** when linking existing roles. |
+
+\*Omitting `role_ids` (or passing nothing resolvable) deletes the bucket named in `name`.
+
+#### Matching an existing Discord layout (recommended)
+
+If Leadership (and friends) **already exist** in Server Settings → Roles:
+
+1. Run `/server setup` with **only** the per-rank roles (`@Premier`, `@Commodore`, …) — **not** Leadership in every rank list.
+2. Discover IDs if needed: `/server roles`.
+3. Point the bucket at the existing roles — **do not** set `create_if_missing`:
+
+```
+/server bucket name:leadership ranks:Premier,Commodore,Admiral role_ids:@Leadership
+```
+
+Multiple shared roles in one bucket:
+
+```
+/server bucket name:leadership ranks:Premier,Commodore,Admiral role_ids:@Leadership,@Officer,@Diplomat
+```
+
+Several independent buckets are fine (each has its own `name`):
+
+```
+/server bucket name:leadership ranks:Premier,Commodore,Admiral role_ids:@Leadership
+/server bucket name:diplomats ranks:Commodore,Admiral role_ids:@Diplomat
+```
+
+4. Confirm: `/server rank-roles rank:Premier` should list `@Premier` **and** everything from buckets that include Premier.
+5. Existing verified members pick up bucket changes on the **next daily sync**, or after re-verify / `/server verify`.
+
+#### Creating roles from scratch
+
+```
+/server bucket name:leadership ranks:Premier,Commodore,Admiral role_ids:Leadership,Officer create_if_missing:true
+```
+
+Only use `create_if_missing:true` when the names are new. If a role already exists under that name, the bot reuses it.
+
+#### Update / clear
+
+```
+# Change ranks or roles (same name overwrites)
+/server bucket name:leadership ranks:Commodore,Admiral role_ids:@Leadership
+
+# Remove the bucket entirely (keep ranks arg; omit role_ids)
+/server bucket name:leadership ranks:Premier,Commodore,Admiral
+```
+
+#### Setup vs bucket — what goes where?
+
+| Role | Put it in… |
+|------|------------|
+| `@Member` (all alliance matches) | `/server setup` → `member_roles` |
+| `@Premier` / `@Commodore` / … (one rank) | `/server setup` → `premier_roles` etc. |
+| `@Leadership` shared by several ranks | `/server bucket` |
+| `@Guest` | `/server setup` → `guest_role` |
+
+Do **not** paste `@Leadership` into `premier_roles`, `commodore_roles`, and `admiral_roles` unless you want to maintain that duplication by hand — the bucket is the single source of truth for shared overlays.
 
 ---
 
