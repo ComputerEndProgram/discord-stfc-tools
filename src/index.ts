@@ -3,6 +3,7 @@ import { handleCoordinateLookup, loadSystemData } from './systemUtils';
 import { parseCSV, autoGenerateColumns, generateAsciiTable } from './tableUtils';
 import { handleScheduledEvent } from './cron';
 import { wakeDiscordGateway, getDiscordGatewayStatus } from './discord-gateway/wake';
+import { handleAgreementBackfillContinue } from './agreement';
 
 export { DiscordGateway } from './discord-gateway/DiscordGateway';
 
@@ -21,6 +22,10 @@ export default {
 				);
 			}
 			return handleDiscordInteraction(request, env, ctx);
+		}
+
+		if (url.pathname === '/internal/agreement-backfill' && request.method === 'POST') {
+			return handleAgreementBackfillContinue(request, env, ctx);
 		}
 
 		if (url.pathname === '/lookup' && request.method === 'POST') {

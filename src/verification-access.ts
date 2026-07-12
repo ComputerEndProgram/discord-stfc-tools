@@ -8,12 +8,14 @@ import {
 	DiscordApiError,
 	getGuildChannel,
 	getGuildMember,
+	loadBotManageContext,
 	openUserDmChannel,
 	patchGuildChannel,
 	removeGuildMemberRole,
 	sendMessageWithComponents,
 	setGuildMemberNickname,
 	updateMessageResponse,
+	type BotManageContext,
 } from './discord-api';
 import { getVerifiedPlayer, upsertGuildConfig, upsertVerifiedPlayer, getGuildConfig } from './guild-db';
 import { ensurePersonalChannel } from './personal-channels';
@@ -557,6 +559,8 @@ export async function grantFullAccessForVerifiedPlayer(
 		skipWelcomeDm?: boolean;
 		/** Skip personal-channel ensure when they already have one. */
 		skipPersonalChannelIfExists?: boolean;
+		/** Preloaded hierarchy context for bulk jobs. */
+		manageContext?: BotManageContext;
 	},
 ): Promise<{ message: string; auditNotes: string[] }> {
 	const token = env.DISCORD_BOT_TOKEN;
@@ -585,7 +589,12 @@ export async function grantFullAccessForVerifiedPlayer(
 	const name = player?.name ?? record.player_name ?? 'Unknown';
 	const allianceTag = player?.allianceTag ?? record.alliance_tag ?? '';
 
-	const manage = await botCanManageMember(token, guildId, discordUserId);
+	const manage = await botCanManageMember(
+		token,
+		guildId,
+		discordUserId,
+		opts?.manageContext,
+	);
 	if (!manage.manageable) {
 		auditNotes.push(`Discord roles/nick skipped (${manage.reason}) — stamp CoC only`);
 		// Still ensure personal channel when possible (does not require managing the member).

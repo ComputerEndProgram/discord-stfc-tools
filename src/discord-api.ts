@@ -381,41 +381,62 @@ export async function getBotUserId(token: string): Promise<string> {
 /**
  * Whether the bot can change this member's roles/nick (Discord hierarchy rules).
  * Guild owner and anyone whose top role is ≥ the bot's top role are unmanageable.
+ *
+ * Pass a preloaded `ctx` from `loadBotManageContext` to avoid repeated guild/role fetches in bulk jobs.
  */
+export type BotManageContext = {
+	ownerId: string | null;
+	botId: string;
+	roles: DiscordRole[];
+	botTop: number;
+};
+
+export async function loadBotManageContext(
+	token: string,
+	guildId: string,
+): Promise<BotManageContext> {
+	const [guild, botId, roles] = await Promise.all([
+		getGuild(token, guildId),
+		getBotUserId(token),
+		listGuildRoles(token, guildId),
+	]);
+	const botMember = await getGuildMember(token, guildId, botId);
+	const positionOf = (roleId: string) => roles.find((r) => r.id === roleId)?.position ?? 0;
+	const botTop =
+		!botMember || botMember.roles.length === 0
+			? 0
+			: Math.max(...botMember.roles.map(positionOf));
+	return {
+		ownerId: guild?.owner_id ?? null,
+		botId,
+		roles,
+		botTop,
+	};
+}
+
 export async function botCanManageMember(
 	token: string,
 	guildId: string,
 	targetUserId: string,
+	preloaded?: BotManageContext,
 ): Promise<{ manageable: boolean; reason?: string }> {
-	const guild = await getGuild(token, guildId);
-	if (guild?.owner_id === targetUserId) {
+	const ctx = preloaded ?? (await loadBotManageContext(token, guildId));
+	if (ctx.ownerId === targetUserId) {
 		return { manageable: false, reason: 'guild owner' };
 	}
-
-	const botId = await getBotUserId(token);
-	if (botId === targetUserId) {
+	if (ctx.botId === targetUserId) {
 		return { manageable: false, reason: 'bot user' };
 	}
 
-	const [roles, member, botMember] = await Promise.all([
-		listGuildRoles(token, guildId),
-		getGuildMember(token, guildId, targetUserId),
-		getGuildMember(token, guildId, botId),
-	]);
+	const member = await getGuildMember(token, guildId, targetUserId);
 	if (!member) {
 		return { manageable: false, reason: 'member not in guild' };
 	}
-	if (!botMember) {
-		return { manageable: true };
-	}
 
-	const positionOf = (roleId: string) => roles.find((r) => r.id === roleId)?.position ?? 0;
-	const topPosition = (m: DiscordGuildMember) =>
-		m.roles.length === 0 ? 0 : Math.max(...m.roles.map(positionOf));
-
-	const memberTop = topPosition(member);
-	const botTop = topPosition(botMember);
-	if (memberTop >= botTop) {
+	const positionOf = (roleId: string) => ctx.roles.find((r) => r.id === roleId)?.position ?? 0;
+	const memberTop =
+		member.roles.length === 0 ? 0 : Math.max(...member.roles.map(positionOf));
+	if (memberTop >= ctx.botTop) {
 		return { manageable: false, reason: 'role hierarchy (member ≥ bot)' };
 	}
 	return { manageable: true };

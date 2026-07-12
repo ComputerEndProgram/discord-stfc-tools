@@ -839,55 +839,18 @@ async function handleServerAgreementCommand(
 	ctx.waitUntil(
 		(async () => {
 			try {
-				const { runAgreementBackfill } = await import('./agreement');
-				const result = await runAgreementBackfill(env, configSnapshot, guildId, {
+				const {
+					startAgreementBackfillJob,
+					runAgreementBackfillWithContinuation,
+				} = await import('./agreement');
+				const job = await startAgreementBackfillJob(env, configSnapshot, guildId, {
+					appId,
+					interactionToken: interaction.token!,
 					actorId,
 					userId: grantUserId,
-					onProgress: async (done, total, ok, failed, currentLabel) => {
-						await editInteractionResponse(
-							appId,
-							interaction.token!,
-							`⏳ Agreement backfill ${done}/${total} (ok ${ok}, failed ${failed})` +
-								(currentLabel ? ` — ${currentLabel}` : '') +
-								'…',
-							true,
-						);
-					},
+					configNote: anyConfigOpt ? 'Settings saved. ' : '',
 				});
-
-				await postAuditLog(env, configSnapshot, {
-					title: grantUserId ? 'Agreement granted (admin)' : 'Agreement backfill',
-					description:
-						(grantUserId
-							? `Marked CoC accepted for <@${grantUserId}>`
-							: `Marked CoC accepted for **${result.ok}** verified member(s)`) +
-						(result.failed ? ` · **${result.failed}** failed` : '') +
-						(result.skipped ? ` · **${result.skipped}** already accepted` : '') +
-						(configSnapshot.agreement_version
-							? ` · v${configSnapshot.agreement_version}`
-							: ''),
-					actorId,
-					source: 'admin',
-					color: result.failed ? AuditColor.warn : AuditColor.success,
-				});
-
-				const errBlock =
-					result.errors.length > 0 ? `\n\nErrors:\n${result.errors.join('\n')}` : '';
-				const configNote = anyConfigOpt ? 'Settings saved. ' : '';
-				await editInteractionResponse(
-					appId,
-					interaction.token!,
-					`✅ ${configNote}Agreement backfill complete.\n` +
-						`• Processed: **${result.total}**\n` +
-						`• Access restored: **${result.ok}**\n` +
-						`• Already stamped (roles re-applied): **${result.skipped}**\n` +
-						`• Failed: **${result.failed}**` +
-						(result.total === 0 && result.errors.length === 0
-							? '\n\nNo verified players needed CoC backfill.'
-							: '') +
-						errBlock,
-					true,
-				);
+				await runAgreementBackfillWithContinuation(env, configSnapshot, job);
 			} catch (err) {
 				console.error('Agreement backfill aborted:', err);
 				const msg = err instanceof Error ? err.message : 'unknown error';

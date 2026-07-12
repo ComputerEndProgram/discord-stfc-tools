@@ -833,7 +833,7 @@ Two separate gates:
 /server agreement user:@Player
 ```
 
-Records `agreement_method: admin_backfill`, stamps the current CoC version, then runs the same role/nick/channel grant as the Agree button. Alliance guests stay on guest role.
+Records `agreement_method: admin_backfill`, stamps the current CoC version, then runs the same role/nick/channel grant as the Agree button. Alliance guests stay on guest role. Large servers continue in ~20s Worker chunks via `WORKER_URL` (must be set in `.env`). Guild owner / higher-than-bot roles are skipped for Discord mutations (CoC still stamped).
 
 **Onboarding order when data consent is on:** language (if needed) → consent Yes/No → verification instructions → screenshot + link → (optional CoC) → welcome DM.
 
