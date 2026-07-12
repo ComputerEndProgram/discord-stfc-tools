@@ -21,6 +21,10 @@ import {
 	shouldUseAllianceRoster,
 	syncGuildAllianceRoster,
 } from './alliance-roster-sync';
+import {
+	allianceRosterDiffHasChanges,
+	formatAllianceRosterChangeReport,
+} from './alliance-roster-diff';
 import type { PlayerData } from './types';
 
 export async function runMemberPoll(env: Env): Promise<void> {
@@ -126,14 +130,17 @@ export async function runDailyPlayerSync(env: Env): Promise<void> {
 			if (rosterResult.ok) {
 				rosterOk = true;
 				rosterMap = await loadRosterPlayerMap(env, config);
+				const report = formatAllianceRosterChangeReport(rosterResult.diff, {
+					allianceTag: rosterResult.scrape.allianceTag || config.alliance_tag || 'alliance',
+					allianceId: config.stfc_alliance_id ?? rosterResult.scrape.allianceId,
+				});
 				await postAuditLog(env, config, {
-					title: 'Alliance roster scraped',
-					description:
-						`Cached **${rosterResult.scrape.players.length}** members` +
-						` for **${rosterResult.scrape.allianceTag || config.alliance_tag}**` +
-						` (id \`${config.stfc_alliance_id ?? rosterResult.scrape.allianceId}\`).`,
+					title: report.title,
+					description: report.description,
 					source: 'cron',
-					color: AuditColor.info,
+					color: allianceRosterDiffHasChanges(rosterResult.diff)
+						? AuditColor.warn
+						: AuditColor.info,
 				});
 			} else {
 				console.warn(

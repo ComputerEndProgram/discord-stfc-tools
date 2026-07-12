@@ -33,6 +33,7 @@ Cloudflare Worker (src/index.ts)
 Bindings:
   STFC_DB          → D1 "stfc-officers" (guild/player tables; binding renamed from OFFICERS_DB)
   DISCORD_GATEWAY  → Durable Object (Discord Gateway WebSocket)
+  STFC_SESSION     → Durable Object (anonymous stfc.pro session cookie + X-STFC-Token cache)
   VERIFICATION_ASSETS → R2 (optional screenshot archive)
   SYSTEM_DATA      → KV (configured but NOT used at runtime)
   DISCORD_PUBLIC_KEY / DISCORD_BOT_TOKEN → secrets
@@ -52,8 +53,36 @@ Worker (src/index.ts) — wakes DO on fetch + cron
 
 **Cron schedules:**
 - `*/5 * * * *` — wake Gateway + member poll fallback
-- `0 */6 * * *` — re-check guest players (alliance tag polling)
-- `0 6 * * *` — daily ops/power/alliance sync for verified players
+- `0 */6 * * *` — re-check guest players (prefer alliance roster cache, else HTML)
+- `0 6 * * *` — alliance roster scrape + day-over-day report + daily player sync
+- `30 * * * *` — demotion recheck queue (YOLO missing-player delay)
+
+### Alliance roster sync (single_alliance)
+
+Morning job scrapes **one** HTML page (`https://stfc.pro/alliances/{id}`) which embeds the **full** member list (UI pagination is client-side only). That cache drives daily sync and most verifies — drastically fewer per-player stfc.pro hits.
+
+```
+0 6 * * * (single_alliance guilds)
+  → scrape /alliances/{stfc_alliance_id}
+  → diff vs previous D1 snapshot → audit-log report (joins/leaves/ops/rank/renames)
+  → replace alliance_roster_* in D1
+  → sync verified players from roster (ops, power, name, rank)
+  → not on roster → demotion candidate (left / wrong alliance)
+  → scrape fail → fall back to per-player HTML lookups
+```
+
+| Concern | Behavior |
+|---------|----------|
+| **Who scrapes?** | `mode = single_alliance` **and** `alliance_tag` set (`shouldUseAllianceRoster`) |
+| **Multi-alliance** | Never scrapes or reads roster cache; daily sync stays per-player HTML; switching to multi clears roster + `stfc_alliance_id` |
+| **Verify** | If player is on a fresh roster (≤36h) → use cache; else live HTML/API lookup (guests / outsiders) |
+| **Guest 6h poll** | Prefer roster hit before live lookup |
+| **Alliance id** | `guild_configs.stfc_alliance_id`; auto-discovered from a verified player’s HTML profile if missing |
+| **Day-over-day report** | Posted to `/channels audit` after each successful morning scrape |
+
+**stfc.pro access note:** `/api/players` returns `403 forbidden` from Cloudflare Worker egress even with a valid anonymous session. Production lookups use **HTML scrapes** (`/players/{id}`, `/alliances/{id}`). `STFC_SESSION` remains for future API use / diagnostics. Do **not** rely on `fetchAllianceByTag` (API) from the Worker.
+
+**Modules:** `src/alliance-roster-sync.ts`, `src/alliance-roster-diff.ts`, HTML parsers in `src/stfc-utils.ts`. Migration: `migrations/024_alliance_roster.sql`.
 
 ---
 
@@ -87,7 +116,7 @@ Worker (src/index.ts) — wakes DO on fetch + cron
 - `/channels link` — adopt existing member channels; `apply_permissions` uses locked template (or built-in default)
 - `/player` — live stfc.pro lookup
 - Gateway DM flow: language picker → screenshot → link → roles/nickname/channels
-- Cron: member poll, guest alliance re-check, daily ops/power sync
+- Cron: member poll, guest alliance re-check, **alliance roster scrape + day-over-day audit report**, daily player sync
 - `/survey` — button polls (role/rank/level/grade/user targeting); private log channel; ASCII result tables
 - `/exchange` — cross-alliance resource donors/recipients (hub or category layout, Help/Ignore claim DMs)
 - `/language` — player preferred language for bot DMs (en/de/fr/es/pt/nl/pl/it/ru/tr/hu)
@@ -95,6 +124,7 @@ Worker (src/index.ts) — wakes DO on fetch + cron
 - `/server exclude-add|exclude-remove|exclude-list` — skip Discord users from invites and unverified stats (other bots, etc.; Discord bots auto-skipped)
 - **DM assistant** — HAL refusal for unknown asks; Badgey voice + admin menu wizards; roster Q&A gated by `/server assistant`
 - **Discord agreement** — optional CoC gate (`/server agreement`); DM Agree button; timing before/after verify; channel react planned
+- **Alliance roster cache** (single-alliance) — morning HTML scrape of `/alliances/{id}`; verify + daily sync prefer cache; audit report of joins/leaves/ops/rank/renames
 
 **Personal channel permissions (agents):** Prefer **not** Discord “sync category → children” when existing channels have per-member allows — that wipes them. Audit first (`permissions-audit`), lock a good sample (`permissions-template-from`), then create/link. Template lives on `guild_configs.personal_channel_perm_template` (JSON); null = built-in bot + deny @everyone + member + `personal_channel_extra_roles`. Bot overwrite is always applied first so the bot can post surveys. Docs: `docs/ADMIN_GUIDE.md` § personal channels.
 
@@ -111,9 +141,12 @@ Renders CSV as ASCII tables. Accepts inline `csv_data` or `.csv` attachment (max
 | `GET/POST /lookup` | Coordinate lookup API |
 | `POST /table` | CSV table API |
 | `GET /gateway/status` | Gateway DO connection state |
+| `GET /stfc-session/status` | Anonymous stfc.pro session / token cache |
+| `GET /stfc-session/ping` | HTML player lookup smoke test |
+| `GET /alliance-roster/ping` | Alliance HTML roster scrape smoke test (`?persist=1&guild_id=` to write D1) |
 | `GET /systems` | First 10 bundled systems |
 
-**Logging:** `/channels log` = verification screenshots/summaries; `/channels audit` = general admin + automated bot events; `/channels urgent` = optional high-signal alerts (e.g. DM blocked).
+**Logging:** `/channels log` = verification screenshots/summaries; `/channels audit` = general admin + automated bot events **including morning alliance roster change reports**; `/channels urgent` = optional high-signal alerts (e.g. DM blocked).
 
 ---
 
@@ -124,14 +157,17 @@ src/
   index.ts                 # Worker entry
   discord-handlers.ts      # Slash command routing
   discord-gateway/         # Gateway DO + DM verification
-  verification.ts          # Verify flow + roles
+  verification.ts          # Verify flow + roles (roster-first lookup)
   verification-access.ts   # Roles, nick, personal/diplomacy channel apply
+  alliance-roster-sync.ts  # Scrape/persist/load roster; single_alliance gate
+  alliance-roster-diff.ts  # Day-over-day joins/leaves/ops/rank/renames + audit format
   personal-channels.ts     # Create/link/rebalance member channels
   personal-channel-perm-template.ts  # Locked overwrite template (from sample channel)
   channel-permission-audit.ts        # Read-only overwrite audit report
   guild-db.ts              # STFC_DB access
   survey-*.ts              # Surveys / button polls
-  stfc-utils.ts            # stfc.pro client
+  stfc-utils.ts            # stfc.pro client (HTML scrape + API; HTML preferred from CF)
+  stfc-session/            # Anonymous session DO for /api/players (often 403 from CF)
   dm-assistant/            # DM HAL/Badgey router, admin wizards, roster Q&A
   roster-handlers.ts       # /roster slash commands
   urgent-notify.ts         # Optional high-signal staff alerts
@@ -146,6 +182,7 @@ migrations/
   017_urgent_notify_channel.sql
   018_guild_excluded_users.sql
   019_personal_channel_perm_template.sql
+  024_alliance_roster.sql  # stfc_alliance_id + alliance_roster_meta/members
 
 archive/officers/          # REMOVED officer feature (scripts, SQL, assets, docs)
 
@@ -191,12 +228,14 @@ Binding in code: **`STFC_DB`**. Cloudflare D1 database name remains `stfc-office
 
 | Table | Purpose |
 |-------|---------|
-| `guild_configs` | Per-Discord-server mode, STFC server/region, roles, categories, log/audit/urgent channels, `personal_channel_perm_template` |
+| `guild_configs` | Per-Discord-server mode, STFC server/region, roles, categories, log/audit/urgent channels, `personal_channel_perm_template`, **`stfc_alliance_id`** |
 | `guild_excluded_users` | Discord users skipped for invites + unverified roster stats |
 | `guild_members` | Known members + verification invite tracking |
 | `verified_players` | Discord ↔ STFC player link, ops/power/grade, status |
 | `verification_screenshots` | Archived profile screenshots (R2 key + Discord URL) |
 | `player_stats_history` | Daily ops/power/alliance snapshots |
+| `alliance_roster_meta` | Latest alliance HTML scrape metadata (tag, count, `fetched_at`) |
+| `alliance_roster_members` | Latest scraped members (ops, power, rank, name) — replaced each morning |
 | `surveys` / `survey_responses` | Grade-targeted feedback (future) |
 
 Apply migration: `npm run db:migrate` (remote) or `npm run db:migrate-local`
@@ -211,6 +250,7 @@ Legacy officer tables may still exist in this D1 database from earlier work; the
 2. **Stale root docs** — `README.md`, `CHANGES_SUMMARY.md` may not reflect current scope.
 3. **No CI/CD** — no GitHub Actions.
 4. **Member poll fallback** — REST member list poll every 5 min when Gateway disconnected.
+5. **stfc.pro `/api/players` blocked from CF egress** — returns `403 forbidden` even with valid anonymous session + `X-STFC-Token`. Worker uses HTML scrapes (`/players/{id}`, `/alliances/{id}`) instead. Residential IPs still get API `200`.
 
 ---
 
@@ -226,7 +266,7 @@ Legacy officer tables may still exist in this D1 database from earlier work; the
 |--------|-----------|
 | `src/stfc-utils.ts` | stfc.pro API client — decompression, pagination, rate limiting, `PlayerData` type |
 | `findPlayerByIdOrName()` | Parse stfc.pro player page / search API |
-| `fetchAllianceByTag()` | Verify alliance membership |
+| `fetchAllianceByTag()` | Legacy API alliance pull — **do not use from Worker** (CF egress gets `/api/players` 403); use HTML `scrapeAllianceById` instead |
 | `src/discord-commands.json` pattern | Single source of truth for slash command definitions |
 | Deferred response pattern (`type: 5` + followup PATCH) | Long-running stfc.pro fetches |
 | `ctx.waitUntil()` | Background verification polling |
@@ -361,14 +401,19 @@ When `guild_config.mode = 'multi_alliance'`:
 
 No guest-role gating; no personal channel requirement (unless optionally enabled).
 
-### Phase 4 — Daily player sync
+### Phase 4 — Daily player sync — **done (roster-first)**
 
-**Cron:** Once per day (configurable), for all `verified_players` in each guild:
+**Cron:** `0 6 * * *` (`runDailyPlayerSync` in `src/cron.ts`).
 
-1. Re-fetch player from stfc.pro.
-2. Update D1: `ops_level`, `power`, `alliance_tag`, `player_name`, `last_synced_at`.
-3. Detect changes → trigger mode-specific actions (Phase 2/3 rules).
-4. Append to `player_stats_history` for trend queries.
+**Single-alliance:**
+1. Scrape alliance HTML → replace `alliance_roster_*` → post day-over-day audit report.
+2. For each verified player: if on roster → sync ops/power/name/rank from cache; if missing → demotion candidate.
+3. Append to `player_stats_history` on successful sync.
+4. Scrape failure → fall back to per-player HTML (legacy path).
+
+**Multi-alliance:** no alliance scrape; per-player HTML sync only (no auto-demote for tag changes).
+
+**Verify path:** `lookupPlayerFromUrl` prefers fresh roster cache when `shouldUseAllianceRoster` (same single-alliance gate).
 
 ### Phase 5 — Ops grade targeting & surveys
 
@@ -495,6 +540,7 @@ Stored in `guild_configs`. Admin setup command: `/server setup` (to be implement
 | `mode` | `single_alliance` or `multi_alliance` |
 | `stfc_server` / `stfc_region` | Which STFC server to validate against |
 | `alliance_tag` | Expected tag (single-alliance mode) |
+| `stfc_alliance_id` | stfc.pro alliance id for `/alliances/{id}` HTML roster scrape (single-alliance; auto-discovered if unset) |
 | `guest_role_id` | Role for non-matching alliance members |
 | `member_role_ids` | Roles granted on successful verification |
 | `channel_category_map` | First-letter → category ID mapping for personal channels |
@@ -526,13 +572,14 @@ Use a service layer (e.g. `src/guild-config-service.ts`) — do not embed raw SQ
 - Background work: `ctx.waitUntil(promise)` in `fetch()` handler.
 - Button/survey responses: `interaction.type === 3`, route by `custom_id` prefix (e.g. `survey_{id}_{option}`).
 
-### Cron (to add in wrangler config)
+### Cron (wrangler / `generate-config.js`)
 
 | Schedule | Purpose |
 |----------|---------|
-| `0 */6 * * *` | Re-check pending verifications (alliance tag polling) |
-| `0 6 * * *` | Daily full player sync (ops, power, alliance) |
-| `*/5 * * * *` | Process queued DM / channel creation jobs (if using job table) |
+| `*/5 * * * *` | Wake Gateway + member poll fallback |
+| `0 */6 * * *` | Guest re-check (roster-first, else HTML) |
+| `0 6 * * *` | Alliance roster scrape + change report + daily player sync |
+| `30 * * * *` | Demotion recheck queue (YOLO missing-player delay) |
 
 ---
 
@@ -589,6 +636,7 @@ Current coverage: basic `/lookup` and `/table` integration tests only.
 - Guild config CRUD
 - Verification state machine transitions
 - Single vs multi-alliance role logic (pure functions, no Discord API)
+- Alliance roster HTML parse + day-over-day diff (`shouldUseAllianceRoster`, `diffAllianceRosters`)
 - Survey targeting filters
 
 Mock Discord REST and stfc.pro in Worker tests; use D1 local binding for integration tests.
@@ -599,9 +647,9 @@ Mock Discord REST and stfc.pro in Worker tests; use D1 local binding for integra
 
 | File | Status |
 |------|--------|
-| `SETUP.md` | **Fresh install and migration guide** |
-| `docs/ADMIN_GUIDE.md` | **Discord admin configuration** (roles, nicks, channels, log) |
-| `AGENTS.md` | Architecture, roadmap, coding guidelines |
+| `SETUP.md` | **Fresh install and migration guide** (cron, diagnostic endpoints) |
+| `docs/ADMIN_GUIDE.md` | **Discord admin configuration** (roles, nicks, channels, log, **daily alliance roster**) |
+| `AGENTS.md` | Architecture, alliance roster sync, roadmap, coding guidelines |
 | `ENVIRONMENT_SETUP.md` | `.env` and `generate-config.js` overview |
 | `FACTION_MAPPING.md` | System faction IDs (for `/lookup`) |
 | `KV_MIGRATION_GUIDE.md` | KV migration (incomplete) |
@@ -620,5 +668,6 @@ Mock Discord REST and stfc.pro in Worker tests; use D1 local binding for integra
 5. ~~Personal channel category configuration command~~ — done (`/channels map|plan|rebalance`)
 5b. ~~Personal channel permissions audit + lockable template~~ — done (`permissions-audit`, `permissions-template`)
 6. ~~Button surveys / polls (`/survey`)~~ — done
-7. Daily sync polish + grade-based survey targeting refinements
-8. Optional: drop legacy officer tables from D1
+7. ~~Alliance roster HTML scrape + daily sync/verify cache + day-over-day audit report~~ — done
+8. Grade-based survey targeting refinements
+9. Optional: drop legacy officer tables from D1

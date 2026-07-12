@@ -16,6 +16,10 @@ import {
 	type AllianceRosterScrape,
 } from './stfc-utils';
 import type { GuildConfig, PlayerData } from './types';
+import {
+	diffAllianceRosters,
+	type AllianceRosterDiff,
+} from './alliance-roster-diff';
 
 /** Prefer morning scrape through the next daily run (with slack). */
 export const ALLIANCE_ROSTER_MAX_AGE_MS = 36 * 60 * 60 * 1000;
@@ -88,7 +92,10 @@ export async function resolveGuildAllianceId(
 export async function syncGuildAllianceRoster(
 	env: Env,
 	config: GuildConfig,
-): Promise<{ ok: true; scrape: AllianceRosterScrape } | { ok: false; reason: string }> {
+): Promise<
+	| { ok: true; scrape: AllianceRosterScrape; diff: AllianceRosterDiff }
+	| { ok: false; reason: string }
+> {
 	if (!shouldUseAllianceRoster(config)) {
 		return { ok: false, reason: 'not_single_alliance' };
 	}
@@ -103,8 +110,37 @@ export async function syncGuildAllianceRoster(
 		return { ok: false, reason: 'scrape_failed' };
 	}
 
+	const previousRows = await listAllianceRosterMembers(env.STFC_DB, config.guild_id);
+	const previous = previousRows.map((m) => ({
+		playerId: m.player_id,
+		playerName: m.player_name,
+		allianceRank: m.alliance_rank,
+		opsLevel: m.ops_level,
+	}));
+
 	const fetchedAt = new Date().toISOString();
 	const tag = scrape.allianceTag || config.alliance_tag!;
+	const members = scrape.players.map((p) => ({
+		playerId: p.playerId,
+		playerName: p.name,
+		allianceTag: p.allianceTag || tag,
+		allianceId: p.allianceId || scrape.allianceId || allianceId,
+		allianceRank: p.rank || '',
+		opsLevel: p.level,
+		power: p.power,
+		grade: opsLevelToGrade(p.level),
+		joinDate: p.joinDate || '',
+	}));
+
+	const diff = diffAllianceRosters(
+		previous,
+		members.map((m) => ({
+			playerId: m.playerId,
+			playerName: m.playerName,
+			allianceRank: m.allianceRank,
+			opsLevel: m.opsLevel,
+		})),
+	);
 
 	await replaceAllianceRoster(env.STFC_DB, {
 		guildId: config.guild_id,
@@ -112,17 +148,7 @@ export async function syncGuildAllianceRoster(
 		allianceTag: tag,
 		allianceName: scrape.allianceName || null,
 		fetchedAt,
-		members: scrape.players.map((p) => ({
-			playerId: p.playerId,
-			playerName: p.name,
-			allianceTag: p.allianceTag || tag,
-			allianceId: p.allianceId || scrape.allianceId || allianceId,
-			allianceRank: p.rank || '',
-			opsLevel: p.level,
-			power: p.power,
-			grade: opsLevelToGrade(p.level),
-			joinDate: p.joinDate || '',
-		})),
+		members,
 	});
 
 	if (!config.stfc_alliance_id || config.stfc_alliance_id !== (scrape.allianceId || allianceId)) {
@@ -132,9 +158,12 @@ export async function syncGuildAllianceRoster(
 	}
 
 	console.log(
-		`Alliance roster synced for guild ${config.guild_id}: ${scrape.players.length} members (${tag})`,
+		`Alliance roster synced for guild ${config.guild_id}: ${scrape.players.length} members (${tag})` +
+			(diff.isInitial
+				? ' [initial]'
+				: ` [+${diff.joined.length}/-${diff.left.length} ops↑${diff.opsUp.length} rank${diff.rankChanged.length}]`),
 	);
-	return { ok: true, scrape };
+	return { ok: true, scrape, diff };
 }
 
 /** Clear roster cache + alliance id when leaving single-alliance mode. */

@@ -87,8 +87,8 @@ Role fields accept **IDs**, **@mentions**, or **names** (with `create_missing_ro
 
 | Mode | Behaviour |
 |------|-----------|
-| `single_alliance` | Tag must match `alliance_tag`. Else guest role + periodic re-check. Personal channels can auto-create. |
-| `multi_alliance` | Any alliance verifies as active. No guest gating. Personal auto-create is off (link existing channels instead). |
+| `single_alliance` | Tag must match `alliance_tag`. Else guest role + periodic re-check. Personal channels can auto-create. **Morning alliance scrape** caches the full roster for daily sync + verify (see § Daily alliance roster). |
+| `multi_alliance` | Any alliance verifies as active. No guest gating. Personal auto-create is off (link existing channels instead). **No** alliance roster scrape (per-player lookups only). Switching from single → multi clears the roster cache. |
 
 Check config anytime:
 
@@ -308,7 +308,7 @@ Disable:
 
 Same private-channel permission pattern as the verification log (`@everyone` denied; bot + `/channels extra-roles` can view). Prefer setting **extra-roles** first so viewers are included on create.
 
-Logged events include (non-exhaustive): `/server setup`, verify (brief — screenshots stay on the verification log), guest invites, player sync changes, personal-channel map/rebalance/link, diplomacy config, surveys sent/closed, exchange setup, daily sync / guest re-check summaries.
+Logged events include (non-exhaustive): `/server setup`, verify (brief — screenshots stay on the verification log), guest invites, player sync changes, personal-channel map/rebalance/link, diplomacy config, surveys sent/closed, exchange setup, daily sync / guest re-check summaries, **morning alliance roster change report** (joins / leaves / ops / rank / renames).
 
 ---
 
@@ -337,6 +337,46 @@ Disable:
 Same private-channel pattern as audit/log (`@everyone` denied; bot + `/channels extra-roles` can view). Prefer setting **extra-roles** first.
 
 Urgent posts use a short Badgey-style message so they stand out from routine audit embeds. The same event is still written to the audit log when configured.
+
+---
+
+## 4d. Daily alliance roster (single-alliance)
+
+Each morning (`~06:00 UTC`, cron `0 6 * * *`) the bot:
+
+1. Scrapes your alliance page on stfc.pro (one request; full member list).
+2. Compares to **yesterday’s** cached roster.
+3. Posts a summary to the **audit log** channel.
+4. Updates verified members’ ops / power / nickname / rank roles from that cache (no per-player stfc.pro hit for people still in the alliance).
+5. Treats verified players **missing** from the scrape as leave / wrong-alliance candidates (subject to demotion policy).
+
+### What the audit report includes
+
+| Section | Meaning |
+|---------|---------|
+| **Joined** | On today’s scrape, not yesterday |
+| **Left** | On yesterday’s scrape, not today |
+| **Ops up / down** | Same player id, ops level changed |
+| **Rank changes** | Same player id, alliance rank string changed |
+| **Renames** | Same player id, in-game name changed |
+
+First successful scrape for a guild is an **initial snapshot** (no join spam). Unchanged days get a short “no changes” note.
+
+### Requirements
+
+- Mode: **`single_alliance`** with `alliance_tag` set (`/server setup`).
+- Audit channel configured (`/channels audit`) so you see the report.
+- Alliance id is stored as `stfc_alliance_id` (shown on `/server status` when set). The bot auto-discovers it from a verified player’s stfc.pro profile if missing.
+
+### Verify / guests
+
+- If someone verifies and they’re **already** on today’s (or recent ≤36h) roster → bot uses cached data (faster, fewer stfc.pro calls).
+- If they’re **not** on the roster → live stfc.pro lookup (guest / outsider path).
+- Guest re-check every 6 hours also prefers the roster before a live lookup.
+
+### Multi-alliance
+
+Roster scrape and the morning change report **do not run**. Daily sync still updates verified players via per-player lookups; tag changes do not auto-demote.
 
 ---
 
@@ -621,6 +661,8 @@ Wrong alliance (or empty alliance tag on stfc.pro) → **guest** candidate. Beha
 |--------|--------------------------------|----------------------------|---------------------|
 | **approval** (default) | Queue → urgent channel Approve/Reject | Queue → urgent Approve/Reject | Skip (never demote) |
 | **yolo** | Demote immediately | Queue 1h recheck; demote only if still missing | Skip (never demote) |
+
+The **6-hour guest poll** and **morning sync** prefer the cached alliance roster when fresh: if a guest appears on the roster, they are promoted without a per-player stfc.pro hit. If the morning scrape succeeds and an **active** member is absent from the roster, they become a demotion candidate (left alliance).
 
 If a personal-channel archive category is configured, demotion moves their channel there.
 

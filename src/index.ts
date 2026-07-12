@@ -172,6 +172,15 @@ export default {
 										allianceId: result.scrape.allianceId,
 										allianceTag: result.scrape.allianceTag,
 										playerCount: result.scrape.players.length,
+										diff: {
+											isInitial: result.diff.isInitial,
+											joined: result.diff.joined.length,
+											left: result.diff.left.length,
+											opsUp: result.diff.opsUp.length,
+											opsDown: result.diff.opsDown.length,
+											rankChanged: result.diff.rankChanged.length,
+											renamed: result.diff.renamed.length,
+										},
 										sample: result.scrape.players.slice(0, 3).map((p) => ({
 											playerId: p.playerId,
 											name: p.name,

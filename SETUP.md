@@ -122,7 +122,7 @@ See [Pushing .env to Cloudflare](#pushing-env-to-cloudflare) for details on what
 
 ### Step 7: Apply database schema
 
-`db:migrate` runs `migrations/001_guild_schema.sql` against your remote D1 database. This creates guild/player tables (`guild_configs`, `verified_players`, etc.).
+`db:migrate` applies pending files under `migrations/` to remote D1 (tracked in `_schema_migrations`). That includes the base guild/player schema plus later migrations (surveys, urgent channel, excluded users, personal-channel permission template, **alliance roster** `024_alliance_roster.sql`, etc.).
 
 For local development only:
 
@@ -136,7 +136,7 @@ npm run db:migrate-local
 npm run deploy
 ```
 
-First deploy registers the **Durable Object** migration (`v1` / `DiscordGateway`). This is automatic via `wrangler.json`.
+First deploy registers **Durable Object** migrations (`DiscordGateway`, `StfcSession`). This is automatic via `wrangler.json` / `generate-config.js`.
 
 Note your Worker URL from the deploy output (e.g. `https://stfc-tools.your-name.workers.dev`). Update `WORKER_URL` in `.env`, then `npm run push-env && npm run deploy` again.
 
@@ -254,7 +254,7 @@ Use this if you already run an older version of this bot (coordinate lookup, `/o
 | Webhook-only bot | Webhook + **Gateway Durable Object** (DMs, member joins) |
 | No verification | `/verify`, `/server`, `/player`, guild tables in D1 |
 | `DISCORD_PUBLIC_KEY` only | Also requires `DISCORD_BOT_TOKEN` secret |
-| No cron | Three cron triggers (member poll, guest re-check, daily sync) |
+| No cron | Four cron triggers (member poll, guest re-check, daily roster+sync, demotion recheck) |
 | KV for systems (documented) | Still optional; lookup uses bundled `systemData.ts` |
 
 **Your existing D1 database** (`stfc-officers` or custom name) is reused. Legacy officer tables (`officers`, `officer_translations`, etc.) are harmless if left in place — the bot no longer queries them.
@@ -488,6 +488,7 @@ npm run push-env && npm run deploy
 |---------|------|---------|
 | `STFC_DB` | D1 | Guild and player state |
 | `DISCORD_GATEWAY` | Durable Object | Discord Gateway WebSocket |
+| `STFC_SESSION` | Durable Object | Anonymous stfc.pro session / token cache |
 | `VERIFICATION_ASSETS` | R2 | Optional screenshot storage |
 | `SYSTEM_DATA` | KV | Optional; unused at runtime |
 
@@ -500,8 +501,22 @@ Configured in `generate-config.js` → `wrangler.json`:
 | Schedule | Purpose |
 |----------|---------|
 | `*/5 * * * *` | Wake Gateway; member poll fallback |
-| `0 */6 * * *` | Re-check guest players (alliance tag polling) |
-| `0 6 * * *` | Daily ops/power/alliance sync |
+| `0 */6 * * *` | Re-check guest players (alliance roster cache first, else HTML) |
+| `0 6 * * *` | Alliance roster scrape + day-over-day audit report + daily player sync |
+| `30 * * * *` | Demotion recheck queue (YOLO missing-player delay) |
+
+**Single-alliance morning job:** one HTML scrape of `https://stfc.pro/alliances/{stfc_alliance_id}` (full roster embedded in the page). Diff vs previous D1 snapshot → post to audit channel → sync verified players from cache. See `docs/ADMIN_GUIDE.md` § Daily alliance roster and `AGENTS.md` § Alliance roster sync.
+
+**Multi-alliance:** no alliance scrape; daily sync uses per-player HTML lookups only.
+
+### Diagnostic endpoints (ops)
+
+| Path | Purpose |
+|------|---------|
+| `GET /alliance-roster/ping` | Scrape alliance HTML (`?alliance_id=&server=&region=`) |
+| `GET /alliance-roster/ping?persist=1&guild_id=` | Scrape + write D1 roster for a single-alliance guild (returns diff counts) |
+| `GET /stfc-session/ping` | HTML player lookup smoke test |
+| `GET /gateway/status` | Discord Gateway DO status |
 
 ---
 
