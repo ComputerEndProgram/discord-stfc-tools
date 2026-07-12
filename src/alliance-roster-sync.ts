@@ -1,11 +1,14 @@
 import {
 	clearAllianceRoster,
+	getAllianceRosterLatestFetchedAt,
 	getAllianceRosterMember,
 	getAllianceRosterMemberByName,
 	getAllianceRosterMeta,
 	listActiveVerifiedPlayers,
 	listAllianceRosterMembers,
+	pruneAllianceRostersOutside,
 	replaceAllianceRoster,
+	replaceServerAllianceDirectory,
 	setGuildStfcAllianceId,
 	type AllianceRosterMemberRow,
 } from './guild-db';
@@ -13,9 +16,11 @@ import { opsLevelToGrade } from './grade-utils';
 import {
 	lookupPlayerByIdOrName,
 	scrapeAllianceById,
+	scrapeServerAlliances,
 	type AllianceRosterScrape,
+	type ServerAllianceDirectoryEntry,
 } from './stfc-utils';
-import type { GuildConfig, PlayerData } from './types';
+import type { GuildConfig, PlayerData, VerifiedPlayer } from './types';
 import {
 	diffAllianceRosters,
 	type AllianceRosterDiff,
@@ -24,11 +29,32 @@ import {
 /** Prefer morning scrape through the next daily run (with slack). */
 export const ALLIANCE_ROSTER_MAX_AGE_MS = 36 * 60 * 60 * 1000;
 
-/** Roster cache is single-alliance only — multi never scrapes or reads it. */
+/** Max alliance HTML pages per morning multi sync (batch). */
+export const MULTI_ALLIANCE_SCRAPE_MAX = 40;
+
+/** Delay between alliance page fetches (ms). */
+export const MULTI_ALLIANCE_SCRAPE_DELAY_MS = 1200;
+
+function sleep(ms: number): Promise<void> {
+	return new Promise((r) => setTimeout(r, ms));
+}
+
+/** Single-alliance guilds use one configured tag roster. */
 export function shouldUseAllianceRoster(
 	config: Pick<GuildConfig, 'mode' | 'alliance_tag'>,
 ): boolean {
 	return config.mode === 'single_alliance' && Boolean(config.alliance_tag?.trim());
+}
+
+export function isMultiAllianceGuild(config: Pick<GuildConfig, 'mode'>): boolean {
+	return config.mode === 'multi_alliance';
+}
+
+/** Verify/sync may read roster cache in single or multi when fresh. */
+export function canReadAllianceRosterCache(
+	config: Pick<GuildConfig, 'mode' | 'alliance_tag'>,
+): boolean {
+	return shouldUseAllianceRoster(config) || isMultiAllianceGuild(config);
 }
 
 export function isAllianceRosterFresh(fetchedAt: string, nowMs = Date.now()): boolean {
@@ -61,6 +87,22 @@ export function rosterMemberToPlayerData(
 	};
 }
 
+export function collectTrackedAllianceTags(
+	config: GuildConfig,
+	verified: VerifiedPlayer[],
+): Set<string> {
+	const tags = new Set<string>();
+	for (const p of verified) {
+		const t = p.alliance_tag?.trim();
+		if (t) tags.add(t.toUpperCase());
+	}
+	for (const tag of Object.keys(config.diplomacy_channel_map ?? {})) {
+		const t = tag.trim();
+		if (t) tags.add(t.toUpperCase());
+	}
+	return tags;
+}
+
 export async function resolveGuildAllianceId(
 	env: Env,
 	config: GuildConfig,
@@ -87,6 +129,34 @@ export async function resolveGuildAllianceId(
 		return allianceId;
 	}
 	return null;
+}
+
+function membersFromScrape(
+	scrape: AllianceRosterScrape,
+	allianceId: string,
+	tag: string,
+): Array<{
+	playerId: number;
+	playerName: string;
+	allianceTag: string;
+	allianceId: string;
+	allianceRank: string;
+	opsLevel: number;
+	power: number;
+	grade: number | null;
+	joinDate: string;
+}> {
+	return scrape.players.map((p) => ({
+		playerId: p.playerId,
+		playerName: p.name,
+		allianceTag: p.allianceTag || tag,
+		allianceId: p.allianceId || scrape.allianceId || allianceId,
+		allianceRank: p.rank || '',
+		opsLevel: p.level,
+		power: p.power,
+		grade: opsLevelToGrade(p.level),
+		joinDate: p.joinDate || '',
+	}));
 }
 
 export async function syncGuildAllianceRoster(
@@ -116,31 +186,14 @@ export async function syncGuildAllianceRoster(
 		playerName: m.player_name,
 		allianceRank: m.alliance_rank,
 		opsLevel: m.ops_level,
+		allianceTag: m.alliance_tag,
 	}));
 
 	const fetchedAt = new Date().toISOString();
 	const tag = scrape.allianceTag || config.alliance_tag!;
-	const members = scrape.players.map((p) => ({
-		playerId: p.playerId,
-		playerName: p.name,
-		allianceTag: p.allianceTag || tag,
-		allianceId: p.allianceId || scrape.allianceId || allianceId,
-		allianceRank: p.rank || '',
-		opsLevel: p.level,
-		power: p.power,
-		grade: opsLevelToGrade(p.level),
-		joinDate: p.joinDate || '',
-	}));
+	const members = membersFromScrape(scrape, allianceId, tag);
 
-	const diff = diffAllianceRosters(
-		previous,
-		members.map((m) => ({
-			playerId: m.playerId,
-			playerName: m.playerName,
-			allianceRank: m.allianceRank,
-			opsLevel: m.opsLevel,
-		})),
-	);
+	const diff = diffAllianceRosters(previous, members);
 
 	await replaceAllianceRoster(env.STFC_DB, {
 		guildId: config.guild_id,
@@ -148,6 +201,7 @@ export async function syncGuildAllianceRoster(
 		allianceTag: tag,
 		allianceName: scrape.allianceName || null,
 		fetchedAt,
+		scope: 'guild',
 		members,
 	});
 
@@ -161,9 +215,153 @@ export async function syncGuildAllianceRoster(
 		`Alliance roster synced for guild ${config.guild_id}: ${scrape.players.length} members (${tag})` +
 			(diff.isInitial
 				? ' [initial]'
-				: ` [+${diff.joined.length}/-${diff.left.length} ops↑${diff.opsUp.length} rank${diff.rankChanged.length}]`),
+				: ` [+${diff.joined.length}/-${diff.left.length} moves${diff.tagMoved.length} ops↑${diff.opsUp.length}]`),
 	);
 	return { ok: true, scrape, diff };
+}
+
+export type MultiAllianceRosterSyncResult =
+	| {
+			ok: true;
+			diff: AllianceRosterDiff;
+			directoryCount: number;
+			trackedTags: number;
+			scrapedAlliances: number;
+			skippedTags: string[];
+			failedTags: string[];
+	  }
+	| { ok: false; reason: string };
+
+/**
+ * Multi-alliance morning job:
+ * 1) Fetch /servers/{n} directory
+ * 2) Track tags = verified player tags ∪ diplomacy map tags
+ * 3) Scrape those alliance pages (batched)
+ * 4) Diff vs previous combined roster
+ */
+export async function syncMultiAllianceTrackedRosters(
+	env: Env,
+	config: GuildConfig,
+): Promise<MultiAllianceRosterSyncResult> {
+	if (!isMultiAllianceGuild(config)) {
+		return { ok: false, reason: 'not_multi_alliance' };
+	}
+
+	const verified = await listActiveVerifiedPlayers(env.STFC_DB, config.guild_id);
+	const trackedTags = collectTrackedAllianceTags(config, verified);
+	if (trackedTags.size === 0) {
+		return { ok: false, reason: 'no_tracked_tags' };
+	}
+
+	const previousRows = await listAllianceRosterMembers(env.STFC_DB, config.guild_id);
+	const previous = previousRows.map((m) => ({
+		playerId: m.player_id,
+		playerName: m.player_name,
+		allianceRank: m.alliance_rank,
+		opsLevel: m.ops_level,
+		allianceTag: m.alliance_tag,
+	}));
+
+	const directory = await scrapeServerAlliances(config.stfc_server, config.stfc_region);
+	if (directory.length === 0) {
+		return { ok: false, reason: 'server_directory_failed' };
+	}
+
+	const fetchedAt = new Date().toISOString();
+	await replaceServerAllianceDirectory(
+		env.STFC_DB,
+		config.guild_id,
+		fetchedAt,
+		directory.map((e) => ({
+			allianceId: e.allianceId,
+			allianceTag: e.allianceTag,
+			allianceName: e.allianceName || null,
+			serverRank: e.serverRank,
+			playerCount: e.playerCount,
+		})),
+	);
+
+	const byTag = new Map<string, ServerAllianceDirectoryEntry>();
+	for (const e of directory) {
+		byTag.set(e.allianceTag.toUpperCase(), e);
+	}
+
+	const toScrape: ServerAllianceDirectoryEntry[] = [];
+	const skippedTags: string[] = [];
+	for (const tag of trackedTags) {
+		const entry = byTag.get(tag);
+		if (entry) toScrape.push(entry);
+		else skippedTags.push(tag);
+	}
+
+	const batch = toScrape.slice(0, MULTI_ALLIANCE_SCRAPE_MAX);
+	const overflow = toScrape.slice(MULTI_ALLIANCE_SCRAPE_MAX).map((e) => e.allianceTag);
+	skippedTags.push(...overflow);
+
+	const failedTags: string[] = [];
+	const keepAllianceIds: string[] = [];
+	let scrapedAlliances = 0;
+
+	for (let i = 0; i < batch.length; i++) {
+		const entry = batch[i]!;
+		if (i > 0) await sleep(MULTI_ALLIANCE_SCRAPE_DELAY_MS);
+		const scrape = await scrapeAllianceById(
+			entry.allianceId,
+			config.stfc_server,
+			config.stfc_region,
+		);
+		if (!scrape || scrape.players.length === 0) {
+			failedTags.push(entry.allianceTag);
+			// Keep prior cache for this alliance so we don't wipe day-over-day history on a blip.
+			keepAllianceIds.push(entry.allianceId);
+			continue;
+		}
+		const tag = scrape.allianceTag || entry.allianceTag;
+		const allianceId = scrape.allianceId || entry.allianceId;
+		const members = membersFromScrape(scrape, allianceId, tag);
+		await replaceAllianceRoster(env.STFC_DB, {
+			guildId: config.guild_id,
+			allianceId,
+			allianceTag: tag,
+			allianceName: scrape.allianceName || entry.allianceName || null,
+			fetchedAt,
+			scope: 'alliance',
+			members,
+		});
+		keepAllianceIds.push(allianceId);
+		scrapedAlliances++;
+	}
+
+	if (scrapedAlliances === 0) {
+		return { ok: false, reason: 'all_alliance_scrapes_failed' };
+	}
+
+	// Drop caches for alliances we no longer track (or didn't attempt this run).
+	await pruneAllianceRostersOutside(env.STFC_DB, config.guild_id, keepAllianceIds);
+
+	const currentRows = await listAllianceRosterMembers(env.STFC_DB, config.guild_id);
+	const current = currentRows.map((m) => ({
+		playerId: m.player_id,
+		playerName: m.player_name,
+		allianceRank: m.alliance_rank,
+		opsLevel: m.ops_level,
+		allianceTag: m.alliance_tag,
+	}));
+	const diff = diffAllianceRosters(previous, current);
+
+	console.log(
+		`Multi alliance roster sync guild ${config.guild_id}: dir=${directory.length} tracked=${trackedTags.size} scraped=${scrapedAlliances} failed=${failedTags.length} skipped=${skippedTags.length}`,
+	);
+
+	return {
+		ok: true,
+		diff,
+		directoryCount: directory.length,
+		trackedTags: trackedTags.size,
+		scrapedAlliances,
+		skippedTags,
+		failedTags,
+	};
 }
 
 /** Clear roster cache + alliance id when leaving single-alliance mode. */
@@ -177,30 +375,34 @@ export async function loadRosterPlayerMap(
 	env: Env,
 	config: GuildConfig,
 ): Promise<Map<number, PlayerData> | null> {
-	if (!shouldUseAllianceRoster(config)) return null;
-	const meta = await getAllianceRosterMeta(env.STFC_DB, config.guild_id);
-	if (!meta || !isAllianceRosterFresh(meta.fetched_at)) return null;
+	if (!canReadAllianceRosterCache(config)) return null;
+	const fetchedAt = await getAllianceRosterLatestFetchedAt(env.STFC_DB, config.guild_id);
+	if (!fetchedAt || !isAllianceRosterFresh(fetchedAt)) return null;
 	const members = await listAllianceRosterMembers(env.STFC_DB, config.guild_id);
+	if (members.length === 0) return null;
 	const map = new Map<number, PlayerData>();
 	for (const m of members) {
+		if (!isAllianceRosterFresh(m.fetched_at)) continue;
+		// Multi: only this morning's successful scrapes (failed alliances keep older fetched_at).
+		if (isMultiAllianceGuild(config) && m.fetched_at !== fetchedAt) continue;
 		map.set(m.player_id, rosterMemberToPlayerData(m, config));
 	}
-	return map;
+	return map.size > 0 ? map : null;
 }
 
 /**
  * Prefer a fresh alliance roster hit for verify / guest checks.
- * Returns null when roster is stale/missing, mode is multi, or the player is not on it.
+ * Works for single- and multi-alliance when cache is fresh.
  */
 export async function lookupPlayerFromAllianceRoster(
 	env: Env,
 	config: GuildConfig,
 	playerIdOrName: string | number,
 ): Promise<PlayerData | null> {
-	if (!shouldUseAllianceRoster(config)) return null;
+	if (!canReadAllianceRosterCache(config)) return null;
 
-	const meta = await getAllianceRosterMeta(env.STFC_DB, config.guild_id);
-	if (!meta || !isAllianceRosterFresh(meta.fetched_at)) return null;
+	const fetchedAt = await getAllianceRosterLatestFetchedAt(env.STFC_DB, config.guild_id);
+	if (!fetchedAt || !isAllianceRosterFresh(fetchedAt)) return null;
 
 	const numericId =
 		typeof playerIdOrName === 'number'

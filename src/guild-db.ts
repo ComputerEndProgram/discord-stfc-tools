@@ -1729,6 +1729,7 @@ export async function clearAllianceRoster(db: D1Database, guildId: string): Prom
 	await db.batch([
 		db.prepare(`DELETE FROM alliance_roster_members WHERE guild_id = ?`).bind(guildId),
 		db.prepare(`DELETE FROM alliance_roster_meta WHERE guild_id = ?`).bind(guildId),
+		db.prepare(`DELETE FROM server_alliance_directory WHERE guild_id = ?`).bind(guildId),
 	]);
 }
 
@@ -1759,11 +1760,19 @@ export interface AllianceRosterMetaRow {
 export async function getAllianceRosterMeta(
 	db: D1Database,
 	guildId: string,
+	allianceId?: string,
 ): Promise<AllianceRosterMetaRow | null> {
-	const row = await db
-		.prepare(`SELECT * FROM alliance_roster_meta WHERE guild_id = ?`)
-		.bind(guildId)
-		.first();
+	const row = allianceId
+		? await db
+				.prepare(`SELECT * FROM alliance_roster_meta WHERE guild_id = ? AND alliance_id = ?`)
+				.bind(guildId, allianceId)
+				.first()
+		: await db
+				.prepare(
+					`SELECT * FROM alliance_roster_meta WHERE guild_id = ? ORDER BY fetched_at DESC LIMIT 1`,
+				)
+				.bind(guildId)
+				.first();
 	if (!row) return null;
 	const r = row as Record<string, unknown>;
 	return {
@@ -1774,6 +1783,40 @@ export async function getAllianceRosterMeta(
 		player_count: Number(r.player_count ?? 0),
 		fetched_at: String(r.fetched_at),
 	};
+}
+
+export async function listAllianceRosterMeta(
+	db: D1Database,
+	guildId: string,
+): Promise<AllianceRosterMetaRow[]> {
+	const { results } = await db
+		.prepare(`SELECT * FROM alliance_roster_meta WHERE guild_id = ? ORDER BY alliance_tag COLLATE NOCASE`)
+		.bind(guildId)
+		.all();
+	return (results ?? []).map((row) => {
+		const r = row as Record<string, unknown>;
+		return {
+			guild_id: String(r.guild_id),
+			alliance_id: String(r.alliance_id),
+			alliance_tag: r.alliance_tag != null ? String(r.alliance_tag) : null,
+			alliance_name: r.alliance_name != null ? String(r.alliance_name) : null,
+			player_count: Number(r.player_count ?? 0),
+			fetched_at: String(r.fetched_at),
+		};
+	});
+}
+
+/** Newest roster fetch time for the guild (any alliance). */
+export async function getAllianceRosterLatestFetchedAt(
+	db: D1Database,
+	guildId: string,
+): Promise<string | null> {
+	const row = await db
+		.prepare(`SELECT MAX(fetched_at) AS fetched_at FROM alliance_roster_meta WHERE guild_id = ?`)
+		.bind(guildId)
+		.first();
+	const v = (row as { fetched_at?: string | null } | null)?.fetched_at;
+	return v != null ? String(v) : null;
 }
 
 function mapAllianceRosterMemberRow(row: Record<string, unknown>): AllianceRosterMemberRow {
@@ -1848,7 +1891,11 @@ export async function listAllianceRosterMembers(
 	});
 }
 
-/** Replace guild roster cache with a fresh scrape. */
+/**
+ * Replace roster rows for one alliance.
+ * - `scope: 'guild'` (single-alliance): wipe all guild members/meta, then write this alliance.
+ * - `scope: 'alliance'` (multi): replace only this alliance_id's members + meta row.
+ */
 export async function replaceAllianceRoster(
 	db: D1Database,
 	opts: {
@@ -1857,6 +1904,7 @@ export async function replaceAllianceRoster(
 		allianceTag: string | null;
 		allianceName: string | null;
 		fetchedAt: string;
+		scope?: 'guild' | 'alliance';
 		members: Array<{
 			playerId: number;
 			playerName: string;
@@ -1870,15 +1918,27 @@ export async function replaceAllianceRoster(
 		}>;
 	},
 ): Promise<void> {
-	const stmts: D1PreparedStatement[] = [
-		db.prepare(`DELETE FROM alliance_roster_members WHERE guild_id = ?`).bind(opts.guildId),
+	const scope = opts.scope ?? 'guild';
+	const stmts: D1PreparedStatement[] = [];
+
+	if (scope === 'guild') {
+		stmts.push(db.prepare(`DELETE FROM alliance_roster_members WHERE guild_id = ?`).bind(opts.guildId));
+		stmts.push(db.prepare(`DELETE FROM alliance_roster_meta WHERE guild_id = ?`).bind(opts.guildId));
+	} else {
+		stmts.push(
+			db
+				.prepare(`DELETE FROM alliance_roster_members WHERE guild_id = ? AND alliance_id = ?`)
+				.bind(opts.guildId, opts.allianceId),
+		);
+	}
+
+	stmts.push(
 		db
 			.prepare(
 				`INSERT INTO alliance_roster_meta
 				 (guild_id, alliance_id, alliance_tag, alliance_name, player_count, fetched_at)
 				 VALUES (?, ?, ?, ?, ?, ?)
-				 ON CONFLICT(guild_id) DO UPDATE SET
-				   alliance_id = excluded.alliance_id,
+				 ON CONFLICT(guild_id, alliance_id) DO UPDATE SET
 				   alliance_tag = excluded.alliance_tag,
 				   alliance_name = excluded.alliance_name,
 				   player_count = excluded.player_count,
@@ -1892,7 +1952,7 @@ export async function replaceAllianceRoster(
 				opts.members.length,
 				opts.fetchedAt,
 			),
-	];
+	);
 
 	for (const m of opts.members) {
 		stmts.push(
@@ -1901,7 +1961,17 @@ export async function replaceAllianceRoster(
 					`INSERT INTO alliance_roster_members
 					 (guild_id, player_id, player_name, alliance_tag, alliance_id, alliance_rank,
 					  ops_level, power, grade, join_date, fetched_at)
-					 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+					 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+					 ON CONFLICT(guild_id, player_id) DO UPDATE SET
+					   player_name = excluded.player_name,
+					   alliance_tag = excluded.alliance_tag,
+					   alliance_id = excluded.alliance_id,
+					   alliance_rank = excluded.alliance_rank,
+					   ops_level = excluded.ops_level,
+					   power = excluded.power,
+					   grade = excluded.grade,
+					   join_date = excluded.join_date,
+					   fetched_at = excluded.fetched_at`,
 				)
 				.bind(
 					opts.guildId,
@@ -1920,4 +1990,95 @@ export async function replaceAllianceRoster(
 	}
 
 	await db.batch(stmts);
+}
+
+/** Drop roster members/meta for alliance ids not in `keepAllianceIds` (multi cleanup). */
+export async function pruneAllianceRostersOutside(
+	db: D1Database,
+	guildId: string,
+	keepAllianceIds: string[],
+): Promise<void> {
+	if (keepAllianceIds.length === 0) {
+		await db.batch([
+			db.prepare(`DELETE FROM alliance_roster_members WHERE guild_id = ?`).bind(guildId),
+			db.prepare(`DELETE FROM alliance_roster_meta WHERE guild_id = ?`).bind(guildId),
+		]);
+		return;
+	}
+	const placeholders = keepAllianceIds.map(() => '?').join(',');
+	await db.batch([
+		db
+			.prepare(
+				`DELETE FROM alliance_roster_members WHERE guild_id = ? AND alliance_id NOT IN (${placeholders})`,
+			)
+			.bind(guildId, ...keepAllianceIds),
+		db
+			.prepare(
+				`DELETE FROM alliance_roster_meta WHERE guild_id = ? AND alliance_id NOT IN (${placeholders})`,
+			)
+			.bind(guildId, ...keepAllianceIds),
+	]);
+}
+
+export interface ServerAllianceDirectoryRow {
+	guild_id: string;
+	alliance_id: string;
+	alliance_tag: string;
+	alliance_name: string | null;
+	server_rank: number | null;
+	player_count: number | null;
+	fetched_at: string;
+}
+
+export async function replaceServerAllianceDirectory(
+	db: D1Database,
+	guildId: string,
+	fetchedAt: string,
+	entries: Array<{
+		allianceId: string;
+		allianceTag: string;
+		allianceName: string | null;
+		serverRank: number | null;
+		playerCount: number | null;
+	}>,
+): Promise<void> {
+	const stmts: D1PreparedStatement[] = [
+		db.prepare(`DELETE FROM server_alliance_directory WHERE guild_id = ?`).bind(guildId),
+	];
+	for (const e of entries) {
+		stmts.push(
+			db
+				.prepare(
+					`INSERT INTO server_alliance_directory
+					 (guild_id, alliance_id, alliance_tag, alliance_name, server_rank, player_count, fetched_at)
+					 VALUES (?, ?, ?, ?, ?, ?, ?)`,
+				)
+				.bind(
+					guildId,
+					e.allianceId,
+					e.allianceTag,
+					e.allianceName,
+					e.serverRank,
+					e.playerCount,
+					fetchedAt,
+				),
+		);
+	}
+	await db.batch(stmts);
+}
+
+export async function getServerAllianceIdByTag(
+	db: D1Database,
+	guildId: string,
+	allianceTag: string,
+): Promise<string | null> {
+	const row = await db
+		.prepare(
+			`SELECT alliance_id FROM server_alliance_directory
+			 WHERE guild_id = ? AND UPPER(alliance_tag) = UPPER(?)
+			 LIMIT 1`,
+		)
+		.bind(guildId, allianceTag.trim())
+		.first();
+	return row ? String((row as { alliance_id: string }).alliance_id) : null;
 }

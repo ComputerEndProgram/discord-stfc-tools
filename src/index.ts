@@ -4,9 +4,13 @@ import { parseCSV, autoGenerateColumns, generateAsciiTable } from './tableUtils'
 import { handleScheduledEvent } from './cron';
 import { wakeDiscordGateway, getDiscordGatewayStatus } from './discord-gateway/wake';
 import { getStfcSessionStatus } from './stfc-session';
-import { findPlayerByIdOrName, scrapeAllianceById } from './stfc-utils';
+import { findPlayerByIdOrName, scrapeAllianceById, scrapeServerAlliances } from './stfc-utils';
 import { getGuildConfig, listConfiguredGuilds } from './guild-db';
-import { syncGuildAllianceRoster } from './alliance-roster-sync';
+import {
+	isMultiAllianceGuild,
+	syncGuildAllianceRoster,
+	syncMultiAllianceTrackedRosters,
+} from './alliance-roster-sync';
 import { handleAgreementBackfillContinue } from './agreement';
 
 export { DiscordGateway } from './discord-gateway/DiscordGateway';
@@ -142,29 +146,65 @@ export default {
 				const persist = url.searchParams.get('persist') === '1';
 				const config = guildId ? await getGuildConfig(env.STFC_DB, guildId) : null;
 				const guilds = config ? [config] : await listConfiguredGuilds(env.STFC_DB);
-				const guild = guilds.find((g) => g.mode === 'single_alliance' && g.alliance_tag) ?? guilds[0];
+				const guild =
+					guilds.find((g) => g.mode === 'single_alliance' && g.alliance_tag) ??
+					guilds.find((g) => g.mode === 'multi_alliance') ??
+					guilds[0];
 
 				if (persist) {
 					if (!guild) {
 						return Response.json({ ok: false, error: 'No configured guild' }, { status: 400 });
 					}
+					const started = Date.now();
+					if (isMultiAllianceGuild(guild)) {
+						const result = await syncMultiAllianceTrackedRosters(env, guild);
+						return Response.json(
+							{
+								ok: result.ok,
+								persist: true,
+								mode: 'multi_alliance',
+								ms: Date.now() - started,
+								guild_id: guild.guild_id,
+								...(result.ok
+									? {
+											directoryCount: result.directoryCount,
+											trackedTags: result.trackedTags,
+											scrapedAlliances: result.scrapedAlliances,
+											skippedTags: result.skippedTags,
+											failedTags: result.failedTags,
+											diff: {
+												isInitial: result.diff.isInitial,
+												joined: result.diff.joined.length,
+												left: result.diff.left.length,
+												tagMoved: result.diff.tagMoved.length,
+												opsUp: result.diff.opsUp.length,
+												opsDown: result.diff.opsDown.length,
+												rankChanged: result.diff.rankChanged.length,
+												renamed: result.diff.renamed.length,
+											},
+										}
+									: { reason: result.reason }),
+							},
+							{ headers: { 'Cache-Control': 'no-store' } },
+						);
+					}
 					if (guild.mode !== 'single_alliance' || !guild.alliance_tag) {
 						return Response.json(
 							{
 								ok: false,
-								error: 'Alliance roster persist is only for single_alliance guilds',
+								error: 'Persist needs single_alliance (with tag) or multi_alliance',
 								guild_id: guild.guild_id,
 								mode: guild.mode,
 							},
 							{ status: 400 },
 						);
 					}
-					const started = Date.now();
 					const result = await syncGuildAllianceRoster(env, guild);
 					return Response.json(
 						{
 							ok: result.ok,
 							persist: true,
+							mode: 'single_alliance',
 							ms: Date.now() - started,
 							guild_id: guild.guild_id,
 							...(result.ok
@@ -176,6 +216,7 @@ export default {
 											isInitial: result.diff.isInitial,
 											joined: result.diff.joined.length,
 											left: result.diff.left.length,
+											tagMoved: result.diff.tagMoved.length,
 											opsUp: result.diff.opsUp.length,
 											opsDown: result.diff.opsDown.length,
 											rankChanged: result.diff.rankChanged.length,
@@ -190,6 +231,24 @@ export default {
 										})),
 									}
 								: { reason: result.reason }),
+						},
+						{ headers: { 'Cache-Control': 'no-store' } },
+					);
+				}
+
+				const serverOnly = url.searchParams.get('server_directory') === '1';
+				if (serverOnly) {
+					const server = Number(url.searchParams.get('server') || guild?.stfc_server || 108);
+					const region = (url.searchParams.get('region') || guild?.stfc_region || 'EU').toUpperCase();
+					const started = Date.now();
+					const directory = await scrapeServerAlliances(server, region);
+					return Response.json(
+						{
+							ok: directory.length > 0,
+							ms: Date.now() - started,
+							query: { server, region },
+							count: directory.length,
+							sample: directory.slice(0, 5),
 						},
 						{ headers: { 'Cache-Control': 'no-store' } },
 					);

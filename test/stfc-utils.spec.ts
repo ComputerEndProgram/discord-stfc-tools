@@ -5,6 +5,7 @@ import {
 	extractInitialPlayerFromHtml,
 	extractInitialPlayerObject,
 	extractPlayerArray,
+	extractServerAlliancesFromHtml,
 	mapRawPlayer,
 	unwrapPlayerRow,
 } from '../src/stfc-utils';
@@ -93,5 +94,20 @@ describe('stfc-utils alliance roster HTML scrape', () => {
 		expect(scraped?.players[0]?.level).toBe(60);
 		expect(scraped?.players[1]?.name).toBe('OtherMember');
 		expect(scraped?.players[1]?.rank).toBe('Recruit');
+	});
+});
+
+const ESCAPED_SERVER_ALLIANCES_HTML = `
+self.__next_f.push([1,"...\\"alliances\\":188,\\"totalpower\\":1,\\"alliances\\":[{\\"id\\":2981728765,\\"tag\\":\\"BLUE\\",\\"name\\":\\"Knights\\",\\"slogan\\":\\"Blue skies\\\\nsmiling at me\\",\\"server_rank\\":1,\\"players\\":105,\\"server\\":108,\\"region\\":\\"EU\\"},{\\"id\\":2990767785,\\"tag\\":\\"KWSN\\",\\"name\\":\\"Knights Who Say NI\\",\\"server_rank\\":9,\\"players\\":87,\\"server\\":108,\\"region\\":\\"EU\\"}]..."])
+`;
+
+describe('stfc-utils server alliance directory HTML scrape', () => {
+	it('parses alliances array (skipping numeric count field)', () => {
+		const entries = extractServerAlliancesFromHtml(ESCAPED_SERVER_ALLIANCES_HTML, 108, 'EU');
+		expect(entries).toHaveLength(2);
+		expect(entries[0]?.allianceTag).toBe('BLUE');
+		expect(entries[0]?.allianceId).toBe('2981728765');
+		expect(entries[1]?.allianceTag).toBe('KWSN');
+		expect(entries[1]?.playerCount).toBe(87);
 	});
 });

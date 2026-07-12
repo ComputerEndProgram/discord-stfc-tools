@@ -16,10 +16,12 @@ import { syncGuildMembers } from './member-sync';
 import { wakeDiscordGateway } from './discord-gateway/wake';
 import { AuditColor, postAuditLog } from './audit-log';
 import {
+	isMultiAllianceGuild,
 	loadRosterPlayerMap,
 	lookupPlayerFromAllianceRoster,
 	shouldUseAllianceRoster,
 	syncGuildAllianceRoster,
+	syncMultiAllianceTrackedRosters,
 } from './alliance-roster-sync';
 import {
 	allianceRosterDiffHasChanges,
@@ -121,6 +123,8 @@ export async function runDailyPlayerSync(env: Env): Promise<void> {
 		let tagChanges = 0;
 		let rosterHits = 0;
 		let liveLookups = 0;
+		const verifiedAllianceMoves: string[] = [];
+		const verifiedRoleNotes: string[] = [];
 
 		let rosterMap: Map<number, PlayerData> | null = null;
 		let rosterOk = false;
@@ -133,6 +137,7 @@ export async function runDailyPlayerSync(env: Env): Promise<void> {
 				const report = formatAllianceRosterChangeReport(rosterResult.diff, {
 					allianceTag: rosterResult.scrape.allianceTag || config.alliance_tag || 'alliance',
 					allianceId: config.stfc_alliance_id ?? rosterResult.scrape.allianceId,
+					mode: 'single',
 				});
 				await postAuditLog(env, config, {
 					title: report.title,
@@ -144,7 +149,40 @@ export async function runDailyPlayerSync(env: Env): Promise<void> {
 				});
 			} else {
 				console.warn(
-					`Alliance roster scrape failed for guild ${config.guild_id}: ${rosterResult.reason} — falling back to per-player lookups`,
+					`Alliance roster sync failed for guild ${config.guild_id}: ${rosterResult.reason} — falling back to per-player lookups`,
+				);
+			}
+		} else if (isMultiAllianceGuild(config)) {
+			const multiResult = await syncMultiAllianceTrackedRosters(env, config);
+			if (multiResult.ok) {
+				rosterOk = true;
+				rosterMap = await loadRosterPlayerMap(env, config);
+				const report = formatAllianceRosterChangeReport(multiResult.diff, {
+					allianceTag: 'multi',
+					mode: 'multi',
+					alliancesScraped: multiResult.scrapedAlliances,
+				});
+				let extra = '';
+				if (multiResult.failedTags.length) {
+					extra += `\n⚠ Failed alliance pages: ${multiResult.failedTags.slice(0, 15).join(', ')}`;
+				}
+				if (multiResult.skippedTags.length) {
+					extra += `\n⏭ Skipped (not on server list / over batch cap): ${multiResult.skippedTags.slice(0, 15).join(', ')}`;
+				}
+				await postAuditLog(env, config, {
+					title: report.title,
+					description:
+						report.description +
+						`\n_Directory **${multiResult.directoryCount}** · tracked tags **${multiResult.trackedTags}**_` +
+						extra,
+					source: 'cron',
+					color: allianceRosterDiffHasChanges(multiResult.diff)
+						? AuditColor.warn
+						: AuditColor.info,
+				});
+			} else {
+				console.warn(
+					`Multi alliance roster sync failed for guild ${config.guild_id}: ${multiResult.reason} — falling back to per-player lookups`,
 				);
 			}
 		}
@@ -155,16 +193,16 @@ export async function runDailyPlayerSync(env: Env): Promise<void> {
 			try {
 				let player: PlayerData | null = null;
 				let notFound = false;
-				let error = false;
 
 				if (rosterMap) {
 					player = rosterMap.get(record.player_id) ?? null;
 					if (player) {
 						rosterHits++;
-					} else if (rosterOk && config.mode === 'single_alliance') {
-						// Fresh scrape succeeded and player is not on the alliance page → left / wrong tag.
+					} else if (rosterOk && shouldUseAllianceRoster(config)) {
+						// Single-alliance: absent from the one alliance page → left / wrong tag.
 						notFound = true;
 					}
+					// Multi: absent from tracked rosters → live player page (new/empty/untracked tag).
 				}
 
 				if (!player && !notFound) {
@@ -220,7 +258,7 @@ export async function runDailyPlayerSync(env: Env): Promise<void> {
 					continue;
 				}
 
-				await syncVerifiedPlayer(
+				const syncResult = await syncVerifiedPlayer(
 					env,
 					config,
 					config.guild_id,
@@ -247,6 +285,26 @@ export async function runDailyPlayerSync(env: Env): Promise<void> {
 					console.log(
 						`Alliance change: ${record.player_name} ${prevTag} → ${player.allianceTag} (guild ${config.guild_id})`,
 					);
+					if (isMultiAllianceGuild(config)) {
+						verifiedAllianceMoves.push(
+							`• <@${record.discord_user_id}> **${player.name}** — [${prevTag}] → **[${player.allianceTag}]**` +
+								(player.rank ? ` · ${player.rank}` : ''),
+						);
+					}
+				}
+				if (
+					isMultiAllianceGuild(config) &&
+					syncResult.outcome === 'synced' &&
+					syncResult.changeSummary
+				) {
+					const roleBits = syncResult.changeSummary.filter(
+						(c) => c.startsWith('Roles:') || c.startsWith('rank '),
+					);
+					if (roleBits.length && !roleBits.every((c) => c === 'Roles: no changes')) {
+						verifiedRoleNotes.push(
+							`• <@${record.discord_user_id}> **${player.name}** — ${roleBits.filter((c) => c !== 'Roles: no changes').join('; ')}`,
+						);
+					}
 				}
 			} catch (error) {
 				failed++;
@@ -255,6 +313,38 @@ export async function runDailyPlayerSync(env: Env): Promise<void> {
 		}
 
 		await postDemotionApprovalDigest(env, config);
+
+		if (isMultiAllianceGuild(config) && (verifiedAllianceMoves.length || verifiedRoleNotes.length)) {
+			const sections: string[] = [];
+			if (verifiedAllianceMoves.length) {
+				sections.push(
+					`**Alliance moves (${verifiedAllianceMoves.length})**`,
+					verifiedAllianceMoves.slice(0, 25).join('\n') +
+						(verifiedAllianceMoves.length > 25
+							? `\n_…and ${verifiedAllianceMoves.length - 25} more_`
+							: ''),
+				);
+			}
+			if (verifiedRoleNotes.length) {
+				sections.push(
+					`**Role / rank updates (${verifiedRoleNotes.length})**`,
+					verifiedRoleNotes.slice(0, 25).join('\n') +
+						(verifiedRoleNotes.length > 25
+							? `\n_…and ${verifiedRoleNotes.length - 25} more_`
+							: ''),
+				);
+			}
+			let description = sections.join('\n\n');
+			if (description.length > 3900) {
+				description = description.slice(0, 3890) + '\n_…truncated_';
+			}
+			await postAuditLog(env, config, {
+				title: 'Verified players — daily alliance / role changes',
+				description,
+				source: 'cron',
+				color: AuditColor.warn,
+			});
+		}
 
 		if (
 			synced > 0 ||
@@ -272,8 +362,8 @@ export async function runDailyPlayerSync(env: Env): Promise<void> {
 					(rosterHits ? ` · **${rosterHits}** from alliance roster` : '') +
 					(liveLookups ? ` · **${liveLookups}** live stfc.pro` : '') +
 					(failed ? ` · **${failed}** failed` : '') +
-					(demoted ? ` · **${demoted}** demoted` : '') +
-					(queued ? ` · **${queued}** queued for demotion` : '') +
+					(demoted ? ` · **${demoted}** set to guest` : '') +
+					(queued ? ` · **${queued}** queued for leave review` : '') +
 					(missing ? ` · **${missing}** missing / left alliance` : '') +
 					(unavailable ? ` · **${unavailable}** stfc.pro unavailable (skipped)` : '') +
 					(tagChanges ? ` · **${tagChanges}** alliance change(s)` : '') +

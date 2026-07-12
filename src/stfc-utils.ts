@@ -532,7 +532,8 @@ function extractJsonAfterKey(html: string, key: string): unknown | null {
 	const tryParseAt = (markerIdx: number, escaped: boolean): unknown | null => {
 		const window = html.slice(markerIdx, markerIdx + 900_000);
 		const text = escaped
-			? window.replace(/\\"/g, '"').replace(/\\n/g, '\n').replace(/\\\\/g, '\\')
+			? // RSC flight embeds JSON with \" … \". Leave \\n / \\t as JSON escapes for JSON.parse.
+				window.replace(/\\"/g, '"').replace(/\\\\/g, '\\')
 			: window;
 
 		let keyAt = text.indexOf(`"${key}"`);
@@ -678,4 +679,74 @@ export async function scrapeAllianceById(
 		}
 	}
 	return null;
+}
+
+export type ServerAllianceDirectoryEntry = {
+	allianceId: string;
+	allianceTag: string;
+	allianceName: string;
+	serverRank: number | null;
+	playerCount: number | null;
+	server: number;
+	region: string;
+};
+
+export function extractServerAlliancesFromHtml(
+	html: string,
+	fallbackServer: number,
+	fallbackRegion: string,
+): ServerAllianceDirectoryEntry[] {
+	const raw = extractJsonAfterKey(html, 'alliances');
+	if (!Array.isArray(raw) || raw.length === 0) return [];
+
+	const out: ServerAllianceDirectoryEntry[] = [];
+	for (const row of raw) {
+		if (!row || typeof row !== 'object') continue;
+		const obj = row as Record<string, unknown>;
+		const allianceId = String(obj.id ?? obj.allianceid ?? obj.allianceId ?? '').trim();
+		const allianceTag = String(obj.tag ?? obj.alliance_tag ?? '').trim();
+		if (!allianceId || !allianceTag) continue;
+		const server = Number(obj.server ?? fallbackServer);
+		const region = String(obj.region ?? fallbackRegion).toUpperCase() || fallbackRegion;
+		const serverRank = obj.server_rank != null ? Number(obj.server_rank) : null;
+		const playerCount =
+			obj.players != null
+				? Number(obj.players)
+				: obj.player_count != null
+					? Number(obj.player_count)
+					: null;
+		out.push({
+			allianceId,
+			allianceTag,
+			allianceName: String(obj.name ?? ''),
+			serverRank: Number.isFinite(serverRank as number) ? serverRank : null,
+			playerCount: Number.isFinite(playerCount as number) ? playerCount : null,
+			server: Number.isFinite(server) ? server : fallbackServer,
+			region,
+		});
+	}
+	return out;
+}
+
+export async function scrapeServerAlliances(
+	server: number,
+	region: string,
+): Promise<ServerAllianceDirectoryEntry[]> {
+	const upperRegion = region.toUpperCase();
+	const urls = [
+		`https://stfc.pro/servers/${server}?region=${encodeURIComponent(upperRegion)}`,
+		`https://stfc.pro/servers/${server}`,
+	];
+	for (const url of urls) {
+		try {
+			const res = await fetch(url, { headers: STFC_HTML_HEADERS });
+			if (!res.ok) continue;
+			const html = await res.text();
+			const entries = extractServerAlliancesFromHtml(html, server, upperRegion);
+			if (entries.length > 0) return entries;
+		} catch {
+			/* try next */
+		}
+	}
+	return [];
 }

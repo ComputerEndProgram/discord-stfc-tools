@@ -546,7 +546,10 @@ export async function syncVerifiedPlayer(
 	discordUserId: string,
 	player: PlayerData,
 	opts?: { autoDemoteOnMismatch?: boolean },
-): Promise<{ outcome: 'synced' | 'demoted' | 'mismatch_deferred' }> {
+): Promise<{
+	outcome: 'synced' | 'demoted' | 'mismatch_deferred';
+	changeSummary?: string[];
+}> {
 	if (!env.DISCORD_BOT_TOKEN) return { outcome: 'synced' };
 
 	const token = env.DISCORD_BOT_TOKEN;
@@ -699,5 +702,5 @@ export async function syncVerifiedPlayer(
 			fields: [{ name: 'Changes', value: changes.join('\n'), inline: false }],
 		});
 	}
-	return { outcome: 'synced' };
+	return { outcome: 'synced', changeSummary: changes };
 }

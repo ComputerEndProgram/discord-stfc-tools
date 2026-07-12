@@ -57,32 +57,45 @@ Worker (src/index.ts) — wakes DO on fetch + cron
 - `0 6 * * *` — alliance roster scrape + day-over-day report + daily player sync
 - `30 * * * *` — demotion recheck queue (YOLO missing-player delay)
 
-### Alliance roster sync (single_alliance)
+### Alliance roster sync
 
-Morning job scrapes **one** HTML page (`https://stfc.pro/alliances/{id}`) which embeds the **full** member list (UI pagination is client-side only). That cache drives daily sync and most verifies — drastically fewer per-player stfc.pro hits.
+Morning job scrapes stfc.pro **HTML** (API `/api/players` is 403 from Worker egress). Cache drives daily sync and most verifies.
+
+**Single-alliance** — one page `https://stfc.pro/alliances/{id}` (full member list; UI pagination is client-side only):
 
 ```
-0 6 * * * (single_alliance guilds)
+0 6 * * * (single_alliance)
   → scrape /alliances/{stfc_alliance_id}
-  → diff vs previous D1 snapshot → audit-log report (joins/leaves/ops/rank/renames)
-  → replace alliance_roster_* in D1
-  → sync verified players from roster (ops, power, name, rank)
-  → not on roster → demotion candidate (left / wrong alliance)
-  → scrape fail → fall back to per-player HTML lookups
+  → diff vs previous D1 snapshot → audit report (joins/leaves/ops/rank/renames)
+  → sync verified players from roster
+  → not on roster → demotion candidate
+  → scrape fail → per-player HTML fallbacks
+```
+
+**Multi-alliance** — server directory + batched alliance pages:
+
+```
+0 6 * * * (multi_alliance)
+  → scrape /servers/{n} → server_alliance_directory
+  → track tags = verified player tags ∪ diplomacy_channel_map tags
+  → scrape up to ~40 /alliances/{id} pages (~1.2s apart)
+  → diff combined roster → audit report (moves/joins/leaves/ops/rank/renames)
+  → sync verified from fresh cache rows; miss / empty tag → live /players/{id}
+  → digest: verified Discord members with alliance moves + role/rank updates
 ```
 
 | Concern | Behavior |
 |---------|----------|
-| **Who scrapes?** | `mode = single_alliance` **and** `alliance_tag` set (`shouldUseAllianceRoster`) |
-| **Multi-alliance** | Never scrapes or reads roster cache; daily sync stays per-player HTML; switching to multi clears roster + `stfc_alliance_id` |
-| **Verify** | If player is on a fresh roster (≤36h) → use cache; else live HTML/API lookup (guests / outsiders) |
-| **Guest 6h poll** | Prefer roster hit before live lookup |
-| **Alliance id** | `guild_configs.stfc_alliance_id`; auto-discovered from a verified player’s HTML profile if missing |
-| **Day-over-day report** | Posted to `/channels audit` after each successful morning scrape |
+| **Single scrape** | `mode = single_alliance` **and** `alliance_tag` set |
+| **Multi scrape** | `mode = multi_alliance`; batch cap `MULTI_ALLIANCE_SCRAPE_MAX` |
+| **Verify / guest poll** | Fresh roster (≤36h) hit → cache; else live HTML |
+| **Alliance id (single)** | `guild_configs.stfc_alliance_id`; auto-discovered from a verified profile if missing |
+| **Day-over-day report** | Posted to `/channels audit` |
+| **Mode switch** | single → multi clears roster + `stfc_alliance_id` |
 
-**stfc.pro access note:** `/api/players` returns `403 forbidden` from Cloudflare Worker egress even with a valid anonymous session. Production lookups use **HTML scrapes** (`/players/{id}`, `/alliances/{id}`). `STFC_SESSION` remains for future API use / diagnostics. Do **not** rely on `fetchAllianceByTag` (API) from the Worker.
+**stfc.pro access note:** Production uses **HTML scrapes** (`/players/{id}`, `/alliances/{id}`, `/servers/{n}`). `STFC_SESSION` remains for future API use / diagnostics. Do **not** rely on `fetchAllianceByTag` (API) from the Worker.
 
-**Modules:** `src/alliance-roster-sync.ts`, `src/alliance-roster-diff.ts`, HTML parsers in `src/stfc-utils.ts`. Migration: `migrations/024_alliance_roster.sql`.
+**Modules:** `src/alliance-roster-sync.ts`, `src/alliance-roster-diff.ts`, HTML parsers in `src/stfc-utils.ts`. Migrations: `024_alliance_roster.sql`, `025_multi_alliance_roster.sql`.
 
 ---
 
@@ -183,6 +196,7 @@ migrations/
   018_guild_excluded_users.sql
   019_personal_channel_perm_template.sql
   024_alliance_roster.sql  # stfc_alliance_id + alliance_roster_meta/members
+  025_multi_alliance_roster.sql  # server_alliance_directory + composite roster meta PK
 
 archive/officers/          # REMOVED officer feature (scripts, SQL, assets, docs)
 

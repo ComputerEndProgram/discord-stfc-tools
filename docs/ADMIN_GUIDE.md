@@ -88,7 +88,7 @@ Role fields accept **IDs**, **@mentions**, or **names** (with `create_missing_ro
 | Mode | Behaviour |
 |------|-----------|
 | `single_alliance` | Tag must match `alliance_tag`. Else guest role + periodic re-check. Personal channels can auto-create. **Morning alliance roster** caches the full member list for daily sync + verify (see § Daily alliance roster). |
-| `multi_alliance` | Any alliance verifies as active. No guest gating. Personal auto-create is off (link existing channels instead). **No** alliance roster cache (per-player lookups only). Switching from single → multi clears the roster cache. |
+| `multi_alliance` | Any alliance verifies as active. No guest gating. Personal auto-create is off (link existing channels instead). **Morning multi roster**: server directory + batched scrapes of verified ∪ diplomacy tags; day-over-day moves report; live player-page fallback for untracked/empty tags. Switching from single → multi clears the single-alliance roster cache. |
 
 Check config anytime:
 
@@ -340,22 +340,30 @@ Urgent posts use a short Badgey-style message so they stand out from routine aud
 
 ---
 
-## 4d. Daily alliance roster (single-alliance)
+## 4d. Daily alliance roster
 
-Each morning (`~06:00 UTC`, cron `0 6 * * *`) the bot:
+Each morning (`~06:00 UTC`, cron `0 6 * * *`) the bot refreshes alliance member lists from stfc.pro HTML pages, posts a day-over-day report to the **audit** channel, then syncs verified Discord players from that cache (with live player-page fallbacks when needed).
 
-1. Fetches your alliance page on stfc.pro (one request; full member list).
+### Single-alliance
+
+1. Fetches your one alliance page (`/alliances/{id}`).
 2. Compares to **yesterday’s** cached roster.
-3. Posts a summary to the **audit log** channel.
-4. Updates verified members’ ops / power / nickname / rank roles from that cache (no per-player stfc.pro hit for people still in the alliance).
-5. Treats verified players **missing** from the roster as leave / wrong-alliance candidates (subject to leave-detection policy).
+3. Posts joins / leaves / ops / rank / renames.
+4. Updates verified members from the cache; **missing** from roster → leave / wrong-alliance candidates (leave-detection policy).
 
-### What the audit report includes
+### Multi-alliance
+
+1. Fetches the server alliance directory (`/servers/{n}`).
+2. Tracks tags = **verified players’ tags** ∪ **diplomacy channel map** tags.
+3. Scrapes those alliance pages in a **batch** (cap ~40/run, ~1.2s between pages).
+4. Posts a multi report: **alliance moves**, joined/left tracked rosters, ops / rank / renames.
+5. Syncs verified players from those caches. If a player isn’t on any scraped roster (new/empty/untracked tag) → **live player page**. Guests without a player id are skipped.
+6. Posts a second audit digest for **verified** Discord members who changed alliance and/or Discord roles/rank overlays.
 
 | Section | Meaning |
 |---------|---------|
-| **Joined** | On today’s roster, not yesterday |
-| **Left** | On yesterday’s roster, not today |
+| **Alliance moves** | Same player id, different alliance tag (multi) |
+| **Joined / Left tracked roster** | Appeared on / disappeared from a scraped alliance |
 | **Ops up / down** | Same player id, ops level changed |
 | **Rank changes** | Same player id, alliance rank string changed |
 | **Renames** | Same player id, in-game name changed |
@@ -364,20 +372,15 @@ First successful roster for a guild is an **initial snapshot** (no join spam). U
 
 ### Requirements
 
-- Mode: **`single_alliance`** with `alliance_tag` set (`/server setup`).
-- Audit channel configured (`/channels audit`) so you see the report.
-- Alliance id is stored as `stfc_alliance_id` (shown on `/server status` when set). The bot auto-discovers it from a verified player’s stfc.pro profile if missing.
+- Mode: **`single_alliance`** with `alliance_tag`, or **`multi_alliance`** with at least one tracked tag (verified players and/or diplomacy map).
+- Audit channel configured (`/channels audit`).
+- Single-alliance: `stfc_alliance_id` (shown on `/server status`; auto-discovered from a verified profile if missing).
 
 ### Verify / guests
 
-- If someone verifies and they’re **already** on today’s (or recent ≤36h) roster → bot uses cached data (faster, fewer stfc.pro calls).
-- If they’re **not** on the roster → live stfc.pro lookup (guest / outsider path).
-- Guest re-check every 6 hours also prefers the roster before a live lookup.
-- List roster members with no Discord link: `/roster missing-verify`.
-
-### Multi-alliance
-
-Alliance roster sync and the morning change report **do not run**. Daily sync still updates verified players via per-player lookups; tag changes do not auto-apply guest.
+- Fresh roster (≤36h) hit → use cache; else live lookup.
+- Guest re-check every 6 hours prefers the roster before a live lookup (single-alliance guest path).
+- List roster members with no Discord link: `/roster missing-verify` (works for multi across all tracked caches).
 
 ---
 

@@ -10,14 +10,14 @@ import {
 	countPlayersByAllianceRank,
 	countPlayersByGrade,
 	countPlayersByStatus,
-	getAllianceRosterMeta,
 	getExcludedUserIds,
 	getGuildConfig,
 	getVerifiedDiscordUserIds,
 	listAllianceMembersMissingVerify,
+	listAllianceRosterMeta,
 	listRosterPlayers,
 } from './guild-db';
-import { shouldUseAllianceRoster } from './alliance-roster-sync';
+import { shouldUseAllianceRoster, isMultiAllianceGuild } from './alliance-roster-sync';
 import { isGuildAdministrator } from './discord-admin';
 import { demotePlayerToGuest } from './verification-access';
 import type { GuildConfig, VerifiedPlayer } from './types';
@@ -167,14 +167,20 @@ export async function handleRosterCommand(
 			);
 		}
 		case 'missing-verify': {
-			if (!shouldUseAllianceRoster(config)) {
+			if (!shouldUseAllianceRoster(config) && !isMultiAllianceGuild(config)) {
 				return interactionResponse(
-					'❌ `/roster missing-verify` needs **single_alliance** mode with an `alliance_tag` (morning alliance roster).',
+					'❌ `/roster missing-verify` needs **single_alliance** (with tag) or **multi_alliance** and a morning alliance roster.',
 					true,
 				);
 			}
-			const meta = await getAllianceRosterMeta(env.STFC_DB, guildId);
-			if (!meta || meta.player_count <= 0) {
+			const metaRows = await listAllianceRosterMeta(env.STFC_DB, guildId);
+			const playerCount = metaRows.reduce((n, m) => n + (m.player_count || 0), 0);
+			const latestFetched = metaRows
+				.map((m) => m.fetched_at)
+				.filter(Boolean)
+				.sort()
+				.at(-1);
+			if (!metaRows.length || playerCount <= 0) {
 				return interactionResponse(
 					'❌ No alliance roster cached yet. It fills on the morning sync (`0 6 * * *` UTC). Ask an admin if the last daily sync failed.',
 					true,
@@ -184,10 +190,15 @@ export async function handleRosterCommand(
 				countAllianceMembersMissingVerify(env.STFC_DB, guildId),
 				listAllianceMembersMissingVerify(env.STFC_DB, guildId, 80),
 			]);
-			const when = meta.fetched_at ? ` · updated <t:${Math.floor(Date.parse(meta.fetched_at) / 1000)}:R>` : '';
+			const when = latestFetched
+				? ` · updated <t:${Math.floor(Date.parse(latestFetched) / 1000)}:R>`
+				: '';
+			const tagLabel = isMultiAllianceGuild(config)
+				? `${metaRows.length} tracked alliance(s)`
+				: `**${metaRows[0]?.alliance_tag ?? config.alliance_tag}**`;
 			const header =
-				`🕶 **Alliance members not verified on Discord** (${totalMissing} of ${meta.player_count}` +
-				` · **${meta.alliance_tag ?? config.alliance_tag}**${when})\n` +
+				`🕶 **Alliance members not verified on Discord** (${totalMissing} of ${playerCount}` +
+				` · ${tagLabel}${when})\n` +
 				`_In-game players on the alliance roster with no active/guest Discord link. Guests count as linked._\n\n`;
 			if (totalMissing === 0) {
 				return interactionResponse(`${header}Everyone on the alliance roster is linked.`, true);
@@ -195,8 +206,9 @@ export async function handleRosterCommand(
 			const lines = missing.map((m) => {
 				const name = m.player_name ?? String(m.player_id);
 				const rank = m.alliance_rank ? ` · ${m.alliance_rank}` : '';
+				const tag = m.alliance_tag ? ` [${m.alliance_tag}]` : '';
 				const ops = m.ops_level != null ? `Ops ${m.ops_level}` : 'Ops —';
-				return `• **${name}** (\`${m.player_id}\`) · ${ops}${rank}`;
+				return `• **${name}** (\`${m.player_id}\`)${tag} · ${ops}${rank}`;
 			});
 			const more =
 				totalMissing > missing.length ? `\n…and **${totalMissing - missing.length}** more` : '';
