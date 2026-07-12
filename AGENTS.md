@@ -204,6 +204,7 @@ migrations/
   026_deploy_mode.sql  # testing | live (new guilds start testing)
   027_player_activity.sql  # activity_streak + days_inactive
   028_roster_list_sessions.sql  # /roster Prev/Next button sessions
+  029_alliance_roster_days_inactive.sql  # days_inactive on alliance cache
 
 archive/officers/          # REMOVED officer feature (scripts, SQL, assets, docs)
 

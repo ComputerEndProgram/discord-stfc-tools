@@ -25,6 +25,7 @@ import {
 	diffAllianceRosters,
 	type AllianceRosterDiff,
 } from './alliance-roster-diff';
+import { applyActivityObservation } from './activity-utils';
 
 /** Prefer morning scrape through the next daily run (with slack). */
 export const ALLIANCE_ROSTER_MAX_AGE_MS = 36 * 60 * 60 * 1000;
@@ -136,6 +137,7 @@ function membersFromScrape(
 	scrape: AllianceRosterScrape,
 	allianceId: string,
 	tag: string,
+	previousByPlayerId?: Map<number, AllianceRosterMemberRow>,
 ): Array<{
 	playerId: number;
 	playerName: string;
@@ -147,20 +149,40 @@ function membersFromScrape(
 	grade: number | null;
 	joinDate: string;
 	activityStreak: number | null;
+	daysInactive: number;
 }> {
-	return scrape.players.map((p) => ({
-		playerId: p.playerId,
-		playerName: p.name,
-		allianceTag: p.allianceTag || tag,
-		allianceId: p.allianceId || scrape.allianceId || allianceId,
-		allianceRank: p.rank || '',
-		opsLevel: p.level,
-		power: p.power,
-		grade: opsLevelToGrade(p.level),
-		joinDate: p.joinDate || '',
-		activityStreak:
-			p.consecutiveDaysActive == null ? null : Math.max(0, Math.floor(p.consecutiveDaysActive)),
-	}));
+	return scrape.players.map((p) => {
+		const prev = previousByPlayerId?.get(p.playerId);
+		let activityStreak: number | null =
+			p.consecutiveDaysActive == null
+				? null
+				: Math.max(0, Math.floor(p.consecutiveDaysActive));
+		let daysInactive = prev?.days_inactive ?? 0;
+
+		if (activityStreak != null && Number.isFinite(activityStreak)) {
+			const snap = applyActivityObservation(
+				prev?.activity_streak,
+				prev?.days_inactive,
+				activityStreak,
+			);
+			activityStreak = snap.activityStreak;
+			daysInactive = snap.daysInactive;
+		}
+
+		return {
+			playerId: p.playerId,
+			playerName: p.name,
+			allianceTag: p.allianceTag || tag,
+			allianceId: p.allianceId || scrape.allianceId || allianceId,
+			allianceRank: p.rank || '',
+			opsLevel: p.level,
+			power: p.power,
+			grade: opsLevelToGrade(p.level),
+			joinDate: p.joinDate || '',
+			activityStreak,
+			daysInactive,
+		};
+	});
 }
 
 export async function syncGuildAllianceRoster(
@@ -185,6 +207,7 @@ export async function syncGuildAllianceRoster(
 	}
 
 	const previousRows = await listAllianceRosterMembers(env.STFC_DB, config.guild_id);
+	const previousById = new Map(previousRows.map((m) => [m.player_id, m]));
 	const previous = previousRows.map((m) => ({
 		playerId: m.player_id,
 		playerName: m.player_name,
@@ -195,7 +218,7 @@ export async function syncGuildAllianceRoster(
 
 	const fetchedAt = new Date().toISOString();
 	const tag = scrape.allianceTag || config.alliance_tag!;
-	const members = membersFromScrape(scrape, allianceId, tag);
+	const members = membersFromScrape(scrape, allianceId, tag, previousById);
 
 	const diff = diffAllianceRosters(previous, members);
 
@@ -322,7 +345,9 @@ export async function syncMultiAllianceTrackedRosters(
 		}
 		const tag = scrape.allianceTag || entry.allianceTag;
 		const allianceId = scrape.allianceId || entry.allianceId;
-		const members = membersFromScrape(scrape, allianceId, tag);
+		const previousForAlliance = await listAllianceRosterMembers(env.STFC_DB, config.guild_id);
+		const previousById = new Map(previousForAlliance.map((m) => [m.player_id, m]));
+		const members = membersFromScrape(scrape, allianceId, tag, previousById);
 		await replaceAllianceRoster(env.STFC_DB, {
 			guildId: config.guild_id,
 			allianceId,

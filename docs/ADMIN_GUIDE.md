@@ -357,12 +357,12 @@ Each morning sync (`0 6 * * *`), for every verified player we successfully look 
 2. If streak `> 0` → set **days inactive** = `0`.
 3. If streak `=== 0` → increment **days inactive** by 1 (or set to 1 on the first zero day).
 
-We **do not** change counters when a scrape/lookup fails or omits the field. Streak is read from the **alliance roster HTML** (`consecutive_days_active` on each member row) during the morning sync — individual player pages are only a fallback.
+We **do not** change counters when a scrape/lookup fails or omits the field. Streak is read from the **alliance roster HTML** (`consecutive_days_active` on each member row) during the morning sync — for **everyone** on the alliance page (Discord-linked or not). `days_inactive` increments on that same morning scrape when streak is `0`. Individual player pages are only a fallback for linked players missing from the cache.
 
 ### Commands
 
 ```
-/roster inactive min_days:3     # list verified players inactive ≥ N days (default 1)
+/roster inactive min_days:3     # inactive ≥ N days (linked + unlinked; default 1)
 /roster activity user:@Name     # show streak + days inactive
 /roster set-streak user:@Name value:12   # admin: set streak (value>0 clears inactive)
 /roster set-inactive user:@Name value:5  # admin: set days inactive (value>0 clears streak)
@@ -381,6 +381,7 @@ Morning cron posts **Player activity — streak / inactive** (ASCII table sectio
 ### Storage
 
 `verified_players.activity_streak`, `days_inactive`, `activity_updated_at`  
+`alliance_roster_members.activity_streak`, `days_inactive` (same morning scrape; used for unlinked roster lists)  
 Cached on `alliance_roster_members.activity_streak` for roster-driven sync.
 
 ---
@@ -777,7 +778,7 @@ Lists in-game name, player id, ops, and rank. Requires a cached alliance roster 
 | `/roster rank rank:Admiral` | Verified players with that alliance rank |
 | `/roster ops min:50` | Ops level range |
 
-Player list replies use ASCII **tables** by default with **Previous** / **Next** / **Full list** / **Table** buttons. Options: `sort:`, `format:list`, `visibility:public` (default **private**), `page:`. Private replies also get **Post to channel** (publishes a public copy anyone can paginate). Mentions still on `/roster unverified` / `activity`. Activity streak comes from the **alliance page** field `consecutive_days_active` (not per-player scrapes).
+Player list replies use ASCII **tables** by default with **Previous** / **Next** / **Full list** / **Table** buttons. Options: `sort:`, `format:list`, `visibility:public` (default **private**), `include_unlinked` (default **true** — alliance members with no Discord link show as **DC=no** / status `unlinked`), `page:`. Private replies also get **Post to channel**. `/roster missing-verify` still lists only unlinked. Mentions on `/roster unverified` / `activity`. Streak comes from the alliance page.
 
 On **multi-alliance**, alliance tag/rank changes on daily sync update nick + rank roles; they are **not** auto-set to guest (use `/roster set-guest` if needed).
 

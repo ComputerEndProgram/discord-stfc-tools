@@ -22,6 +22,7 @@ import { formatActivityBits } from './activity-utils';
 import { formatReportTable, ReportCols } from './report-table';
 import {
 	parseRosterFormat,
+	parseRosterIncludeUnlinked,
 	parseRosterSort,
 	parseRosterVisibility,
 	startRosterListReply,
@@ -145,6 +146,7 @@ export async function handleRosterCommand(
 			]);
 			const format = parseRosterFormat(getOptionValue(opts, 'format'));
 			const visibility = parseRosterVisibility(getOptionValue(opts, 'visibility'));
+			const includeUnlinked = parseRosterIncludeUnlinked(getOptionValue(opts, 'include_unlinked'));
 			const pageRaw = Number(getOptionValue(opts, 'page'));
 			const page = Number.isFinite(pageRaw) && pageRaw >= 1 ? Math.floor(pageRaw) : 1;
 			return startRosterListReply(env, {
@@ -157,6 +159,7 @@ export async function handleRosterCommand(
 					sort,
 					format,
 					visibility,
+					includeUnlinked,
 					page,
 				},
 			});
@@ -200,6 +203,7 @@ export async function handleRosterCommand(
 			]);
 			const format = parseRosterFormat(getOptionValue(opts, 'format'));
 			const visibility = parseRosterVisibility(getOptionValue(opts, 'visibility'));
+			const includeUnlinked = parseRosterIncludeUnlinked(getOptionValue(opts, 'include_unlinked'));
 			const pageRaw = Number(getOptionValue(opts, 'page'));
 			const page = Number.isFinite(pageRaw) && pageRaw >= 1 ? Math.floor(pageRaw) : 1;
 			return startRosterListReply(env, {
@@ -212,6 +216,7 @@ export async function handleRosterCommand(
 					sort,
 					format,
 					visibility,
+					includeUnlinked,
 					page,
 				},
 			});
@@ -262,6 +267,7 @@ export async function handleRosterCommand(
 			]);
 			const format = parseRosterFormat(getOptionValue(opts, 'format'));
 			const visibility = parseRosterVisibility(getOptionValue(opts, 'visibility'));
+			const includeUnlinked = parseRosterIncludeUnlinked(getOptionValue(opts, 'include_unlinked'));
 			const pageRaw = Number(getOptionValue(opts, 'page'));
 			const page = Number.isFinite(pageRaw) && pageRaw >= 1 ? Math.floor(pageRaw) : 1;
 			return startRosterListReply(env, {
@@ -274,6 +280,7 @@ export async function handleRosterCommand(
 					sort,
 					format,
 					visibility,
+					includeUnlinked,
 					page,
 				},
 			});
@@ -310,6 +317,7 @@ export async function handleRosterCommand(
 			]);
 			const format = parseRosterFormat(getOptionValue(opts, 'format'));
 			const visibility = parseRosterVisibility(getOptionValue(opts, 'visibility'));
+			const includeUnlinked = parseRosterIncludeUnlinked(getOptionValue(opts, 'include_unlinked'));
 			const pageRaw = Number(getOptionValue(opts, 'page'));
 			const page = Number.isFinite(pageRaw) && pageRaw >= 1 ? Math.floor(pageRaw) : 1;
 			return startRosterListReply(env, {
@@ -322,6 +330,7 @@ export async function handleRosterCommand(
 					sort,
 					format,
 					visibility,
+					includeUnlinked,
 					page,
 				},
 			});
@@ -374,6 +383,7 @@ export async function handleRosterCommand(
 			]);
 			const format = parseRosterFormat(getOptionValue(opts, 'format'));
 			const visibility = parseRosterVisibility(getOptionValue(opts, 'visibility'));
+			const includeUnlinked = parseRosterIncludeUnlinked(getOptionValue(opts, 'include_unlinked'));
 			const pageRaw = Number(getOptionValue(opts, 'page'));
 			const page = Number.isFinite(pageRaw) && pageRaw >= 1 ? Math.floor(pageRaw) : 1;
 			return startRosterListReply(env, {
@@ -388,6 +398,7 @@ export async function handleRosterCommand(
 					sort,
 					format,
 					visibility,
+					includeUnlinked,
 					page,
 				},
 			});

@@ -11,13 +11,14 @@ import {
 } from './discord-api';
 import {
 	countAllianceMembersMissingVerify,
-	countRosterPlayers,
+	countMergedRosterPlayers,
 	createRosterListSession,
 	getRosterListSession,
 	listAllianceMembersMissingVerify,
-	listRosterPlayers,
+	listMergedRosterPlayers,
 	updateRosterListSessionPayload,
 	type AllianceRosterMemberRow,
+	type MergedRosterRow,
 	type RosterListSessionPayload,
 	type RosterPlayerSort,
 } from './guild-db';
@@ -27,7 +28,6 @@ import {
 	ReportCols,
 	tagCell,
 } from './report-table';
-import type { VerifiedPlayer } from './types';
 
 const TABLE_PAGE_SIZE = 15;
 const LIST_PAGE_SIZE = 80;
@@ -62,8 +62,12 @@ function visibilityOf(payload: RosterListSessionPayload): RosterListVisibility {
 	return payload.visibility === 'public' ? 'public' : 'private';
 }
 
-function verifiedDenseLine(p: VerifiedPlayer): string {
-	const name = playerCell(p.player_name);
+function includeUnlinkedOf(payload: RosterListSessionPayload): boolean {
+	return payload.includeUnlinked !== false;
+}
+
+function mergedDenseLine(p: MergedRosterRow): string {
+	const name = playerCell(p.player_name, p.player_id ?? undefined);
 	const tag = tagCell(p.alliance_tag);
 	const ops = p.ops_level != null ? String(p.ops_level) : '—';
 	const grade = p.grade != null ? `G${p.grade}` : '—';
@@ -73,7 +77,8 @@ function verifiedDenseLine(p: VerifiedPlayer): string {
 			: p.activity_streak != null
 				? `s${p.activity_streak}`
 				: 's—';
-	return `${name} · ${tag} · ${ops} · ${grade} · ${streak}`;
+	const dc = p.on_discord ? 'DC' : 'no Discord';
+	return `${name} · ${tag} · ${ops} · ${grade} · ${streak} · ${dc}`;
 }
 
 function missingDenseLine(m: AllianceRosterMemberRow): string {
@@ -81,19 +86,20 @@ function missingDenseLine(m: AllianceRosterMemberRow): string {
 	const tag = tagCell(m.alliance_tag);
 	const ops = m.ops_level != null ? String(m.ops_level) : '—';
 	const rank = m.alliance_rank || '—';
-	return `${name} · ${tag} · ${ops} · ${rank} · \`${m.player_id}\``;
+	return `${name} · ${tag} · ${ops} · ${rank} · \`${m.player_id}\` · no Discord`;
 }
 
-function verifiedTableBody(players: VerifiedPlayer[], maxRows: number, maxChars: number): string {
+function mergedTableBody(players: MergedRosterRow[], maxRows: number, maxChars: number): string {
 	return formatReportTable(
 		players.map((p) => ({
-			Player: playerCell(p.player_name),
+			Player: playerCell(p.player_name, p.player_id ?? undefined),
 			Tag: tagCell(p.alliance_tag),
 			Ops: p.ops_level != null ? p.ops_level : '—',
 			Grade: p.grade != null ? `G${p.grade}` : '—',
-			Status: p.verification_status || '—',
+			Status: p.on_discord ? p.status || '—' : 'unlinked',
 			Streak: p.activity_streak != null ? p.activity_streak : '—',
 			Inactive: p.days_inactive > 0 ? `${p.days_inactive}d` : '—',
+			DC: p.on_discord ? 'yes' : 'no',
 		})),
 		[
 			ReportCols.player,
@@ -103,6 +109,7 @@ function verifiedTableBody(players: VerifiedPlayer[], maxRows: number, maxChars:
 			ReportCols.status,
 			ReportCols.streak,
 			ReportCols.inactive,
+			ReportCols.discord,
 		],
 		{ maxRows, maxChars, omitEmptyColumns: true },
 	);
@@ -116,6 +123,7 @@ function missingTableBody(rows: AllianceRosterMemberRow[], maxRows: number, maxC
 			Ops: m.ops_level != null ? m.ops_level : '—',
 			Rank: m.alliance_rank || '—',
 			Id: String(m.player_id),
+			DC: 'no',
 		})),
 		[
 			ReportCols.player,
@@ -123,6 +131,7 @@ function missingTableBody(rows: AllianceRosterMemberRow[], maxRows: number, maxC
 			ReportCols.ops,
 			ReportCols.rank,
 			{ header: 'Id', width: 8, align: 'right' },
+			ReportCols.discord,
 		],
 		{ maxRows, maxChars, omitEmptyColumns: true },
 	);
@@ -245,11 +254,12 @@ async function loadPage(
 		opsMax: payload.filters.opsMax,
 		allianceRank: payload.filters.allianceRank,
 		daysInactiveMin: payload.filters.daysInactiveMin,
+		includeUnlinked: includeUnlinkedOf(payload),
 	};
 	const sort: RosterPlayerSort =
 		payload.sort === 'rank' ? 'ops' : (payload.sort as RosterPlayerSort);
-	const total = await countRosterPlayers(db, guildId, filters);
-	const players = await listRosterPlayers(db, guildId, {
+	const total = await countMergedRosterPlayers(db, guildId, { ...filters, sort });
+	const players = await listMergedRosterPlayers(db, guildId, {
 		...filters,
 		sort,
 		limit: pageSize,
@@ -257,10 +267,10 @@ async function loadPage(
 	});
 
 	if (format === 'list') {
-		const packed = packLines(players.map(verifiedDenseLine), bodyBudget);
+		const packed = packLines(players.map(mergedDenseLine), bodyBudget);
 		return { total, body: packed.text, shown: packed.shown, pageSize };
 	}
-	const body = verifiedTableBody(players, pageSize, bodyBudget);
+	const body = mergedTableBody(players, pageSize, bodyBudget);
 	return { total, body, shown: Math.min(players.length, pageSize), pageSize };
 }
 
@@ -273,6 +283,7 @@ export async function renderRosterListContent(
 	let working: RosterListSessionPayload = {
 		...payload,
 		visibility: visibilityOf(payload),
+		includeUnlinked: includeUnlinkedOf(payload),
 		page,
 	};
 
@@ -292,7 +303,9 @@ export async function renderRosterListContent(
 		` · sorted by ${sortLabel(working.sort)}` +
 		` · format **${working.format}**` +
 		` · **${vis}**` +
-		(totalPages > 1 ? ` · page **${page}/${totalPages}**` : '');
+		(includeUnlinkedOf(working) ? ' · +unlinked' : '') +
+		(totalPages > 1 ? ` · page **${page}/${totalPages}**` : '') +
+		(includeUnlinkedOf(working) ? `\n_DC **no** = on alliance roster, not linked in Discord._` : '');
 
 	const content = `${working.title}\n${loaded.body}\n\n_${footer}_`;
 	return {
@@ -307,20 +320,25 @@ export async function startRosterListReply(
 	opts: {
 		guildId: string;
 		userId: string;
-		payload: Omit<RosterListSessionPayload, 'page' | 'visibility'> & {
+		payload: Omit<RosterListSessionPayload, 'page' | 'visibility' | 'includeUnlinked'> & {
 			page?: number;
 			visibility?: RosterListVisibility;
+			includeUnlinked?: boolean;
 		};
 	},
 ): Promise<Response> {
 	const initial: RosterListSessionPayload = {
 		...opts.payload,
 		visibility: opts.payload.visibility === 'public' ? 'public' : 'private',
+		includeUnlinked: opts.payload.includeUnlinked !== false,
 		page: Math.max(1, opts.payload.page ?? 1),
 	};
 	const total = await (initial.kind === 'missing-verify'
 		? countAllianceMembersMissingVerify(env.STFC_DB, opts.guildId)
-		: countRosterPlayers(env.STFC_DB, opts.guildId, initial.filters));
+		: countMergedRosterPlayers(env.STFC_DB, opts.guildId, {
+				...initial.filters,
+				includeUnlinked: includeUnlinkedOf(initial),
+			}));
 	if (total === 0) {
 		return interactionResponse(`${initial.title}\n\nNo matching players.`, true);
 	}
@@ -478,4 +496,11 @@ export function parseRosterFormat(raw: unknown): RosterListFormat {
 
 export function parseRosterVisibility(raw: unknown): RosterListVisibility {
 	return String(raw ?? '').trim().toLowerCase() === 'public' ? 'public' : 'private';
+}
+
+/** Default true — include alliance members with no Discord link (DC=no). */
+export function parseRosterIncludeUnlinked(raw: unknown): boolean {
+	if (raw === false || raw === 'false' || raw === 0 || raw === '0') return false;
+	if (raw === true || raw === 'true' || raw === 1 || raw === '1') return true;
+	return true;
 }

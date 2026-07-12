@@ -46,6 +46,12 @@ const rosterListCommonOptions = [
 		],
 	},
 	{
+		type: 5,
+		name: 'include_unlinked',
+		description: 'Include alliance members not on Discord (DC=no). Default true.',
+		required: false,
+	},
+	{
 		type: 4,
 		name: 'page',
 		description: 'Page number (default 1; or use Previous/Next buttons)',
@@ -281,6 +287,12 @@ const commands = [
 							{ name: 'Private', value: 'private' },
 							{ name: 'Public', value: 'public' },
 						],
+					},
+					{
+						type: 5,
+						name: 'include_unlinked',
+						description: 'Include alliance members not on Discord (DC=no). Default true.',
+						required: false,
 					},
 					{
 						type: 4,

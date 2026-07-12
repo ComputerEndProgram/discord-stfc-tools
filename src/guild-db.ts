@@ -1522,6 +1522,219 @@ export async function listRosterPlayers(
 	return (results ?? []).map(mapVerifiedPlayer);
 }
 
+/** Unified row for Discord-linked players and alliance-cache members not on Discord. */
+export type MergedRosterRow = {
+	player_name: string | null;
+	alliance_tag: string | null;
+	alliance_rank: string | null;
+	ops_level: number | null;
+	grade: number | null;
+	activity_streak: number | null;
+	days_inactive: number;
+	status: string;
+	on_discord: boolean;
+	discord_user_id: string | null;
+	player_id: number | null;
+};
+
+export type MergedRosterFilters = Omit<RosterPlayerFilters, 'status'> & {
+	/** When true, include alliance_roster_members with no Discord link. Default false in callers. */
+	includeUnlinked?: boolean;
+};
+
+function mergedRosterOrderBy(sort?: RosterPlayerSort, daysInactiveMin?: number): string {
+	const resolved = sort ?? (daysInactiveMin != null ? 'inactive' : 'ops');
+	switch (resolved) {
+		case 'name':
+			return `player_name COLLATE NOCASE ASC, (ops_level IS NULL), ops_level DESC`;
+		case 'streak':
+			return `(activity_streak IS NULL), activity_streak DESC, player_name COLLATE NOCASE`;
+		case 'inactive':
+			return `days_inactive DESC, (ops_level IS NULL), ops_level DESC, player_name COLLATE NOCASE`;
+		case 'grade':
+			return `(grade IS NULL), grade DESC, (ops_level IS NULL), ops_level DESC, player_name COLLATE NOCASE`;
+		case 'ops':
+		default:
+			return `(ops_level IS NULL), ops_level DESC, player_name COLLATE NOCASE`;
+	}
+}
+
+function mapMergedRosterRow(row: Record<string, unknown>): MergedRosterRow {
+	return {
+		player_name: row.player_name != null ? String(row.player_name) : null,
+		alliance_tag: row.alliance_tag != null ? String(row.alliance_tag) : null,
+		alliance_rank: row.alliance_rank != null ? String(row.alliance_rank) : null,
+		ops_level: row.ops_level != null ? Number(row.ops_level) : null,
+		grade: row.grade != null ? Number(row.grade) : null,
+		activity_streak: row.activity_streak != null ? Number(row.activity_streak) : null,
+		days_inactive: Number(row.days_inactive ?? 0) || 0,
+		status: String(row.status ?? '—'),
+		on_discord: Number(row.on_discord ?? 0) === 1,
+		discord_user_id: row.discord_user_id != null ? String(row.discord_user_id) : null,
+		player_id: row.player_id != null ? Number(row.player_id) : null,
+	};
+}
+
+/**
+ * List verified Discord players, optionally UNION alliance-cache members with no Discord link.
+ * Unlinked rows use status `unlinked`, on_discord=0; inactive days for them are 1 when streak is 0 else 0.
+ */
+export async function countMergedRosterPlayers(
+	db: D1Database,
+	guildId: string,
+	filters?: MergedRosterFilters,
+): Promise<number> {
+	const includeUnlinked = filters?.includeUnlinked === true;
+	if (!includeUnlinked) {
+		return countRosterPlayers(db, guildId, filters);
+	}
+
+	const vp = rosterPlayerWhere(guildId, filters);
+	const armClauses = [`arm.guild_id = ?`];
+	const armBinds: Array<string | number> = [guildId];
+	if (filters?.grade != null) {
+		armClauses.push(`arm.grade = ?`);
+		armBinds.push(filters.grade);
+	}
+	if (filters?.opsMin != null) {
+		armClauses.push(`arm.ops_level >= ?`);
+		armBinds.push(filters.opsMin);
+	}
+	if (filters?.opsMax != null) {
+		armClauses.push(`arm.ops_level <= ?`);
+		armBinds.push(filters.opsMax);
+	}
+	if (filters?.allianceRank?.trim()) {
+		armClauses.push(`LOWER(TRIM(arm.alliance_rank)) = LOWER(?)`);
+		armBinds.push(filters.allianceRank.trim());
+	}
+	if (filters?.daysInactiveMin != null) {
+		armClauses.push(`arm.days_inactive >= ?`);
+		armBinds.push(filters.daysInactiveMin);
+	}
+
+	const row = await db
+		.prepare(
+			`SELECT COUNT(*) AS c FROM (
+				SELECT vp.discord_user_id AS id
+				FROM verified_players vp
+				WHERE ${vp.clauses.join(' AND ')}
+				UNION ALL
+				SELECT CAST(arm.player_id AS TEXT) AS id
+				FROM alliance_roster_members arm
+				WHERE ${armClauses.join(' AND ')}
+				  AND NOT EXISTS (
+				    SELECT 1 FROM verified_players vp2
+				    WHERE vp2.guild_id = arm.guild_id
+				      AND vp2.player_id = arm.player_id
+				      AND vp2.verification_status IN ('verified', 'active', 'guest')
+				  )
+			)`,
+		)
+		.bind(...vp.binds, ...armBinds)
+		.first();
+	return Number((row as { c?: number } | null)?.c ?? 0);
+}
+
+export async function listMergedRosterPlayers(
+	db: D1Database,
+	guildId: string,
+	filters?: MergedRosterFilters,
+): Promise<MergedRosterRow[]> {
+	const includeUnlinked = filters?.includeUnlinked === true;
+	const limit = Math.min(Math.max(filters?.limit ?? 50, 1), 200);
+	const offset = Math.max(0, Math.floor(filters?.offset ?? 0));
+	const orderBy = mergedRosterOrderBy(filters?.sort, filters?.daysInactiveMin);
+
+	if (!includeUnlinked) {
+		const players = await listRosterPlayers(db, guildId, filters);
+		return players.map((p) => ({
+			player_name: p.player_name,
+			alliance_tag: p.alliance_tag,
+			alliance_rank: p.alliance_rank,
+			ops_level: p.ops_level,
+			grade: p.grade,
+			activity_streak: p.activity_streak,
+			days_inactive: p.days_inactive,
+			status: p.verification_status,
+			on_discord: true,
+			discord_user_id: p.discord_user_id,
+			player_id: p.player_id,
+		}));
+	}
+
+	const vp = rosterPlayerWhere(guildId, filters);
+	const armClauses = [`arm.guild_id = ?`];
+	const armBinds: Array<string | number> = [guildId];
+	if (filters?.grade != null) {
+		armClauses.push(`arm.grade = ?`);
+		armBinds.push(filters.grade);
+	}
+	if (filters?.opsMin != null) {
+		armClauses.push(`arm.ops_level >= ?`);
+		armBinds.push(filters.opsMin);
+	}
+	if (filters?.opsMax != null) {
+		armClauses.push(`arm.ops_level <= ?`);
+		armBinds.push(filters.opsMax);
+	}
+	if (filters?.allianceRank?.trim()) {
+		armClauses.push(`LOWER(TRIM(arm.alliance_rank)) = LOWER(?)`);
+		armBinds.push(filters.allianceRank.trim());
+	}
+	if (filters?.daysInactiveMin != null) {
+		armClauses.push(`arm.days_inactive >= ?`);
+		armBinds.push(filters.daysInactiveMin);
+	}
+
+	const { results } = await db
+		.prepare(
+			`SELECT * FROM (
+				SELECT
+					vp.player_name AS player_name,
+					vp.alliance_tag AS alliance_tag,
+					vp.alliance_rank AS alliance_rank,
+					vp.ops_level AS ops_level,
+					vp.grade AS grade,
+					vp.activity_streak AS activity_streak,
+					vp.days_inactive AS days_inactive,
+					vp.verification_status AS status,
+					1 AS on_discord,
+					vp.discord_user_id AS discord_user_id,
+					vp.player_id AS player_id
+				FROM verified_players vp
+				WHERE ${vp.clauses.join(' AND ')}
+				UNION ALL
+				SELECT
+					arm.player_name AS player_name,
+					arm.alliance_tag AS alliance_tag,
+					arm.alliance_rank AS alliance_rank,
+					arm.ops_level AS ops_level,
+					arm.grade AS grade,
+					arm.activity_streak AS activity_streak,
+					arm.days_inactive AS days_inactive,
+					'unlinked' AS status,
+					0 AS on_discord,
+					NULL AS discord_user_id,
+					arm.player_id AS player_id
+				FROM alliance_roster_members arm
+				WHERE ${armClauses.join(' AND ')}
+				  AND NOT EXISTS (
+				    SELECT 1 FROM verified_players vp2
+				    WHERE vp2.guild_id = arm.guild_id
+				      AND vp2.player_id = arm.player_id
+				      AND vp2.verification_status IN ('verified', 'active', 'guest')
+				  )
+			)
+			ORDER BY ${orderBy}
+			LIMIT ? OFFSET ?`,
+		)
+		.bind(...vp.binds, ...armBinds, limit, offset)
+		.all();
+
+	return (results ?? []).map((r) => mapMergedRosterRow(r as Record<string, unknown>));
+}
+
 export async function countPlayersByAllianceRank(
 	db: D1Database,
 	guildId: string,
@@ -1878,6 +2091,8 @@ export interface AllianceRosterMemberRow {
 	grade: number | null;
 	join_date: string | null;
 	activity_streak: number | null;
+	/** Days observed with streak 0 on morning alliance scrapes. */
+	days_inactive: number;
 	fetched_at: string;
 }
 
@@ -1965,6 +2180,7 @@ function mapAllianceRosterMemberRow(row: Record<string, unknown>): AllianceRoste
 		grade: row.grade != null ? Number(row.grade) : null,
 		join_date: row.join_date != null ? String(row.join_date) : null,
 		activity_streak: row.activity_streak != null ? Number(row.activity_streak) : null,
+		days_inactive: Number(row.days_inactive ?? 0) || 0,
 		fetched_at: String(row.fetched_at),
 	};
 }
@@ -2035,6 +2251,7 @@ export async function replaceAllianceRoster(
 			grade: number | null;
 			joinDate: string;
 			activityStreak?: number | null;
+			daysInactive?: number;
 		}>;
 	},
 ): Promise<void> {
@@ -2075,13 +2292,14 @@ export async function replaceAllianceRoster(
 	);
 
 	for (const m of opts.members) {
+		const daysInactive = Math.max(0, Math.floor(Number(m.daysInactive ?? 0) || 0));
 		stmts.push(
 			db
 				.prepare(
 					`INSERT INTO alliance_roster_members
 					 (guild_id, player_id, player_name, alliance_tag, alliance_id, alliance_rank,
-					  ops_level, power, grade, join_date, activity_streak, fetched_at)
-					 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+					  ops_level, power, grade, join_date, activity_streak, days_inactive, fetched_at)
+					 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 					 ON CONFLICT(guild_id, player_id) DO UPDATE SET
 					   player_name = excluded.player_name,
 					   alliance_tag = excluded.alliance_tag,
@@ -2092,6 +2310,7 @@ export async function replaceAllianceRoster(
 					   grade = excluded.grade,
 					   join_date = excluded.join_date,
 					   activity_streak = excluded.activity_streak,
+					   days_inactive = excluded.days_inactive,
 					   fetched_at = excluded.fetched_at`,
 				)
 				.bind(
@@ -2106,6 +2325,7 @@ export async function replaceAllianceRoster(
 					m.grade,
 					m.joinDate,
 					m.activityStreak ?? null,
+					daysInactive,
 					opts.fetchedAt,
 				),
 		);
@@ -2221,6 +2441,8 @@ export type RosterListSessionPayload = {
 	format: 'table' | 'list';
 	/** private = ephemeral (default); public = channel-visible, anyone can paginate */
 	visibility: 'private' | 'public';
+	/** Include alliance-cache members with no Discord link (flagged in the table). */
+	includeUnlinked: boolean;
 	page: number;
 };
 

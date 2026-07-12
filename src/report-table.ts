@@ -23,6 +23,8 @@ export const ReportCols = {
 	inactive: { header: 'Inactive', width: 8, align: 'right' as const },
 	prevOps: { header: 'Was', width: 3, align: 'right' as const },
 	prevName: { header: 'Was', width: 12 },
+	/** yes = linked on Discord; no = alliance cache only */
+	discord: { header: 'DC', width: 3 },
 } satisfies Record<string, TableColumn>;
 
 export type FormatReportTableOpts = {

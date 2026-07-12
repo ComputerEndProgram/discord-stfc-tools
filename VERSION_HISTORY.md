@@ -8,7 +8,7 @@ Release log for the STFC Discord bot (Cloudflare Worker). Versions use **MAJOR.M
 | **MINOR** | New user-facing capability (new slash area, cron product, admin workflow) |
 | **INCREMENTAL** | Fixes, polish, docs, refactors, small command option tweaks |
 
-**Current version:** **1.8.3**
+**Current version:** **1.8.5**
 
 **Sources of truth**
 
@@ -25,6 +25,23 @@ Bump all three together when cutting a release. Prefer a short entry under the n
 ## How versions map to history
 
 Versions below **1.0.0** are retrospective labels for the Aug 2025 utility era. **1.0.0** marks the alliance-management product that was prepared for public use. Later **1.x** minors track feature areas shipped in Jul 2026 (git history + migrations `001`–`027`).
+
+---
+
+## 1.8.5 — Alliance-roster days_inactive for unlinked (2026-07-12)
+
+**Migration:** `029_alliance_roster_days_inactive.sql`
+
+- Morning alliance scrape increments `alliance_roster_members.days_inactive` when streak is 0 (same rules as verified players)
+- Unlinked members support multi-day `/roster inactive` filters
+
+---
+
+## 1.8.4 — Unlinked alliance members in roster lists (2026-07-12)
+
+- `/roster` ops / grade / rank / inactive include alliance-cache players not on Discord by default
+- Flag column **DC** (`yes` / `no`) and status `unlinked`; dense list shows `no Discord`
+- `include_unlinked:false` to hide them; inactive `min_days>1` was Discord-linked only until 1.8.5
 
 ---
 

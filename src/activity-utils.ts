@@ -1,6 +1,7 @@
 /**
  * stfc.pro exposes `consecutive_days_active` (0 = no current login streak).
- * We store that as activity_streak and derive days_inactive day-over-day.
+ * We store that as activity_streak and derive days_inactive day-over-day
+ * from the morning alliance roster scrape (all members) and from verified-player sync.
  */
 
 export type ActivitySnapshot = {
