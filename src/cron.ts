@@ -33,7 +33,21 @@ import {
 	isDeployTesting,
 } from './deploy-mode';
 import { applyActivityObservation } from './activity-utils';
+import {
+	formatReportSection,
+	playerCell,
+	ReportCols,
+	tagCell,
+} from './report-table';
+import type { TableData } from './tableUtils';
 import type { PlayerData } from './types';
+
+type ActivityReportRow = {
+	Player: string;
+	Tag: string;
+	Streak: number;
+	Inactive: string;
+};
 
 export async function runMemberPoll(env: Env): Promise<void> {
 	console.log('Cron: member poll starting');
@@ -133,10 +147,28 @@ export async function runDailyPlayerSync(env: Env): Promise<void> {
 		let liveLookups = 0;
 		const verifiedAllianceMoves: string[] = [];
 		const verifiedRoleNotes: string[] = [];
-		const becameInactiveLines: string[] = [];
-		const returnedActiveLines: string[] = [];
-		const stillInactiveLines: string[] = [];
+		const becameInactiveRows: ActivityReportRow[] = [];
+		const returnedActiveRows: ActivityReportRow[] = [];
+		const stillInactiveRows: ActivityReportRow[] = [];
 		const wouldHaveActions: string[] = [];
+
+		const pushActivityRow = (
+			act: { activityStreak: number; daysInactive: number; becameInactive: boolean; returnedActive: boolean; inactiveDayAdded: boolean },
+			playerName: string | null | undefined,
+			allianceTag: string | null | undefined,
+		) => {
+			const row: ActivityReportRow = {
+				Player: playerCell(playerName),
+				Tag: tagCell(allianceTag),
+				Streak: act.activityStreak,
+				Inactive: `${act.daysInactive}d`,
+			};
+			if (act.becameInactive) becameInactiveRows.push(row);
+			else if (act.returnedActive) returnedActiveRows.push(row);
+			else if (act.inactiveDayAdded && act.daysInactive >= 3) {
+				stillInactiveRows.push(row);
+			}
+		};
 		const testing = isDeployTesting(config);
 		const testingTitle = (title: string) => (testing ? `[TESTING] ${title}` : title);
 
@@ -290,15 +322,7 @@ export async function runDailyPlayerSync(env: Env): Promise<void> {
 								days_inactive: act.daysInactive,
 							},
 						);
-						const label =
-							`• <@${record.discord_user_id}> **${player.name}**` +
-							(player.allianceTag ? ` [${player.allianceTag}]` : '') +
-							` — streak **${act.activityStreak}** · inactive **${act.daysInactive}d**`;
-						if (act.becameInactive) becameInactiveLines.push(label);
-						else if (act.returnedActive) returnedActiveLines.push(label);
-						else if (act.inactiveDayAdded && act.daysInactive >= 3) {
-							stillInactiveLines.push(label);
-						}
+						pushActivityRow(act, player.name, player.allianceTag);
 					}
 					const result = await handleAutomatedDemotionCandidate(
 						env,
@@ -376,15 +400,7 @@ export async function runDailyPlayerSync(env: Env): Promise<void> {
 
 				const act = syncResult.activity;
 				if (act) {
-					const label =
-						`• <@${record.discord_user_id}> **${player.name}**` +
-						(player.allianceTag ? ` [${player.allianceTag}]` : '') +
-						` — streak **${act.activityStreak}** · inactive **${act.daysInactive}d**`;
-					if (act.becameInactive) becameInactiveLines.push(label);
-					else if (act.returnedActive) returnedActiveLines.push(label);
-					else if (act.inactiveDayAdded && act.daysInactive >= 3) {
-						stillInactiveLines.push(label);
-					}
+					pushActivityRow(act, player.name, player.allianceTag);
 				}
 			} catch (error) {
 				failed++;
@@ -414,40 +430,46 @@ export async function runDailyPlayerSync(env: Env): Promise<void> {
 			});
 		}
 
-		if (
-			becameInactiveLines.length ||
-			returnedActiveLines.length ||
-			stillInactiveLines.length
-		) {
+		if (becameInactiveRows.length || returnedActiveRows.length || stillInactiveRows.length) {
+			const activityCols = [
+				ReportCols.player,
+				ReportCols.tag,
+				ReportCols.streak,
+				ReportCols.inactive,
+			];
+			const tableOpts = { maxRows: 25, maxChars: 1200 };
 			const sections: string[] = [];
-			if (becameInactiveLines.length) {
+			if (becameInactiveRows.length) {
 				sections.push(
-					`**Became inactive (${becameInactiveLines.length})**`,
-					becameInactiveLines.slice(0, 25).join('\n') +
-						(becameInactiveLines.length > 25
-							? `\n_…and ${becameInactiveLines.length - 25} more_`
-							: ''),
+					formatReportSection(
+						'Became inactive',
+						becameInactiveRows as TableData[],
+						activityCols,
+						tableOpts,
+					),
 				);
 			}
-			if (returnedActiveLines.length) {
+			if (returnedActiveRows.length) {
 				sections.push(
-					`**Returned active (${returnedActiveLines.length})**`,
-					returnedActiveLines.slice(0, 25).join('\n') +
-						(returnedActiveLines.length > 25
-							? `\n_…and ${returnedActiveLines.length - 25} more_`
-							: ''),
+					formatReportSection(
+						'Returned active',
+						returnedActiveRows as TableData[],
+						activityCols,
+						tableOpts,
+					),
 				);
 			}
-			if (stillInactiveLines.length) {
+			if (stillInactiveRows.length) {
 				sections.push(
-					`**Still inactive ≥3d (${stillInactiveLines.length})**`,
-					stillInactiveLines.slice(0, 25).join('\n') +
-						(stillInactiveLines.length > 25
-							? `\n_…and ${stillInactiveLines.length - 25} more_`
-							: ''),
+					formatReportSection(
+						'Still inactive ≥3d',
+						stillInactiveRows as TableData[],
+						activityCols,
+						tableOpts,
+					),
 				);
 			}
-			let description = sections.join('\n\n');
+			let description = sections.filter(Boolean).join('\n\n');
 			if (description.length > 3900) {
 				description = description.slice(0, 3890) + '\n_…truncated_';
 			}
@@ -456,7 +478,7 @@ export async function runDailyPlayerSync(env: Env): Promise<void> {
 				description,
 				source: 'cron',
 				color:
-					becameInactiveLines.length || stillInactiveLines.length
+					becameInactiveRows.length || stillInactiveRows.length
 						? AuditColor.warn
 						: AuditColor.info,
 			});

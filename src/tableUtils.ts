@@ -10,10 +10,23 @@ export interface TableData {
 	[key: string]: string | number;
 }
 
-export function generateAsciiTable(data: TableData[], columns: TableColumn[]): string {
+export type GenerateAsciiTableOpts = {
+	/**
+	 * Skip horizontal separators between data rows (shorter for Discord embeds / slash replies).
+	 * Default false — keeps `/table` and survey styling unchanged.
+	 */
+	compact?: boolean;
+};
+
+export function generateAsciiTable(
+	data: TableData[],
+	columns: TableColumn[],
+	opts?: GenerateAsciiTableOpts,
+): string {
 	if (data.length === 0) {
 		return 'No data to display';
 	}
+	const compact = opts?.compact === true;
 
 	// Ensure columns have proper widths
 	const processedColumns = columns.map(col => ({
@@ -122,12 +135,11 @@ export function generateAsciiTable(data: TableData[], columns: TableColumn[]): s
 		return rowLines;
 	});
 	
-	// Flatten rows and add separators between data rows (but not after the last row)
+	// Flatten rows; optionally add separators between data rows (not after the last)
 	const flattenedRows: string[] = [];
 	rows.forEach((rowLines, rowIndex) => {
 		flattenedRows.push(...rowLines);
-		// Add separator after each row except the last one
-		if (rowIndex < rows.length - 1) {
+		if (!compact && rowIndex < rows.length - 1) {
 			flattenedRows.push(dataSeparator);
 		}
 	});

@@ -21,6 +21,13 @@ import {
 } from './guild-db';
 import { shouldUseAllianceRoster, isMultiAllianceGuild } from './alliance-roster-sync';
 import { formatActivityBits } from './activity-utils';
+import {
+	formatReportTable,
+	playerCell,
+	ReportCols,
+	tagCell,
+} from './report-table';
+import type { TableData } from './tableUtils';
 import { isGuildAdministrator, resolveTargetUserId } from './discord-admin';
 import { demotePlayerToGuest } from './verification-access';
 import { AuditColor, postAuditLog } from './audit-log';
@@ -39,19 +46,31 @@ function canUseRoster(
 	return allowed.some((id) => roles.has(id));
 }
 
-function formatPlayerLine(p: VerifiedPlayer): string {
-	const name = p.player_name ?? '—';
-	const tag = p.alliance_tag ? `[${p.alliance_tag}]` : '';
-	const ops = p.ops_level != null ? `Ops ${p.ops_level}` : 'Ops —';
-	const grade = p.grade != null ? `G${p.grade}` : 'G—';
-	const status = p.verification_status;
-	const activity = formatActivityBits({
-		activityStreak: p.activity_streak,
-		daysInactive: p.days_inactive,
-	});
-	return (
-		`• <@${p.discord_user_id}> **${name}** ${tag} · ${ops} · ${grade} · ${status}` +
-		(activity ? ` · ${activity}` : '')
+function verifiedPlayersToRows(players: VerifiedPlayer[]): TableData[] {
+	return players.map((p) => ({
+		Player: playerCell(p.player_name),
+		Tag: tagCell(p.alliance_tag),
+		Ops: p.ops_level != null ? p.ops_level : '—',
+		Grade: p.grade != null ? `G${p.grade}` : '—',
+		Status: p.verification_status || '—',
+		Streak: p.activity_streak != null ? p.activity_streak : '—',
+		Inactive: p.days_inactive > 0 ? `${p.days_inactive}d` : '—',
+	}));
+}
+
+function formatVerifiedPlayerTable(players: VerifiedPlayer[], maxRows = LIST_CAP): string {
+	return formatReportTable(
+		verifiedPlayersToRows(players),
+		[
+			ReportCols.player,
+			ReportCols.tag,
+			ReportCols.ops,
+			ReportCols.grade,
+			ReportCols.status,
+			ReportCols.streak,
+			ReportCols.inactive,
+		],
+		{ maxRows, maxChars: 1700, omitEmptyColumns: true },
 	);
 }
 
@@ -124,9 +143,19 @@ export async function handleRosterCommand(
 			if (rows.length === 0) {
 				return interactionResponse('No verified players yet.', true);
 			}
-			const lines = rows.map((r) => `• **G${r.grade}**: ${r.count}`);
 			const total = rows.reduce((n, r) => n + r.count, 0);
-			return interactionResponse(`📊 **Grade breakdown** (${total} verified)\n${lines.join('\n')}`, true);
+			const table = formatReportTable(
+				rows.map((r) => ({ Grade: `G${r.grade}`, Count: r.count })),
+				[
+					{ header: 'Grade', width: 5 },
+					{ header: 'Count', width: 5, align: 'right' },
+				],
+				{ maxRows: 20, maxChars: 1500 },
+			);
+			return interactionResponse(
+				`📊 **Grade breakdown** (${total} verified)\n${table}`,
+				true,
+			);
 		}
 		case 'grade': {
 			const gradeRaw = getOptionValue(opts, 'grade');
@@ -140,7 +169,8 @@ export async function handleRosterCommand(
 			}
 			return interactionResponse(
 				`📋 **G${grade}** (${players.length}${players.length >= 80 ? '+' : ''})\n` +
-					truncateLines(players.map(formatPlayerLine)),
+					`_Player names (use \`/roster activity user:@…\` to ping)._\n` +
+					formatVerifiedPlayerTable(players),
 				true,
 			);
 		}
@@ -149,10 +179,17 @@ export async function handleRosterCommand(
 			if (rows.length === 0) {
 				return interactionResponse('No verified players yet.', true);
 			}
-			const lines = rows.map((r) => `• **${r.alliance_rank}**: ${r.count}`);
 			const total = rows.reduce((n, r) => n + r.count, 0);
+			const table = formatReportTable(
+				rows.map((r) => ({ Rank: r.alliance_rank, Count: r.count })),
+				[
+					{ header: 'Rank', width: 10 },
+					{ header: 'Count', width: 5, align: 'right' },
+				],
+				{ maxRows: 30, maxChars: 1500 },
+			);
 			return interactionResponse(
-				`📊 **In-game rank breakdown** (${total} verified)\n${lines.join('\n')}`,
+				`📊 **In-game rank breakdown** (${total} verified)\n${table}`,
 				true,
 			);
 		}
@@ -173,7 +210,8 @@ export async function handleRosterCommand(
 			}
 			return interactionResponse(
 				`📋 **Rank ${rankRaw}** (${players.length}${players.length >= 80 ? '+' : ''})\n` +
-					truncateLines(players.map(formatPlayerLine)),
+					`_Player names (use \`/roster activity user:@…\` to ping)._\n` +
+					formatVerifiedPlayerTable(players),
 				true,
 			);
 		}
@@ -214,16 +252,28 @@ export async function handleRosterCommand(
 			if (totalMissing === 0) {
 				return interactionResponse(`${header}Everyone on the alliance roster is linked.`, true);
 			}
-			const lines = missing.map((m) => {
-				const name = m.player_name ?? String(m.player_id);
-				const rank = m.alliance_rank ? ` · ${m.alliance_rank}` : '';
-				const tag = m.alliance_tag ? ` [${m.alliance_tag}]` : '';
-				const ops = m.ops_level != null ? `Ops ${m.ops_level}` : 'Ops —';
-				return `• **${name}** (\`${m.player_id}\`)${tag} · ${ops}${rank}`;
-			});
+			const table = formatReportTable(
+				missing.map((m) => ({
+					Player: playerCell(m.player_name, m.player_id),
+					Tag: tagCell(m.alliance_tag),
+					Ops: m.ops_level != null ? m.ops_level : '—',
+					Rank: m.alliance_rank || '—',
+					Id: String(m.player_id),
+				})),
+				[
+					ReportCols.player,
+					ReportCols.tag,
+					ReportCols.ops,
+					ReportCols.rank,
+					{ header: 'Id', width: 8, align: 'right' },
+				],
+				{ maxRows: 40, maxChars: 1700, omitEmptyColumns: true },
+			);
 			const more =
-				totalMissing > missing.length ? `\n…and **${totalMissing - missing.length}** more` : '';
-			return interactionResponse(header + truncateLines(lines, 50) + more, true);
+				totalMissing > missing.length
+					? `\n_…and **${totalMissing - missing.length}** more_`
+					: '';
+			return interactionResponse(header + table + more, true);
 		}
 		case 'ops': {
 			const minRaw = getOptionValue(opts, 'min');
@@ -255,7 +305,8 @@ export async function handleRosterCommand(
 						: `≤ ${opsMax}`;
 			return interactionResponse(
 				`📋 **Ops ${range}** (${players.length}${players.length >= 80 ? '+' : ''})\n` +
-					truncateLines(players.map(formatPlayerLine)),
+					`_Player names (use \`/roster activity user:@…\` to ping)._\n` +
+					formatVerifiedPlayerTable(players),
 				true,
 			);
 		}
@@ -264,17 +315,30 @@ export async function handleRosterCommand(
 			if (rows.length === 0) {
 				return interactionResponse('No verified players yet.', true);
 			}
-			const lines = rows.map((r) => `• **${r.verification_status}**: ${r.count}`);
-			return interactionResponse(`📊 **Verification status**\n${lines.join('\n')}`, true);
+			const table = formatReportTable(
+				rows.map((r) => ({ Status: r.verification_status, Count: r.count })),
+				[
+					{ header: 'Status', width: 10 },
+					{ header: 'Count', width: 5, align: 'right' },
+				],
+				{ maxRows: 20, maxChars: 1500 },
+			);
+			return interactionResponse(`📊 **Verification status**\n${table}`, true);
 		}
 		case 'alliances': {
 			const rows = await countPlayersByAlliance(env.STFC_DB, guildId);
 			if (rows.length === 0) {
 				return interactionResponse('No verified players yet.', true);
 			}
-			const lines = rows.slice(0, 40).map((r) => `• **[${r.alliance_tag}]**: ${r.count}`);
-			const extra = rows.length > 40 ? `\n…and ${rows.length - 40} more alliances` : '';
-			return interactionResponse(`📊 **Alliance breakdown**\n${lines.join('\n')}${extra}`, true);
+			const table = formatReportTable(
+				rows.map((r) => ({ Tag: r.alliance_tag, Count: r.count })),
+				[
+					ReportCols.tag,
+					{ header: 'Count', width: 5, align: 'right' },
+				],
+				{ maxRows: 40, maxChars: 1700 },
+			);
+			return interactionResponse(`📊 **Alliance breakdown**\n${table}`, true);
 		}
 		case 'inactive': {
 			const minRaw = getOptionValue(opts, 'min_days');
@@ -295,7 +359,7 @@ export async function handleRosterCommand(
 			return interactionResponse(
 				`😴 **Inactive ≥ ${minDays}d** (${players.length}${players.length >= 80 ? '+' : ''})\n` +
 					`_From morning sync of stfc.pro \`consecutive_days_active\` (0 = no streak)._\n` +
-					truncateLines(players.map(formatPlayerLine)),
+					formatVerifiedPlayerTable(players),
 				true,
 			);
 		}

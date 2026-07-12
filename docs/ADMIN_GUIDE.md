@@ -372,7 +372,7 @@ Roster list lines (ops/grade/rank/inactive) also show `streak N` / `inactive Nd`
 
 ### Audit reports
 
-Morning cron posts **Player activity — streak / inactive** when anyone:
+Morning cron posts **Player activity — streak / inactive** (ASCII table sections) when anyone:
 
 - **Became inactive** (streak hit 0)
 - **Returned active** (streak returned after inactive days)
@@ -433,6 +433,8 @@ Each morning (`~06:00 UTC`, cron `0 6 * * *`) the bot refreshes alliance member 
 | **Renames** | Same player id, in-game name changed |
 
 First successful roster for a guild is an **initial snapshot** (no join spam). Unchanged days get a short “no changes” note.
+
+Change sections (joins, leaves, moves, ops, rank, renames) and the morning **Player activity** audit render as **compact ASCII tables** in code fences (same engine as `/table`). Player **names** appear in the table — Discord mentions do not render inside fences.
 
 ### Requirements
 
@@ -774,6 +776,8 @@ Lists in-game name, player id, ops, and rank. Requires a cached alliance roster 
 | `/roster ranks` | In-game **alliance rank** (Operative, Agent, Premier, …) |
 | `/roster rank rank:Admiral` | Verified players with that alliance rank |
 | `/roster ops min:50` | Ops level range |
+
+Player list and breakdown replies use compact ASCII tables (names, not Discord pings). Use `/roster activity user:@…` when you need a mention. `/roster unverified` still lists Discord mentions (actionable for set-guest).
 
 On **multi-alliance**, alliance tag/rank changes on daily sync update nick + rank roles; they are **not** auto-set to guest (use `/roster set-guest` if needed).
 

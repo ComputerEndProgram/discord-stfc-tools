@@ -68,9 +68,23 @@ John,25,Extra`;
 			expect(result).toContain('╚');
 		});
 
-		it('should handle empty data', () => {
-			const result = generateAsciiTable([], []);
-			expect(result).toBe('No data to display');
+		it('should omit row separators in compact mode', () => {
+			const data = [
+				{ Name: 'John', Age: '25' },
+				{ Name: 'Jane', Age: '30' },
+			];
+			const columns = [
+				{ header: 'Name', width: 4, align: 'left' as const },
+				{ header: 'Age', width: 3, align: 'right' as const },
+			];
+
+			const compact = generateAsciiTable(data, columns, { compact: true });
+			const full = generateAsciiTable(data, columns);
+
+			expect(compact).toContain('║ John');
+			expect(compact).toContain('║ Jane');
+			expect(compact.split('\n').length).toBeLessThan(full.split('\n').length);
+			expect(compact).not.toMatch(/╟─/);
 		});
 	});
 });

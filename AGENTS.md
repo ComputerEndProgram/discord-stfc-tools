@@ -185,6 +185,7 @@ src/
   dm-assistant/            # DM HAL/Badgey router, admin wizards, roster Q&A
   roster-handlers.ts       # /roster slash commands
   activity-utils.ts        # streak / days_inactive from consecutive_days_active
+  report-table.ts          # compact ASCII tables for cron + /roster reports
   urgent-notify.ts         # Optional high-signal staff alerts
   systemUtils.ts           # Coordinate lookup
   systemData.ts            # Bundled systems (generated — do not hand-edit)

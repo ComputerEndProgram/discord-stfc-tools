@@ -1,3 +1,11 @@
+import {
+	formatReportSection,
+	playerCell,
+	ReportCols,
+	tagCell,
+} from './report-table';
+import type { TableData } from './tableUtils';
+
 /** Slim roster row used for day-over-day diffs (ids are stable; names/ranks/ops/tags change). */
 export type RosterDiffMember = {
 	playerId: number;
@@ -187,12 +195,7 @@ export function allianceRosterDiffHasChanges(diff: AllianceRosterDiff): boolean 
 	);
 }
 
-function formatList(lines: string[], limit = 20): string {
-	if (lines.length === 0) return '_None_';
-	const shown = lines.slice(0, limit);
-	const extra = lines.length - shown.length;
-	return shown.join('\n') + (extra > 0 ? `\n_…and ${extra} more_` : '');
-}
+const SECTION_MAX_ROWS = 18;
 
 /** Discord-friendly markdown body for the morning roster report. */
 export function formatAllianceRosterChangeReport(
@@ -248,102 +251,120 @@ export function formatAllianceRosterChangeReport(
 		return { title, description: summary };
 	}
 
-	const sections: string[] = [summary, ''];
+	const sections: string[] = [summary];
+	const tableOpts = { maxRows: SECTION_MAX_ROWS, maxChars: 1200 };
 
 	if (diff.tagMoved.length) {
+		const rows: TableData[] = diff.tagMoved.map((m) => ({
+			Player: playerCell(m.playerName, m.playerId),
+			From: tagCell(m.previousTag),
+			To: tagCell(m.allianceTag),
+			Rank: m.allianceRank || '—',
+		}));
 		sections.push(
-			'**Alliance moves**',
-			formatList(
-				diff.tagMoved.map(
-					(m) =>
-						`• **${m.playerName || m.playerId}** — [${m.previousTag}] → **[${m.allianceTag}]**` +
-						(m.allianceRank ? ` · ${m.allianceRank}` : ''),
-				),
-			),
-			'',
+			formatReportSection('Alliance moves', rows, [
+				ReportCols.player,
+				ReportCols.from,
+				ReportCols.to,
+				ReportCols.rank,
+			], tableOpts),
 		);
 	}
 	if (diff.joined.length) {
+		const rows: TableData[] = diff.joined.map((m) => ({
+			Player: playerCell(m.playerName, m.playerId),
+			Tag: tagCell(m.allianceTag),
+			Ops: m.opsLevel,
+			Rank: m.allianceRank || '—',
+		}));
 		sections.push(
-			'**Joined tracked roster**',
-			formatList(
-				diff.joined.map(
-					(m) =>
-						`• **${m.playerName || m.playerId}**` +
-						(m.allianceTag ? ` [${m.allianceTag}]` : '') +
-						` — Ops ${m.opsLevel}` +
-						(m.allianceRank ? ` · ${m.allianceRank}` : ''),
-				),
-			),
-			'',
+			formatReportSection('Joined tracked roster', rows, [
+				ReportCols.player,
+				ReportCols.tag,
+				ReportCols.ops,
+				ReportCols.rank,
+			], tableOpts),
 		);
 	}
 	if (diff.left.length) {
+		const rows: TableData[] = diff.left.map((m) => ({
+			Player: playerCell(m.playerName, m.playerId),
+			Tag: tagCell(m.allianceTag),
+			Ops: m.opsLevel,
+			Rank: m.allianceRank || '—',
+		}));
 		sections.push(
-			mode === 'multi' ? '**Left tracked roster**' : '**Left**',
-			formatList(
-				diff.left.map(
-					(m) =>
-						`• **${m.playerName || m.playerId}**` +
-						(m.allianceTag ? ` [${m.allianceTag}]` : '') +
-						` — Ops ${m.opsLevel}` +
-						(m.allianceRank ? ` · ${m.allianceRank}` : ''),
-				),
-			),
-			'',
+			formatReportSection(mode === 'multi' ? 'Left tracked roster' : 'Left', rows, [
+				ReportCols.player,
+				ReportCols.tag,
+				ReportCols.ops,
+				ReportCols.rank,
+			], tableOpts),
 		);
 	}
 	if (diff.opsUp.length) {
+		const rows: TableData[] = diff.opsUp.map((m) => ({
+			Player: playerCell(m.playerName, m.playerId),
+			Tag: tagCell(m.allianceTag),
+			Was: m.previousOps,
+			Ops: m.opsLevel,
+			Δ: `+${m.delta}`,
+		}));
 		sections.push(
-			'**Ops up**',
-			formatList(
-				diff.opsUp.map(
-					(m) =>
-						`• **${m.playerName || m.playerId}**` +
-						(m.allianceTag ? ` [${m.allianceTag}]` : '') +
-						` — ${m.previousOps} → **${m.opsLevel}** (+${m.delta})`,
-				),
-			),
-			'',
+			formatReportSection('Ops up', rows, [
+				ReportCols.player,
+				ReportCols.tag,
+				ReportCols.prevOps,
+				ReportCols.ops,
+				ReportCols.delta,
+			], tableOpts),
 		);
 	}
 	if (diff.opsDown.length) {
+		const rows: TableData[] = diff.opsDown.map((m) => ({
+			Player: playerCell(m.playerName, m.playerId),
+			Tag: tagCell(m.allianceTag),
+			Was: m.previousOps,
+			Ops: m.opsLevel,
+			Δ: String(m.delta),
+		}));
 		sections.push(
-			'**Ops down**',
-			formatList(
-				diff.opsDown.map(
-					(m) =>
-						`• **${m.playerName || m.playerId}**` +
-						(m.allianceTag ? ` [${m.allianceTag}]` : '') +
-						` — ${m.previousOps} → **${m.opsLevel}** (${m.delta})`,
-				),
-			),
-			'',
+			formatReportSection('Ops down', rows, [
+				ReportCols.player,
+				ReportCols.tag,
+				ReportCols.prevOps,
+				ReportCols.ops,
+				ReportCols.delta,
+			], tableOpts),
 		);
 	}
 	if (diff.rankChanged.length) {
+		const rows: TableData[] = diff.rankChanged.map((m) => ({
+			Player: playerCell(m.playerName, m.playerId),
+			Tag: tagCell(m.allianceTag),
+			From: m.previousRank || '—',
+			To: m.allianceRank || '—',
+		}));
 		sections.push(
-			'**Rank changes**',
-			formatList(
-				diff.rankChanged.map(
-					(m) =>
-						`• **${m.playerName || m.playerId}**` +
-						(m.allianceTag ? ` [${m.allianceTag}]` : '') +
-						` — ${m.previousRank || '—'} → **${m.allianceRank || '—'}**`,
-				),
-			),
-			'',
+			formatReportSection('Rank changes', rows, [
+				ReportCols.player,
+				ReportCols.tag,
+				{ header: 'From', width: 6 },
+				{ header: 'To', width: 6 },
+			], tableOpts),
 		);
 	}
 	if (diff.renamed.length) {
+		const rows: TableData[] = diff.renamed.map((m) => ({
+			Was: m.previousName,
+			Player: playerCell(m.playerName, m.playerId),
+		}));
 		sections.push(
-			'**Renames**',
-			formatList(diff.renamed.map((m) => `• **${m.previousName}** → **${m.playerName}**`)),
-			'',
+			formatReportSection('Renames', rows, [ReportCols.prevName, ReportCols.player], tableOpts),
 		);
 	}
 
-	let description = sections.join('\n').trim();
+	let description = sections.filter(Boolean).join('\n\n').trim();
 	if (description.length > 3900) {
 		description = description.slice(0, 3890) + '\n_…truncated_';
 	}
