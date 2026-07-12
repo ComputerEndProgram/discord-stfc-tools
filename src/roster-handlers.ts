@@ -5,14 +5,19 @@ import {
 	listAllGuildMembers,
 } from './discord-api';
 import {
+	countAllianceMembersMissingVerify,
 	countPlayersByAlliance,
+	countPlayersByAllianceRank,
 	countPlayersByGrade,
 	countPlayersByStatus,
+	getAllianceRosterMeta,
 	getExcludedUserIds,
 	getGuildConfig,
 	getVerifiedDiscordUserIds,
+	listAllianceMembersMissingVerify,
 	listRosterPlayers,
 } from './guild-db';
+import { shouldUseAllianceRoster } from './alliance-roster-sync';
 import { isGuildAdministrator } from './discord-admin';
 import { demotePlayerToGuest } from './verification-access';
 import type { GuildConfig, VerifiedPlayer } from './types';
@@ -94,7 +99,7 @@ export async function handleRosterCommand(
 	const sub = data.options?.[0];
 	if (!sub) {
 		return interactionResponse(
-			'Use `/roster grades`, `/roster grade`, `/roster ops`, `/roster unverified`, `/roster demote`, `/roster status`, or `/roster alliances`.',
+			'Use `/roster grades`, `/roster grade`, `/roster ranks`, `/roster rank`, `/roster ops`, `/roster unverified`, `/roster missing-verify`, `/roster set-guest`, `/roster status`, or `/roster alliances`.',
 			true,
 		);
 	}
@@ -127,6 +132,75 @@ export async function handleRosterCommand(
 					truncateLines(players.map(formatPlayerLine)),
 				true,
 			);
+		}
+		case 'ranks': {
+			const rows = await countPlayersByAllianceRank(env.STFC_DB, guildId);
+			if (rows.length === 0) {
+				return interactionResponse('No verified players yet.', true);
+			}
+			const lines = rows.map((r) => `• **${r.alliance_rank}**: ${r.count}`);
+			const total = rows.reduce((n, r) => n + r.count, 0);
+			return interactionResponse(
+				`📊 **In-game rank breakdown** (${total} verified)\n${lines.join('\n')}`,
+				true,
+			);
+		}
+		case 'rank': {
+			const rankRaw = (getOptionValue(opts, 'rank') as string | undefined)?.trim();
+			if (!rankRaw) {
+				return interactionResponse(
+					'❌ Provide `rank:` (e.g. `Operative`, `Agent`, `Premier`, `Commodore`, `Admiral`).',
+					true,
+				);
+			}
+			const players = await listRosterPlayers(env.STFC_DB, guildId, {
+				allianceRank: rankRaw,
+				limit: 80,
+			});
+			if (players.length === 0) {
+				return interactionResponse(`No verified players with rank **${rankRaw}**.`, true);
+			}
+			return interactionResponse(
+				`📋 **Rank ${rankRaw}** (${players.length}${players.length >= 80 ? '+' : ''})\n` +
+					truncateLines(players.map(formatPlayerLine)),
+				true,
+			);
+		}
+		case 'missing-verify': {
+			if (!shouldUseAllianceRoster(config)) {
+				return interactionResponse(
+					'❌ `/roster missing-verify` needs **single_alliance** mode with an `alliance_tag` (morning alliance roster).',
+					true,
+				);
+			}
+			const meta = await getAllianceRosterMeta(env.STFC_DB, guildId);
+			if (!meta || meta.player_count <= 0) {
+				return interactionResponse(
+					'❌ No alliance roster cached yet. It fills on the morning sync (`0 6 * * *` UTC). Ask an admin if the last daily sync failed.',
+					true,
+				);
+			}
+			const [totalMissing, missing] = await Promise.all([
+				countAllianceMembersMissingVerify(env.STFC_DB, guildId),
+				listAllianceMembersMissingVerify(env.STFC_DB, guildId, 80),
+			]);
+			const when = meta.fetched_at ? ` · updated <t:${Math.floor(Date.parse(meta.fetched_at) / 1000)}:R>` : '';
+			const header =
+				`🕶 **Alliance members not verified on Discord** (${totalMissing} of ${meta.player_count}` +
+				` · **${meta.alliance_tag ?? config.alliance_tag}**${when})\n` +
+				`_In-game players on the alliance roster with no active/guest Discord link. Guests count as linked._\n\n`;
+			if (totalMissing === 0) {
+				return interactionResponse(`${header}Everyone on the alliance roster is linked.`, true);
+			}
+			const lines = missing.map((m) => {
+				const name = m.player_name ?? String(m.player_id);
+				const rank = m.alliance_rank ? ` · ${m.alliance_rank}` : '';
+				const ops = m.ops_level != null ? `Ops ${m.ops_level}` : 'Ops —';
+				return `• **${name}** (\`${m.player_id}\`) · ${ops}${rank}`;
+			});
+			const more =
+				totalMissing > missing.length ? `\n…and **${totalMissing - missing.length}** more` : '';
+			return interactionResponse(header + truncateLines(lines, 50) + more, true);
 		}
 		case 'ops': {
 			const minRaw = getOptionValue(opts, 'min');
@@ -179,9 +253,9 @@ export async function handleRosterCommand(
 			const extra = rows.length > 40 ? `\n…and ${rows.length - 40} more alliances` : '';
 			return interactionResponse(`📊 **Alliance breakdown**\n${lines.join('\n')}${extra}`, true);
 		}
-		case 'demote': {
+		case 'set-guest': {
 			if (!isGuildAdministrator(interaction.member?.permissions)) {
-				return interactionResponse('❌ `/roster demote` requires Administrator.', true);
+				return interactionResponse('❌ `/roster set-guest` requires Administrator.', true);
 			}
 			const userId = getOptionValue(opts, 'user');
 			if (userId == null || !/^\d{15,20}$/.test(String(userId))) {
@@ -195,10 +269,10 @@ export async function handleRosterCommand(
 				requireGuestRole: true,
 			});
 			if (!result.ok) {
-				return interactionResponse(`❌ Demote failed: ${result.error}`, true);
+				return interactionResponse(`❌ Set guest failed: ${result.error}`, true);
 			}
 			return interactionResponse(
-				`✅ Demoted <@${userId}> to guest.` +
+				`✅ Set <@${userId}> to guest.` +
 					(result.hadVerifiedRow ? ' Linked player status set to **guest**.' : ' (roles only — not in verified roster).') +
 					(result.channelArchived ? ' Personal channel moved to archive.' : '') +
 					(reasonNote ? `\nNote: ${reasonNote}` : '') +
@@ -210,8 +284,8 @@ export async function handleRosterCommand(
 			if (!env.DISCORD_BOT_TOKEN) {
 				return interactionResponse('❌ DISCORD_BOT_TOKEN not configured.', true);
 			}
-			const demoteRaw = getOptionValue(opts, 'demote');
-			const demote = demoteRaw === true || demoteRaw === 'true';
+			const setGuestRaw = getOptionValue(opts, 'set_guest') ?? getOptionValue(opts, 'demote');
+			const setGuest = setGuestRaw === true || setGuestRaw === 'true';
 
 			const [members, verifiedIds, excludedIds] = await Promise.all([
 				listAllGuildMembers(env.DISCORD_BOT_TOKEN, guildId),
@@ -231,7 +305,7 @@ export async function handleRosterCommand(
 				`👤 **Unverified Discord members** (${unverified.length})\n` +
 				`_Excluded from this list: verified players, \`/server exclude\` list (${excludedIds.size}), Discord bots (${botCount})._\n\n`;
 
-			if (!demote) {
+			if (!setGuest) {
 				if (unverified.length === 0) {
 					return interactionResponse(`${header}Everyone else is verified or excluded.`, true);
 				}
@@ -242,27 +316,27 @@ export async function handleRosterCommand(
 				return interactionResponse(
 					header +
 						truncateLines(lines, 50) +
-						`\n\nTo assign **guest** and strip member/rank roles: \`/roster unverified demote:true\` (Administrator).`,
+						`\n\nTo assign **guest** and remove member/rank roles: \`/roster unverified set_guest:true\` (Administrator).`,
 					true,
 				);
 			}
 
 			if (!isGuildAdministrator(interaction.member?.permissions)) {
-				return interactionResponse('❌ Demoting unverified members requires Administrator.', true);
+				return interactionResponse('❌ Setting unverified members to guest requires Administrator.', true);
 			}
 			if (!config.guest_role_id || !/^\d{15,20}$/.test(config.guest_role_id)) {
 				return interactionResponse(
-					'❌ `guest_role` is not configured. Set it with `/server setup guest_role:…` before demoting.',
+					'❌ `guest_role` is not configured. Set it with `/server setup guest_role:…` before continuing.',
 					true,
 				);
 			}
 			if (unverified.length === 0) {
-				return interactionResponse(`${header}Nothing to demote.`, true);
+				return interactionResponse(`${header}Nothing to update.`, true);
 			}
 
 			const appId = interaction.application_id ?? env.DISCORD_APPLICATION_ID;
 			if (!appId || !interaction.token) {
-				return interactionResponse('❌ Missing application id / interaction token for deferred demote.', true);
+				return interactionResponse('❌ Missing application id / interaction token for deferred update.', true);
 			}
 
 			const deferred = deferredResponse();
@@ -278,7 +352,7 @@ export async function handleRosterCommand(
 								await editInteractionResponse(
 									appId,
 									interaction.token!,
-									`⏳ Demoting unverified ${i + 1}/${unverified.length} (ok ${ok}, failed ${failed})…`,
+									`⏳ Setting guest ${i + 1}/${unverified.length} (ok ${ok}, failed ${failed})…`,
 									true,
 								);
 							}
@@ -299,7 +373,7 @@ export async function handleRosterCommand(
 								}
 							} catch (err) {
 								failed++;
-								console.error(`Bulk demote failed for ${m.user.id}:`, err);
+								console.error(`Bulk set-guest failed for ${m.user.id}:`, err);
 								if (errors.length < 8) {
 									const msg = err instanceof Error ? err.message : 'unknown error';
 									errors.push(`<@${m.user.id}>: ${msg.slice(0, 180)}`);
@@ -310,9 +384,10 @@ export async function handleRosterCommand(
 
 						const { postAuditLog, AuditColor } = await import('./audit-log');
 						await postAuditLog(env, config, {
-							title: 'Bulk demote unverified',
+							title: 'Bulk set guest (unverified)',
 							description:
-								`Demoted **${ok}** unverified member(s)` + (failed ? ` · **${failed}** failed` : ''),
+								`Set **${ok}** unverified member(s) to guest` +
+								(failed ? ` · **${failed}** failed` : ''),
 							actorId,
 							source: 'admin',
 							color: failed ? AuditColor.warn : AuditColor.success,
@@ -321,20 +396,20 @@ export async function handleRosterCommand(
 						await editInteractionResponse(
 							appId,
 							interaction.token!,
-							`✅ **Bulk demote unverified complete**\n` +
-								`• Demoted: ${ok}\n` +
+							`✅ **Bulk set guest (unverified) complete**\n` +
+								`• Updated: ${ok}\n` +
 								`• Failed: ${failed}\n` +
 								`• Guest role: <@&${config.guest_role_id}>` +
 								(errors.length ? `\n\n⚠ Errors:\n${errors.join('\n')}` : ''),
 							true,
 						);
 					} catch (err) {
-						console.error('Bulk demote unverified aborted:', err);
+						console.error('Bulk set-guest unverified aborted:', err);
 						const msg = err instanceof Error ? err.message : 'unknown error';
 						await editInteractionResponse(
 							appId,
 							interaction.token!,
-							`❌ **Bulk demote aborted** after ok ${ok}, failed ${failed}.\n${msg.slice(0, 400)}` +
+							`❌ **Bulk set guest aborted** after ok ${ok}, failed ${failed}.\n${msg.slice(0, 400)}` +
 								(errors.length ? `\n\n⚠ Earlier errors:\n${errors.join('\n')}` : ''),
 							true,
 						);

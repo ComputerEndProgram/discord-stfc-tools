@@ -570,7 +570,7 @@ async function handleServerDemotionCommand(
 		const note =
 			policyRaw === 'approval'
 				? 'Confirmed leaves and missing players go to the urgent channel for Approve/Reject.'
-				: 'Confirmed mismatches demote immediately; missing players recheck after 1 hour, then demote if still gone.';
+				: 'Confirmed mismatches apply guest immediately; missing players recheck after 1 hour, then apply guest if still gone.';
 		return interactionResponse(`✅ Demotion policy: **${policyRaw}**\n${note}`, true);
 	}
 
@@ -580,11 +580,11 @@ async function handleServerDemotionCommand(
 	}
 
 	return interactionResponse(
-		`🛡 **Demotion policy:** **${config.demotion_policy}**\n` +
+		`🛡 **Leave-detection policy:** **${config.demotion_policy}**\n` +
 			`• \`approval\` (default) — queue confirmed leaves / missing players for urgent-channel approval\n` +
-			`• \`yolo\` — auto-demote confirmed mismatches; missing players wait 1h then demote if still gone\n` +
-			`• Transport errors never demote\n` +
-			`• Multi-alliance empty tags are never demotion candidates\n\n` +
+			`• \`yolo\` (auto) — apply guest on confirmed mismatches; missing players wait 1h then apply guest if still gone\n` +
+			`• Transport errors never change roles\n` +
+			`• Multi-alliance empty tags are never leave-detection candidates\n\n` +
 			`Set: \`/server demotion policy:approval\` or \`policy:yolo\`\n` +
 			`Queue: \`/server demotion list:true\``,
 		true,

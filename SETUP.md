@@ -501,13 +501,13 @@ Configured in `generate-config.js` → `wrangler.json`:
 | Schedule | Purpose |
 |----------|---------|
 | `*/5 * * * *` | Wake Gateway; member poll fallback |
-| `0 */6 * * *` | Re-check guest players (alliance roster cache first, else HTML) |
-| `0 6 * * *` | Alliance roster scrape + day-over-day audit report + daily player sync |
-| `30 * * * *` | Demotion recheck queue (YOLO missing-player delay) |
+| `0 */6 * * *` | Re-check guest players (alliance roster cache first, else live lookup) |
+| `0 6 * * *` | Alliance roster sync + day-over-day audit report + daily player sync |
+| `30 * * * *` | Leave-detection recheck queue (auto policy missing-player delay) |
 
-**Single-alliance morning job:** one HTML scrape of `https://stfc.pro/alliances/{stfc_alliance_id}` (full roster embedded in the page). Diff vs previous D1 snapshot → post to audit channel → sync verified players from cache. See `docs/ADMIN_GUIDE.md` § Daily alliance roster and `AGENTS.md` § Alliance roster sync.
+**Single-alliance morning job:** one HTML fetch of `https://stfc.pro/alliances/{stfc_alliance_id}` (full roster embedded in the page). Diff vs previous D1 snapshot → post to audit channel → sync verified players from cache. See `docs/ADMIN_GUIDE.md` § Daily alliance roster and `AGENTS.md` § Alliance roster sync.
 
-**Multi-alliance:** no alliance scrape; daily sync uses per-player HTML lookups only.
+**Multi-alliance:** no alliance roster sync; daily sync uses per-player lookups only.
 
 ### Diagnostic endpoints (ops)
 

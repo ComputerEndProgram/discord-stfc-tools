@@ -120,7 +120,7 @@ Morning job scrapes **one** HTML page (`https://stfc.pro/alliances/{id}`) which 
 - `/survey` — button polls (role/rank/level/grade/user targeting); private log channel; ASCII result tables
 - `/exchange` — cross-alliance resource donors/recipients (hub or category layout, Help/Ignore claim DMs)
 - `/language` — player preferred language for bot DMs (en/de/fr/es/pt/nl/pl/it/ru/tr/hu)
-- `/roster` — grades / ops / unverified member lists (admin or assistant roles)
+- `/roster` — grades / ops / **in-game ranks** / unverified Discord members / **alliance members missing verify** (admin or assistant roles)
 - `/server exclude-add|exclude-remove|exclude-list` — skip Discord users from invites and unverified stats (other bots, etc.; Discord bots auto-skipped)
 - **DM assistant** — HAL refusal for unknown asks; Badgey voice + admin menu wizards; roster Q&A gated by `/server assistant`
 - **Discord agreement** — optional CoC gate (`/server agreement`); DM Agree button; timing before/after verify; channel react planned

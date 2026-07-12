@@ -181,7 +181,7 @@ export async function postDemotionApprovalDigest(
 
 	const content =
 		`🚨 **Pending demotions** (${pending.length}) — policy **approval**\n` +
-		`Confirm before stripping member roles. Or demote individuals with \`/roster demote\`.\n\n` +
+		`Confirm before removing member roles. Or set individuals to guest with \`/roster set-guest\`.\n\n` +
 		lines.join('\n') +
 		extra;
 

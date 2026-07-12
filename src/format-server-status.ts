@@ -20,7 +20,7 @@ export function formatServerStatus(config: GuildConfig): string {
 		`• Demotion policy: **${config.demotion_policy}**` +
 		(config.demotion_policy === 'approval'
 			? ' (confirm leaves in urgent channel)'
-			: ' (auto-demote; missing players recheck after 1h)') +
+			: ' (auto guest on leave; missing players recheck after 1h)') +
 		`\n` +
 		`• Diplomacy channels: ${diplomacyChannelsEnabled(config) ? 'enabled' : 'disabled'}` +
 		(diplomacyChannelsEnabled(config)

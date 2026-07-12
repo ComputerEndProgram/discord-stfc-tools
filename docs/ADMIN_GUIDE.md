@@ -87,8 +87,8 @@ Role fields accept **IDs**, **@mentions**, or **names** (with `create_missing_ro
 
 | Mode | Behaviour |
 |------|-----------|
-| `single_alliance` | Tag must match `alliance_tag`. Else guest role + periodic re-check. Personal channels can auto-create. **Morning alliance scrape** caches the full roster for daily sync + verify (see § Daily alliance roster). |
-| `multi_alliance` | Any alliance verifies as active. No guest gating. Personal auto-create is off (link existing channels instead). **No** alliance roster scrape (per-player lookups only). Switching from single → multi clears the roster cache. |
+| `single_alliance` | Tag must match `alliance_tag`. Else guest role + periodic re-check. Personal channels can auto-create. **Morning alliance roster** caches the full member list for daily sync + verify (see § Daily alliance roster). |
+| `multi_alliance` | Any alliance verifies as active. No guest gating. Personal auto-create is off (link existing channels instead). **No** alliance roster cache (per-player lookups only). Switching from single → multi clears the roster cache. |
 
 Check config anytime:
 
@@ -138,7 +138,7 @@ On verify (and daily sync), an **active** member receives the **union** of:
 2. The matching per-rank list (`premier_roles`, `admiral_roles`, …)
 3. Every **overlay bucket** whose `ranks` list includes their in-game rank
 
-Guests only get `guest_role` (member/rank/bucket roles are stripped).
+Guests only get `guest_role` (member/rank/bucket roles are removed).
 
 ### Per-rank roles
 
@@ -344,23 +344,23 @@ Urgent posts use a short Badgey-style message so they stand out from routine aud
 
 Each morning (`~06:00 UTC`, cron `0 6 * * *`) the bot:
 
-1. Scrapes your alliance page on stfc.pro (one request; full member list).
+1. Fetches your alliance page on stfc.pro (one request; full member list).
 2. Compares to **yesterday’s** cached roster.
 3. Posts a summary to the **audit log** channel.
 4. Updates verified members’ ops / power / nickname / rank roles from that cache (no per-player stfc.pro hit for people still in the alliance).
-5. Treats verified players **missing** from the scrape as leave / wrong-alliance candidates (subject to demotion policy).
+5. Treats verified players **missing** from the roster as leave / wrong-alliance candidates (subject to leave-detection policy).
 
 ### What the audit report includes
 
 | Section | Meaning |
 |---------|---------|
-| **Joined** | On today’s scrape, not yesterday |
-| **Left** | On yesterday’s scrape, not today |
+| **Joined** | On today’s roster, not yesterday |
+| **Left** | On yesterday’s roster, not today |
 | **Ops up / down** | Same player id, ops level changed |
 | **Rank changes** | Same player id, alliance rank string changed |
 | **Renames** | Same player id, in-game name changed |
 
-First successful scrape for a guild is an **initial snapshot** (no join spam). Unchanged days get a short “no changes” note.
+First successful roster for a guild is an **initial snapshot** (no join spam). Unchanged days get a short “no changes” note.
 
 ### Requirements
 
@@ -373,10 +373,11 @@ First successful scrape for a guild is an **initial snapshot** (no join spam). U
 - If someone verifies and they’re **already** on today’s (or recent ≤36h) roster → bot uses cached data (faster, fewer stfc.pro calls).
 - If they’re **not** on the roster → live stfc.pro lookup (guest / outsider path).
 - Guest re-check every 6 hours also prefers the roster before a live lookup.
+- List roster members with no Discord link: `/roster missing-verify`.
 
 ### Multi-alliance
 
-Roster scrape and the morning change report **do not run**. Daily sync still updates verified players via per-player lookups; tag changes do not auto-demote.
+Alliance roster sync and the morning change report **do not run**. Daily sync still updates verified players via per-player lookups; tag changes do not auto-apply guest.
 
 ---
 
@@ -659,35 +660,55 @@ Wrong alliance (or empty alliance tag on stfc.pro) → **guest** candidate. Beha
 
 | Policy | Confirmed mismatch / empty tag | Player missing on stfc.pro | API / network error |
 |--------|--------------------------------|----------------------------|---------------------|
-| **approval** (default) | Queue → urgent channel Approve/Reject | Queue → urgent Approve/Reject | Skip (never demote) |
-| **yolo** | Demote immediately | Queue 1h recheck; demote only if still missing | Skip (never demote) |
+| **approval** (default) | Queue → urgent channel Approve/Reject | Queue → urgent Approve/Reject | Skip (never change roles) |
+| **yolo** (auto) | Apply guest immediately | Queue 1h recheck; apply guest only if still missing | Skip (never change roles) |
 
-The **6-hour guest poll** and **morning sync** prefer the cached alliance roster when fresh: if a guest appears on the roster, they are promoted without a per-player stfc.pro hit. If the morning scrape succeeds and an **active** member is absent from the roster, they become a demotion candidate (left alliance).
+The **6-hour guest poll** and **morning sync** prefer the cached alliance roster when fresh: if a guest appears on the roster, they are promoted without a per-player stfc.pro hit. If the morning roster succeeds and an **active** member is absent, they become a leave-detection candidate.
 
-If a personal-channel archive category is configured, demotion moves their channel there.
+If a personal-channel archive category is configured, applying guest moves their channel there.
 
 ```
 /server demotion                          # show policy
 /server demotion policy:approval
 /server demotion policy:yolo
 /server demotion list:true
-/roster demote user:@Member reason:left alliance
+/roster set-guest user:@Member reason:left alliance
 ```
 
-Urgent digest buttons: **Approve all demotions** / **Reject all**. Individuals: `/roster demote`.
+Urgent digest buttons: **Approve all** / **Reject all**. Individuals: `/roster set-guest`.
 
-**Multi-alliance:** empty alliance tags are normal — never auto-queued or demoted for “no tag.” Use `/roster demote` manually if needed.
+**Multi-alliance:** empty alliance tags are normal — never auto-queued or set to guest for “no tag.” Use `/roster set-guest` manually if needed.
 
 ### Unverified members (any mode)
 
 ```
-/roster unverified                 # list (Admin or assistant roles)
-/roster unverified demote:true     # Admin: assign guest_role + strip member/rank roles for everyone listed
+/roster unverified                      # Discord members with no STFC link (Admin or assistant roles)
+/roster unverified set_guest:true       # Admin: assign guest_role + remove member/rank roles for everyone listed
 ```
 
-Bulk demote requires `guest_role` from `/server setup`. Never-verified users are roles-only (no new `verified_players` row). Excluded users and bots are skipped.
+Bulk set-guest requires `guest_role` from `/server setup`. Never-verified users are roles-only (no new `verified_players` row). Excluded users and bots are skipped.
 
-On **multi-alliance**, alliance tag/rank changes on daily sync update nick + rank roles; they are **not** auto-demoted to guest (use `/roster demote` if needed).
+### Alliance members missing Discord verify (single-alliance)
+
+Opposite direction: players on the **morning alliance roster** who are **not** linked as active/guest on this Discord server.
+
+```
+/roster missing-verify
+```
+
+Lists in-game name, player id, ops, and rank. Requires a cached alliance roster (after morning sync). Guests count as linked.
+
+### Reports by ops grade vs in-game rank
+
+| Command | What it counts / lists |
+|---------|------------------------|
+| `/roster grades` | Ops **grade** buckets G3–G7 (from ops level) |
+| `/roster grade grade:6` | Verified players at that grade |
+| `/roster ranks` | In-game **alliance rank** (Operative, Agent, Premier, …) |
+| `/roster rank rank:Admiral` | Verified players with that alliance rank |
+| `/roster ops min:50` | Ops level range |
+
+On **multi-alliance**, alliance tag/rank changes on daily sync update nick + rank roles; they are **not** auto-set to guest (use `/roster set-guest` if needed).
 
 ---
 
@@ -844,7 +865,7 @@ After create you get an ephemeral draft with buttons:
 | `/channels link` permission overwrite fails | Bot needs **Manage Channels** + **View Channel** on that channel/category. After deploy, link still saves and reports which overwrites failed; bot is granted View/Send first so it can post surveys |
 | Diplomacy channel not created | Multi-alliance + `/diplomacy enable:true`; rank write roles must exist from setup |
 | Link finds no player | Member must verify first, or use `user:@Member` |
-| stfc.pro lookup fails | Bot falls back to HTML scrape for numeric player IDs; confirm URL/server/region |
+| stfc.pro lookup fails | Bot falls back to HTML player page lookup for numeric IDs; confirm URL/server/region |
 | Survey create denied | Admin or `/survey creators` role; run `/server setup` first |
 | Survey DM missing | Member allows DMs from server members; bot can message them |
 | Zero matched players | Check `target` filters vs verified roster (`/survey list` shows target count) |
@@ -910,7 +931,7 @@ Bot needs **View Channel** + **Read Message History** on the source channel. Gue
 /test-dm kind:invite
 /test-dm kind:agreement user:@Them
 /test-dm kind:welcome
-/test-dm kind:demote_mismatch
+/test-dm kind:demote_mismatch   # choice label: Guest mismatch preview
 /test-dm kind:all
 ```
 
@@ -931,7 +952,7 @@ Verified members (and admins) can **DM the bot** outside of verification:
 | `menu` / `admin` / `help` | Admin button wizard (Administrator or Manage Server required) |
 | Roster questions (e.g. “how many G6?”) | Allowed for admins, or roles set below |
 
-Prefer slash commands for listings: `/roster grades`, `/roster grade grade:6`, `/roster ops min:50`, `/roster unverified`, `/roster demote`, `/roster status`.
+Prefer slash commands for listings: `/roster grades`, `/roster grade grade:6`, `/roster ranks`, `/roster rank rank:Admiral`, `/roster ops min:50`, `/roster unverified`, `/roster missing-verify`, `/roster set-guest`, `/roster status`.
 
 Admin wizards (DM → `menu`): **Server status**, **Server setup** (core fields), **Verification log**, **Audit log**.
 

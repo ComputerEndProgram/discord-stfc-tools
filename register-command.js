@@ -62,7 +62,7 @@ const commands = [
 	},
 	{
 		name: 'roster',
-		description: 'List verified players / find unverified Discord members',
+		description: 'List verified players, ranks, unverified Discord members, missing alliance verifies',
 		options: [
 			{
 				type: 1,
@@ -109,26 +109,50 @@ const commands = [
 			},
 			{
 				type: 1,
+				name: 'ranks',
+				description: 'Count verified players by in-game alliance rank',
+			},
+			{
+				type: 1,
+				name: 'rank',
+				description: 'List verified players with a given in-game alliance rank',
+				options: [
+					{
+						type: 3,
+						name: 'rank',
+						description: 'e.g. Operative, Agent, Premier, Commodore, Admiral',
+						required: true,
+					},
+				],
+			},
+			{
+				type: 1,
+				name: 'missing-verify',
+				description:
+					'Alliance roster members not linked on Discord (single-alliance; needs morning roster)',
+			},
+			{
+				type: 1,
 				name: 'unverified',
 				description: 'Discord members not linked to a verified player (excludes bots + exclude list)',
 				options: [
 					{
 						type: 5,
-						name: 'demote',
-						description: 'Admin: assign guest role and strip member/rank roles for all listed',
+						name: 'set_guest',
+						description: 'Admin: assign guest role and remove member/rank roles for all listed',
 						required: false,
 					},
 				],
 			},
 			{
 				type: 1,
-				name: 'demote',
-				description: 'Admin: demote a member to guest (strip member roles; set status guest if linked)',
+				name: 'set-guest',
+				description: 'Admin: set a member to guest (remove member roles; set status guest if linked)',
 				options: [
 					{
 						type: 6,
 						name: 'user',
-						description: 'Discord member to demote',
+						description: 'Discord member to set as guest',
 						required: true,
 					},
 					{
@@ -275,22 +299,22 @@ const commands = [
 			{
 				type: 1,
 				name: 'demotion',
-				description: 'Admin: leave-detection policy (approval vs YOLO) and pending queue',
+				description: 'Admin: leave-detection policy (approval vs auto) and pending queue',
 				options: [
 					{
 						type: 3,
 						name: 'policy',
-						description: 'approval = urgent buttons (default); yolo = auto-demote with 1h recheck',
+						description: 'approval = confirm in urgent channel; auto = apply guest role (missing waits 1h)',
 						required: false,
 						choices: [
 							{ name: 'Approval (confirm in urgent channel)', value: 'approval' },
-							{ name: 'YOLO (auto-demote; missing → 1h recheck)', value: 'yolo' },
+							{ name: 'Auto (apply guest immediately; missing waits 1h)', value: 'yolo' },
 						],
 					},
 					{
 						type: 5,
 						name: 'list',
-						description: 'Show pending demotion queue',
+						description: 'Show pending leave-detection queue',
 						required: false,
 					},
 				],
@@ -626,8 +650,8 @@ const commands = [
 					{ name: 'Data consent', value: 'consent' },
 					{ name: 'Agreement', value: 'agreement' },
 					{ name: 'Welcome', value: 'welcome' },
-					{ name: 'Demote mismatch', value: 'demote_mismatch' },
-					{ name: 'Demote missing', value: 'demote_missing' },
+					{ name: 'Guest mismatch preview', value: 'demote_mismatch' },
+					{ name: 'Guest missing preview', value: 'demote_missing' },
 					{ name: 'All', value: 'all' },
 				],
 			},

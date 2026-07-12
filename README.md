@@ -3,7 +3,7 @@
 Cloudflare Worker Discord bot for **Star Trek Fleet Command (STFC)**:
 
 - **Alliance verification** — DM flow, stfc.pro validation, role assignment
-- **Alliance roster sync** — morning scrape of your alliance page; day-over-day joins/leaves/ops/rank report on the audit channel; verify + daily sync prefer the cache (single-alliance)
+- **Alliance roster sync** — morning fetch of your alliance page; day-over-day joins/leaves/ops/rank report on the audit channel; verify + daily sync prefer the cache (single-alliance)
 - **Coordinate lookup** — parse in-game share links
 - **Tables** — ASCII tables from CSV
 
@@ -11,7 +11,7 @@ Cloudflare Worker Discord bot for **Star Trek Fleet Command (STFC)**:
 
 **Discord admins:** see **[docs/ADMIN_GUIDE.md](./docs/ADMIN_GUIDE.md)** for in-server configuration (roles, nicknames, channels, verification log, **daily alliance roster**).
 
-**Development context:** see [AGENTS.md](./AGENTS.md) (architecture, roster scrape, cron).
+**Development context:** see [AGENTS.md](./AGENTS.md) (architecture, roster sync, cron).
 
 ## Commands
 

@@ -1347,7 +1347,7 @@ export async function unexcludeGuildUser(db: D1Database, guildId: string, userId
 	return (result.meta?.changes ?? 0) > 0;
 }
 
-/** Verified players with optional grade / ops filters (active roster only). */
+/** Verified players with optional grade / ops / alliance-rank filters (active roster only). */
 export async function listRosterPlayers(
 	db: D1Database,
 	guildId: string,
@@ -1355,6 +1355,7 @@ export async function listRosterPlayers(
 		grade?: number;
 		opsMin?: number;
 		opsMax?: number;
+		allianceRank?: string;
 		status?: VerificationStatus;
 		limit?: number;
 	},
@@ -1377,6 +1378,10 @@ export async function listRosterPlayers(
 		clauses.push(`ops_level <= ?`);
 		binds.push(filters.opsMax);
 	}
+	if (filters?.allianceRank?.trim()) {
+		clauses.push(`LOWER(TRIM(alliance_rank)) = LOWER(?)`);
+		binds.push(filters.allianceRank.trim());
+	}
 	if (filters?.status) {
 		clauses.push(`verification_status = ?`);
 		binds.push(filters.status);
@@ -1395,6 +1400,80 @@ export async function listRosterPlayers(
 		.bind(...binds)
 		.all();
 	return (results ?? []).map(mapVerifiedPlayer);
+}
+
+export async function countPlayersByAllianceRank(
+	db: D1Database,
+	guildId: string,
+): Promise<Array<{ alliance_rank: string; count: number }>> {
+	const { results } = await db
+		.prepare(
+			`SELECT COALESCE(NULLIF(TRIM(alliance_rank), ''), '—') AS alliance_rank, COUNT(*) AS count
+			 FROM verified_players
+			 WHERE guild_id = ?
+			   AND verification_status IN ('verified', 'active', 'guest')
+			 GROUP BY COALESCE(NULLIF(TRIM(alliance_rank), ''), '—')
+			 ORDER BY count DESC, alliance_rank COLLATE NOCASE`,
+		)
+		.bind(guildId)
+		.all();
+	return (results ?? []).map((row) => {
+		const r = row as Record<string, unknown>;
+		return {
+			alliance_rank: String(r.alliance_rank ?? '—'),
+			count: Number(r.count ?? 0),
+		};
+	});
+}
+
+/**
+ * Alliance scrape members whose player_id is not linked on this Discord guild
+ * (active/guest/verified). Requires a prior alliance roster scrape.
+ */
+export async function listAllianceMembersMissingVerify(
+	db: D1Database,
+	guildId: string,
+	limit = 100,
+): Promise<AllianceRosterMemberRow[]> {
+	const cap = Math.min(Math.max(limit, 1), 200);
+	const { results } = await db
+		.prepare(
+			`SELECT arm.*
+			 FROM alliance_roster_members arm
+			 WHERE arm.guild_id = ?
+			   AND NOT EXISTS (
+			     SELECT 1 FROM verified_players vp
+			     WHERE vp.guild_id = arm.guild_id
+			       AND vp.player_id = arm.player_id
+			       AND vp.verification_status IN ('verified', 'active', 'guest')
+			   )
+			 ORDER BY (arm.ops_level IS NULL), arm.ops_level DESC, arm.player_name COLLATE NOCASE
+			 LIMIT ?`,
+		)
+		.bind(guildId, cap)
+		.all();
+	return (results ?? []).map((row) => mapAllianceRosterMemberRow(row as Record<string, unknown>));
+}
+
+export async function countAllianceMembersMissingVerify(
+	db: D1Database,
+	guildId: string,
+): Promise<number> {
+	const row = await db
+		.prepare(
+			`SELECT COUNT(*) AS c
+			 FROM alliance_roster_members arm
+			 WHERE arm.guild_id = ?
+			   AND NOT EXISTS (
+			     SELECT 1 FROM verified_players vp
+			     WHERE vp.guild_id = arm.guild_id
+			       AND vp.player_id = arm.player_id
+			       AND vp.verification_status IN ('verified', 'active', 'guest')
+			   )`,
+		)
+		.bind(guildId)
+		.first();
+	return Number((row as { c?: number } | null)?.c ?? 0);
 }
 
 /** Discord user IDs with an active/guest/verified link in this guild. */
