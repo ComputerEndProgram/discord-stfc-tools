@@ -9,6 +9,42 @@ if (!DISCORD_APPLICATION_ID || !DISCORD_BOT_TOKEN) {
 	process.exit(1);
 }
 
+const rosterListSortChoices = [
+	{ name: 'Ops', value: 'ops' },
+	{ name: 'Name', value: 'name' },
+	{ name: 'Streak', value: 'streak' },
+	{ name: 'Inactive days', value: 'inactive' },
+	{ name: 'Grade', value: 'grade' },
+];
+
+const rosterListCommonOptions = [
+	{
+		type: 3,
+		name: 'sort',
+		description: 'Sort order (default: ops)',
+		required: false,
+		choices: rosterListSortChoices,
+	},
+	{
+		type: 3,
+		name: 'format',
+		description: 'table (default) or dense list (more rows)',
+		required: false,
+		choices: [
+			{ name: 'Table', value: 'table' },
+			{ name: 'Full list', value: 'list' },
+		],
+	},
+	{
+		type: 4,
+		name: 'page',
+		description: 'Page number (default 1; or use Previous/Next buttons)',
+		required: false,
+		min_value: 1,
+		max_value: 100,
+	},
+];
+
 const commands = [
 	{
 		name: 'language',
@@ -82,6 +118,7 @@ const commands = [
 						min_value: 3,
 						max_value: 7,
 					},
+					...rosterListCommonOptions,
 				],
 			},
 			{
@@ -105,6 +142,7 @@ const commands = [
 						min_value: 1,
 						max_value: 99,
 					},
+					...rosterListCommonOptions,
 				],
 			},
 			{
@@ -120,6 +158,7 @@ const commands = [
 						min_value: 0,
 						max_value: 3650,
 					},
+					...rosterListCommonOptions,
 				],
 			},
 			{
@@ -193,6 +232,7 @@ const commands = [
 						description: 'e.g. Operative, Agent, Premier, Commodore, Admiral',
 						required: true,
 					},
+					...rosterListCommonOptions,
 				],
 			},
 			{
@@ -200,6 +240,37 @@ const commands = [
 				name: 'missing-verify',
 				description:
 					'Alliance roster members not linked on Discord (single-alliance; needs morning roster)',
+				options: [
+					{
+						type: 3,
+						name: 'sort',
+						description: 'Sort order (default: ops)',
+						required: false,
+						choices: [
+							{ name: 'Ops', value: 'ops' },
+							{ name: 'Name', value: 'name' },
+							{ name: 'Rank', value: 'rank' },
+						],
+					},
+					{
+						type: 3,
+						name: 'format',
+						description: 'table (default) or dense list (more rows)',
+						required: false,
+						choices: [
+							{ name: 'Table', value: 'table' },
+							{ name: 'Full list', value: 'list' },
+						],
+					},
+					{
+						type: 4,
+						name: 'page',
+						description: 'Page number (default 1; or use Previous/Next buttons)',
+						required: false,
+						min_value: 1,
+						max_value: 100,
+					},
+				],
 			},
 			{
 				type: 1,

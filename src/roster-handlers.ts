@@ -14,24 +14,21 @@ import {
 	getGuildConfig,
 	getVerifiedDiscordUserIds,
 	getVerifiedPlayer,
-	listAllianceMembersMissingVerify,
 	listAllianceRosterMeta,
-	listRosterPlayers,
 	setVerifiedPlayerActivity,
 } from './guild-db';
 import { shouldUseAllianceRoster, isMultiAllianceGuild } from './alliance-roster-sync';
 import { formatActivityBits } from './activity-utils';
+import { formatReportTable, ReportCols } from './report-table';
 import {
-	formatReportTable,
-	playerCell,
-	ReportCols,
-	tagCell,
-} from './report-table';
-import type { TableData } from './tableUtils';
+	parseRosterFormat,
+	parseRosterSort,
+	startRosterListReply,
+} from './roster-list-view';
 import { isGuildAdministrator, resolveTargetUserId } from './discord-admin';
 import { demotePlayerToGuest } from './verification-access';
 import { AuditColor, postAuditLog } from './audit-log';
-import type { GuildConfig, VerifiedPlayer } from './types';
+import type { GuildConfig } from './types';
 
 const LIST_CAP = 40;
 
@@ -44,34 +41,6 @@ function canUseRoster(
 	if (!allowed.length) return false;
 	const roles = new Set(interaction.member?.roles ?? []);
 	return allowed.some((id) => roles.has(id));
-}
-
-function verifiedPlayersToRows(players: VerifiedPlayer[]): TableData[] {
-	return players.map((p) => ({
-		Player: playerCell(p.player_name),
-		Tag: tagCell(p.alliance_tag),
-		Ops: p.ops_level != null ? p.ops_level : '—',
-		Grade: p.grade != null ? `G${p.grade}` : '—',
-		Status: p.verification_status || '—',
-		Streak: p.activity_streak != null ? p.activity_streak : '—',
-		Inactive: p.days_inactive > 0 ? `${p.days_inactive}d` : '—',
-	}));
-}
-
-function formatVerifiedPlayerTable(players: VerifiedPlayer[], maxRows = LIST_CAP): string {
-	return formatReportTable(
-		verifiedPlayersToRows(players),
-		[
-			ReportCols.player,
-			ReportCols.tag,
-			ReportCols.ops,
-			ReportCols.grade,
-			ReportCols.status,
-			ReportCols.streak,
-			ReportCols.inactive,
-		],
-		{ maxRows, maxChars: 1700, omitEmptyColumns: true },
-	);
 }
 
 function truncateLines(lines: string[], cap = LIST_CAP): string {
@@ -163,16 +132,31 @@ export async function handleRosterCommand(
 			if (!Number.isFinite(grade) || grade < 3 || grade > 7) {
 				return interactionResponse('❌ Provide `grade:` 3–7 (e.g. `6` for G6).', true);
 			}
-			const players = await listRosterPlayers(env.STFC_DB, guildId, { grade, limit: 80 });
-			if (players.length === 0) {
-				return interactionResponse(`No verified players at **G${grade}**.`, true);
+			if (!actorId) {
+				return interactionResponse('❌ Could not resolve your Discord user id.', true);
 			}
-			return interactionResponse(
-				`📋 **G${grade}** (${players.length}${players.length >= 80 ? '+' : ''})\n` +
-					`_Player names (use \`/roster activity user:@…\` to ping)._\n` +
-					formatVerifiedPlayerTable(players),
-				true,
-			);
+			const sort = parseRosterSort(getOptionValue(opts, 'sort'), 'ops', [
+				'ops',
+				'name',
+				'streak',
+				'inactive',
+				'grade',
+			]);
+			const format = parseRosterFormat(getOptionValue(opts, 'format'));
+			const pageRaw = Number(getOptionValue(opts, 'page'));
+			const page = Number.isFinite(pageRaw) && pageRaw >= 1 ? Math.floor(pageRaw) : 1;
+			return startRosterListReply(env, {
+				guildId,
+				userId: actorId,
+				payload: {
+					kind: 'grade',
+					title: `📋 **G${grade}**`,
+					filters: { grade },
+					sort,
+					format,
+					page,
+				},
+			});
 		}
 		case 'ranks': {
 			const rows = await countPlayersByAllianceRank(env.STFC_DB, guildId);
@@ -201,19 +185,31 @@ export async function handleRosterCommand(
 					true,
 				);
 			}
-			const players = await listRosterPlayers(env.STFC_DB, guildId, {
-				allianceRank: rankRaw,
-				limit: 80,
-			});
-			if (players.length === 0) {
-				return interactionResponse(`No verified players with rank **${rankRaw}**.`, true);
+			if (!actorId) {
+				return interactionResponse('❌ Could not resolve your Discord user id.', true);
 			}
-			return interactionResponse(
-				`📋 **Rank ${rankRaw}** (${players.length}${players.length >= 80 ? '+' : ''})\n` +
-					`_Player names (use \`/roster activity user:@…\` to ping)._\n` +
-					formatVerifiedPlayerTable(players),
-				true,
-			);
+			const sort = parseRosterSort(getOptionValue(opts, 'sort'), 'ops', [
+				'ops',
+				'name',
+				'streak',
+				'inactive',
+				'grade',
+			]);
+			const format = parseRosterFormat(getOptionValue(opts, 'format'));
+			const pageRaw = Number(getOptionValue(opts, 'page'));
+			const page = Number.isFinite(pageRaw) && pageRaw >= 1 ? Math.floor(pageRaw) : 1;
+			return startRosterListReply(env, {
+				guildId,
+				userId: actorId,
+				payload: {
+					kind: 'rank',
+					title: `📋 **Rank ${rankRaw}**`,
+					filters: { allianceRank: rankRaw },
+					sort,
+					format,
+					page,
+				},
+			});
 		}
 		case 'missing-verify': {
 			if (!shouldUseAllianceRoster(config) && !isMultiAllianceGuild(config)) {
@@ -235,9 +231,8 @@ export async function handleRosterCommand(
 					true,
 				);
 			}
-			const [totalMissing, missing] = await Promise.all([
+			const [totalMissing] = await Promise.all([
 				countAllianceMembersMissingVerify(env.STFC_DB, guildId),
-				listAllianceMembersMissingVerify(env.STFC_DB, guildId, 80),
 			]);
 			const when = latestFetched
 				? ` · updated <t:${Math.floor(Date.parse(latestFetched) / 1000)}:R>`
@@ -248,32 +243,33 @@ export async function handleRosterCommand(
 			const header =
 				`🕶 **Alliance members not verified on Discord** (${totalMissing} of ${playerCount}` +
 				` · ${tagLabel}${when})\n` +
-				`_In-game players on the alliance roster with no active/guest Discord link. Guests count as linked._\n\n`;
+				`_In-game players on the alliance roster with no active/guest Discord link. Guests count as linked._`;
 			if (totalMissing === 0) {
-				return interactionResponse(`${header}Everyone on the alliance roster is linked.`, true);
+				return interactionResponse(`${header}\n\nEveryone on the alliance roster is linked.`, true);
 			}
-			const table = formatReportTable(
-				missing.map((m) => ({
-					Player: playerCell(m.player_name, m.player_id),
-					Tag: tagCell(m.alliance_tag),
-					Ops: m.ops_level != null ? m.ops_level : '—',
-					Rank: m.alliance_rank || '—',
-					Id: String(m.player_id),
-				})),
-				[
-					ReportCols.player,
-					ReportCols.tag,
-					ReportCols.ops,
-					ReportCols.rank,
-					{ header: 'Id', width: 8, align: 'right' },
-				],
-				{ maxRows: 40, maxChars: 1700, omitEmptyColumns: true },
-			);
-			const more =
-				totalMissing > missing.length
-					? `\n_…and **${totalMissing - missing.length}** more_`
-					: '';
-			return interactionResponse(header + table + more, true);
+			if (!actorId) {
+				return interactionResponse('❌ Could not resolve your Discord user id.', true);
+			}
+			const sort = parseRosterSort(getOptionValue(opts, 'sort'), 'ops', [
+				'ops',
+				'name',
+				'rank',
+			]);
+			const format = parseRosterFormat(getOptionValue(opts, 'format'));
+			const pageRaw = Number(getOptionValue(opts, 'page'));
+			const page = Number.isFinite(pageRaw) && pageRaw >= 1 ? Math.floor(pageRaw) : 1;
+			return startRosterListReply(env, {
+				guildId,
+				userId: actorId,
+				payload: {
+					kind: 'missing-verify',
+					title: header,
+					filters: {},
+					sort,
+					format,
+					page,
+				},
+			});
 		}
 		case 'ops': {
 			const minRaw = getOptionValue(opts, 'min');
@@ -289,13 +285,8 @@ export async function handleRosterCommand(
 			if (opsMin == null && opsMax == null) {
 				return interactionResponse('❌ Provide at least `min:` or `max:` ops level.', true);
 			}
-			const players = await listRosterPlayers(env.STFC_DB, guildId, {
-				opsMin,
-				opsMax,
-				limit: 80,
-			});
-			if (players.length === 0) {
-				return interactionResponse('No verified players in that ops range.', true);
+			if (!actorId) {
+				return interactionResponse('❌ Could not resolve your Discord user id.', true);
 			}
 			const range =
 				opsMin != null && opsMax != null
@@ -303,12 +294,28 @@ export async function handleRosterCommand(
 					: opsMin != null
 						? `≥ ${opsMin}`
 						: `≤ ${opsMax}`;
-			return interactionResponse(
-				`📋 **Ops ${range}** (${players.length}${players.length >= 80 ? '+' : ''})\n` +
-					`_Player names (use \`/roster activity user:@…\` to ping)._\n` +
-					formatVerifiedPlayerTable(players),
-				true,
-			);
+			const sort = parseRosterSort(getOptionValue(opts, 'sort'), 'ops', [
+				'ops',
+				'name',
+				'streak',
+				'inactive',
+				'grade',
+			]);
+			const format = parseRosterFormat(getOptionValue(opts, 'format'));
+			const pageRaw = Number(getOptionValue(opts, 'page'));
+			const page = Number.isFinite(pageRaw) && pageRaw >= 1 ? Math.floor(pageRaw) : 1;
+			return startRosterListReply(env, {
+				guildId,
+				userId: actorId,
+				payload: {
+					kind: 'ops',
+					title: `📋 **Ops ${range}**`,
+					filters: { opsMin, opsMax },
+					sort,
+					format,
+					page,
+				},
+			});
 		}
 		case 'status': {
 			const rows = await countPlayersByStatus(env.STFC_DB, guildId);
@@ -346,22 +353,33 @@ export async function handleRosterCommand(
 			if (!Number.isFinite(minDays) || minDays < 0) {
 				return interactionResponse('❌ `min_days` must be a non-negative number.', true);
 			}
-			const players = await listRosterPlayers(env.STFC_DB, guildId, {
-				daysInactiveMin: minDays,
-				limit: 80,
-			});
-			if (players.length === 0) {
-				return interactionResponse(
-					`No verified players with **≥ ${minDays}** day(s) inactive.`,
-					true,
-				);
+			if (!actorId) {
+				return interactionResponse('❌ Could not resolve your Discord user id.', true);
 			}
-			return interactionResponse(
-				`😴 **Inactive ≥ ${minDays}d** (${players.length}${players.length >= 80 ? '+' : ''})\n` +
-					`_From morning sync of stfc.pro \`consecutive_days_active\` (0 = no streak)._\n` +
-					formatVerifiedPlayerTable(players),
-				true,
-			);
+			const sort = parseRosterSort(getOptionValue(opts, 'sort'), 'inactive', [
+				'ops',
+				'name',
+				'streak',
+				'inactive',
+				'grade',
+			]);
+			const format = parseRosterFormat(getOptionValue(opts, 'format'));
+			const pageRaw = Number(getOptionValue(opts, 'page'));
+			const page = Number.isFinite(pageRaw) && pageRaw >= 1 ? Math.floor(pageRaw) : 1;
+			return startRosterListReply(env, {
+				guildId,
+				userId: actorId,
+				payload: {
+					kind: 'inactive',
+					title:
+						`😴 **Inactive ≥ ${minDays}d**\n` +
+						`_From morning sync of stfc.pro \`consecutive_days_active\` (alliance page)._`,
+					filters: { daysInactiveMin: minDays },
+					sort,
+					format,
+					page,
+				},
+			});
 		}
 		case 'activity': {
 			const userId = resolveTargetUserId(interaction as any, opts);

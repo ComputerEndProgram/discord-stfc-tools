@@ -186,6 +186,7 @@ src/
   roster-handlers.ts       # /roster slash commands
   activity-utils.ts        # streak / days_inactive from consecutive_days_active
   report-table.ts          # compact ASCII tables for cron + /roster reports
+  roster-list-view.ts      # /roster pagination buttons + table/list formats
   urgent-notify.ts         # Optional high-signal staff alerts
   systemUtils.ts           # Coordinate lookup
   systemData.ts            # Bundled systems (generated — do not hand-edit)
@@ -202,6 +203,7 @@ migrations/
   024_alliance_roster.sql  # stfc_alliance_id + alliance_roster_meta/members
   026_deploy_mode.sql  # testing | live (new guilds start testing)
   027_player_activity.sql  # activity_streak + days_inactive
+  028_roster_list_sessions.sql  # /roster Prev/Next button sessions
 
 archive/officers/          # REMOVED officer feature (scripts, SQL, assets, docs)
 

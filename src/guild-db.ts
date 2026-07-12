@@ -1417,19 +1417,24 @@ export async function unexcludeGuildUser(db: D1Database, guildId: string, userId
 }
 
 /** Verified players with optional grade / ops / alliance-rank filters (active roster only). */
-export async function listRosterPlayers(
-	db: D1Database,
+export type RosterPlayerSort = 'ops' | 'name' | 'streak' | 'inactive' | 'grade';
+
+export type RosterPlayerFilters = {
+	grade?: number;
+	opsMin?: number;
+	opsMax?: number;
+	allianceRank?: string;
+	status?: VerificationStatus;
+	daysInactiveMin?: number;
+	limit?: number;
+	offset?: number;
+	sort?: RosterPlayerSort;
+};
+
+function rosterPlayerWhere(
 	guildId: string,
-	filters?: {
-		grade?: number;
-		opsMin?: number;
-		opsMax?: number;
-		allianceRank?: string;
-		status?: VerificationStatus;
-		daysInactiveMin?: number;
-		limit?: number;
-	},
-): Promise<VerifiedPlayer[]> {
+	filters?: Omit<RosterPlayerFilters, 'limit' | 'offset' | 'sort'>,
+): { clauses: string[]; binds: Array<string | number> } {
 	const clauses = [
 		`guild_id = ?`,
 		`verification_status IN ('verified', 'active', 'guest')`,
@@ -1460,23 +1465,59 @@ export async function listRosterPlayers(
 		clauses.push(`days_inactive >= ?`);
 		binds.push(filters.daysInactiveMin);
 	}
+	return { clauses, binds };
+}
 
-	const limit = Math.min(Math.max(filters?.limit ?? 50, 1), 100);
-	binds.push(limit);
+function rosterPlayerOrderBy(sort?: RosterPlayerSort, daysInactiveMin?: number): string {
+	const resolved =
+		sort ??
+		(daysInactiveMin != null ? 'inactive' : 'ops');
+	switch (resolved) {
+		case 'name':
+			return `player_name COLLATE NOCASE ASC, (ops_level IS NULL), ops_level DESC`;
+		case 'streak':
+			return `(activity_streak IS NULL), activity_streak DESC, player_name COLLATE NOCASE`;
+		case 'inactive':
+			return `days_inactive DESC, (ops_level IS NULL), ops_level DESC, player_name COLLATE NOCASE`;
+		case 'grade':
+			return `(grade IS NULL), grade DESC, (ops_level IS NULL), ops_level DESC, player_name COLLATE NOCASE`;
+		case 'ops':
+		default:
+			return `(ops_level IS NULL), ops_level DESC, player_name COLLATE NOCASE`;
+	}
+}
 
-	const orderBy =
-		filters?.daysInactiveMin != null
-			? `days_inactive DESC, (ops_level IS NULL), ops_level DESC, player_name COLLATE NOCASE`
-			: `(ops_level IS NULL), ops_level DESC, player_name COLLATE NOCASE`;
+export async function countRosterPlayers(
+	db: D1Database,
+	guildId: string,
+	filters?: Omit<RosterPlayerFilters, 'limit' | 'offset' | 'sort'>,
+): Promise<number> {
+	const { clauses, binds } = rosterPlayerWhere(guildId, filters);
+	const row = await db
+		.prepare(`SELECT COUNT(*) AS c FROM verified_players WHERE ${clauses.join(' AND ')}`)
+		.bind(...binds)
+		.first();
+	return Number((row as { c?: number } | null)?.c ?? 0);
+}
+
+export async function listRosterPlayers(
+	db: D1Database,
+	guildId: string,
+	filters?: RosterPlayerFilters,
+): Promise<VerifiedPlayer[]> {
+	const { clauses, binds } = rosterPlayerWhere(guildId, filters);
+	const limit = Math.min(Math.max(filters?.limit ?? 50, 1), 200);
+	const offset = Math.max(0, Math.floor(filters?.offset ?? 0));
+	const orderBy = rosterPlayerOrderBy(filters?.sort, filters?.daysInactiveMin);
 
 	const { results } = await db
 		.prepare(
 			`SELECT * FROM verified_players
 			 WHERE ${clauses.join(' AND ')}
 			 ORDER BY ${orderBy}
-			 LIMIT ?`,
+			 LIMIT ? OFFSET ?`,
 		)
-		.bind(...binds)
+		.bind(...binds, limit, offset)
 		.all();
 	return (results ?? []).map(mapVerifiedPlayer);
 }
@@ -1512,9 +1553,21 @@ export async function countPlayersByAllianceRank(
 export async function listAllianceMembersMissingVerify(
 	db: D1Database,
 	guildId: string,
-	limit = 100,
+	opts?: {
+		limit?: number;
+		offset?: number;
+		sort?: 'ops' | 'name' | 'rank';
+	},
 ): Promise<AllianceRosterMemberRow[]> {
-	const cap = Math.min(Math.max(limit, 1), 200);
+	const cap = Math.min(Math.max(opts?.limit ?? 100, 1), 200);
+	const offset = Math.max(0, Math.floor(opts?.offset ?? 0));
+	const sort = opts?.sort ?? 'ops';
+	const orderBy =
+		sort === 'name'
+			? `arm.player_name COLLATE NOCASE ASC, (arm.ops_level IS NULL), arm.ops_level DESC`
+			: sort === 'rank'
+				? `arm.alliance_rank COLLATE NOCASE ASC, (arm.ops_level IS NULL), arm.ops_level DESC`
+				: `(arm.ops_level IS NULL), arm.ops_level DESC, arm.player_name COLLATE NOCASE`;
 	const { results } = await db
 		.prepare(
 			`SELECT arm.*
@@ -1526,10 +1579,10 @@ export async function listAllianceMembersMissingVerify(
 			       AND vp.player_id = arm.player_id
 			       AND vp.verification_status IN ('verified', 'active', 'guest')
 			   )
-			 ORDER BY (arm.ops_level IS NULL), arm.ops_level DESC, arm.player_name COLLATE NOCASE
-			 LIMIT ?`,
+			 ORDER BY ${orderBy}
+			 LIMIT ? OFFSET ?`,
 		)
-		.bind(guildId, cap)
+		.bind(guildId, cap, offset)
 		.all();
 	return (results ?? []).map((row) => mapAllianceRosterMemberRow(row as Record<string, unknown>));
 }
@@ -2150,4 +2203,120 @@ export async function getServerAllianceIdByTag(
 		.bind(guildId, allianceTag.trim())
 		.first();
 	return row ? String((row as { alliance_id: string }).alliance_id) : null;
+}
+
+/** Payload for /roster paginated list button sessions. */
+export type RosterListSessionPayload = {
+	kind: 'grade' | 'rank' | 'ops' | 'inactive' | 'missing-verify';
+	/** Header lines without page footer (markdown). */
+	title: string;
+	filters: {
+		grade?: number;
+		opsMin?: number;
+		opsMax?: number;
+		allianceRank?: string;
+		daysInactiveMin?: number;
+	};
+	sort: RosterPlayerSort | 'rank';
+	format: 'table' | 'list';
+	page: number;
+};
+
+export type RosterListSession = {
+	token: string;
+	guild_id: string;
+	user_id: string;
+	payload: RosterListSessionPayload;
+	expires_at: string;
+};
+
+function newRosterListToken(): string {
+	const bytes = new Uint8Array(12);
+	crypto.getRandomValues(bytes);
+	return Array.from(bytes, (b) => b.toString(16).padStart(2, '0')).join('');
+}
+
+export async function createRosterListSession(
+	db: D1Database,
+	opts: {
+		guildId: string;
+		userId: string;
+		payload: RosterListSessionPayload;
+		ttlSeconds?: number;
+	},
+): Promise<RosterListSession> {
+	const token = newRosterListToken();
+	const ttl = opts.ttlSeconds ?? 3600;
+	const expiresAt = new Date(Date.now() + ttl * 1000).toISOString();
+	await db
+		.prepare(
+			`INSERT INTO roster_list_sessions (token, guild_id, user_id, payload, expires_at)
+			 VALUES (?, ?, ?, ?, ?)`,
+		)
+		.bind(token, opts.guildId, opts.userId, JSON.stringify(opts.payload), expiresAt)
+		.run();
+	return {
+		token,
+		guild_id: opts.guildId,
+		user_id: opts.userId,
+		payload: opts.payload,
+		expires_at: expiresAt,
+	};
+}
+
+export async function getRosterListSession(
+	db: D1Database,
+	token: string,
+): Promise<RosterListSession | null> {
+	const row = await db
+		.prepare(
+			`SELECT token, guild_id, user_id, payload, expires_at
+			 FROM roster_list_sessions WHERE token = ?`,
+		)
+		.bind(token)
+		.first();
+	if (!row) return null;
+	const r = row as Record<string, unknown>;
+	const expiresAt = String(r.expires_at ?? '');
+	if (expiresAt && Date.parse(expiresAt) < Date.now()) {
+		await db.prepare(`DELETE FROM roster_list_sessions WHERE token = ?`).bind(token).run();
+		return null;
+	}
+	let payload: RosterListSessionPayload;
+	try {
+		payload = JSON.parse(String(r.payload ?? '{}')) as RosterListSessionPayload;
+	} catch {
+		return null;
+	}
+	return {
+		token: String(r.token),
+		guild_id: String(r.guild_id),
+		user_id: String(r.user_id),
+		payload,
+		expires_at: expiresAt,
+	};
+}
+
+export async function updateRosterListSessionPayload(
+	db: D1Database,
+	token: string,
+	payload: RosterListSessionPayload,
+	ttlSeconds = 3600,
+): Promise<void> {
+	const expiresAt = new Date(Date.now() + ttlSeconds * 1000).toISOString();
+	await db
+		.prepare(
+			`UPDATE roster_list_sessions
+			 SET payload = ?, expires_at = ?
+			 WHERE token = ?`,
+		)
+		.bind(JSON.stringify(payload), expiresAt, token)
+		.run();
+}
+
+export async function cleanupExpiredRosterListSessions(db: D1Database): Promise<number> {
+	const result = await db
+		.prepare(`DELETE FROM roster_list_sessions WHERE expires_at < datetime('now')`)
+		.run();
+	return result.meta?.changes ?? 0;
 }

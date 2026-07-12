@@ -357,7 +357,7 @@ Each morning sync (`0 6 * * *`), for every verified player we successfully look 
 2. If streak `> 0` → set **days inactive** = `0`.
 3. If streak `=== 0` → increment **days inactive** by 1 (or set to 1 on the first zero day).
 
-We **do not** change counters when a scrape/lookup fails or omits the field.
+We **do not** change counters when a scrape/lookup fails or omits the field. Streak is read from the **alliance roster HTML** (`consecutive_days_active` on each member row) during the morning sync — individual player pages are only a fallback.
 
 ### Commands
 
@@ -777,7 +777,7 @@ Lists in-game name, player id, ops, and rank. Requires a cached alliance roster 
 | `/roster rank rank:Admiral` | Verified players with that alliance rank |
 | `/roster ops min:50` | Ops level range |
 
-Player list and breakdown replies use compact ASCII tables (names, not Discord pings). Use `/roster activity user:@…` when you need a mention. `/roster unverified` still lists Discord mentions (actionable for set-guest).
+Player list replies use ASCII **tables** by default with **Previous** / **Next** / **Full list** / **Table** buttons. Options: `sort:`, `format:list` (dense one-liners — more per page), `page:`. Mentions still on `/roster unverified` / `activity`. Activity streak comes from the **alliance page** field `consecutive_days_active` (not per-player scrapes).
 
 On **multi-alliance**, alliance tag/rank changes on daily sync update nick + rank roles; they are **not** auto-set to guest (use `/roster set-guest` if needed).
 

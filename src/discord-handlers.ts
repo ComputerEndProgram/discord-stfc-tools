@@ -3076,6 +3076,10 @@ async function dispatchDiscordInteraction(
 			const { handleDemoteComponent } = await import('./demotion-policy');
 			return handleDemoteComponent(env, interaction);
 		}
+		if (customId?.startsWith('rst:')) {
+			const { handleRosterListComponent } = await import('./roster-list-view');
+			return handleRosterListComponent(env, interaction);
+		}
 		return interactionResponse('❌ Unknown button.', true);
 	}
 
