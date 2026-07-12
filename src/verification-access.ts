@@ -540,6 +540,14 @@ export async function grantFullAccessForVerifiedPlayer(
 	guildId: string,
 	discordUserId: string,
 	record: VerifiedPlayer,
+	opts?: {
+		/** Skip stfc.pro re-fetch (use D1 snapshot). Important for bulk admin backfill. */
+		skipStfcLookup?: boolean;
+		/** Skip welcome DM (bulk backfill / quarantine-safe). */
+		skipWelcomeDm?: boolean;
+		/** Skip personal-channel ensure when they already have one. */
+		skipPersonalChannelIfExists?: boolean;
+	},
 ): Promise<{ message: string; auditNotes: string[] }> {
 	const token = env.DISCORD_BOT_TOKEN;
 	const locale = resolveLocale(record.preferred_locale);
@@ -560,7 +568,7 @@ export async function grantFullAccessForVerifiedPlayer(
 	}
 
 	let player: PlayerData | null = null;
-	if (record.player_id) {
+	if (!opts?.skipStfcLookup && record.player_id) {
 		player = await findPlayerByIdOrName(record.player_id, config.stfc_server, config.stfc_region);
 	}
 	const rank = player?.rank ?? record.alliance_rank ?? undefined;
@@ -570,33 +578,55 @@ export async function grantFullAccessForVerifiedPlayer(
 	const roleChanges = await applyMemberRoles(token, config, guildId, discordUserId, rank);
 	auditNotes.push(formatRoleChangeNote(roleChanges));
 
-	if (player) {
-		try {
-			const nick = nicknameForPlayer(config, player);
-			await setGuildMemberNickname(token, guildId, discordUserId, nick);
-			auditNotes.push(`Nick: ${nick}`);
-		} catch (err) {
-			console.error('Nickname after agreement failed:', err);
-			auditNotes.push('Nick failed');
-		}
+	try {
+		const nickSource: PlayerData =
+			player ??
+			({
+				playerId: record.player_id ?? 0,
+				name,
+				rank: rank ?? '',
+				helps: '',
+				rss: '',
+				power: record.power ?? 0,
+				iso: '',
+				joinDate: '',
+				allianceId: '',
+				allianceTag,
+				server: config.stfc_server,
+				region: config.stfc_region,
+				level: record.ops_level ?? 0,
+			} satisfies PlayerData);
+		const nick = nicknameForPlayer(config, nickSource);
+		await setGuildMemberNickname(token, guildId, discordUserId, nick);
+		auditNotes.push(`Nick: ${nick}`);
+	} catch (err) {
+		console.error('Nickname after agreement failed:', err);
+		auditNotes.push('Nick failed');
 	}
 
 	const existing = await getVerifiedPlayer(env.STFC_DB, guildId, discordUserId);
-	const channelResult = await applyPersonalChannelForMember(
-		token,
-		config,
-		guildId,
-		discordUserId,
-		name,
-		existing?.personal_channel_id,
-	);
-	if (channelResult) {
-		await upsertVerifiedPlayer(env.STFC_DB, {
-			guild_id: guildId,
-			discord_user_id: discordUserId,
-			personal_channel_id: channelResult.channelId,
-		});
-		auditNotes.push(`Channel <#${channelResult.channelId}>`);
+	let channelResult: { channelId: string; created: boolean; moved: boolean; renamed: boolean } | null =
+		null;
+	const existingChannelId = existing?.personal_channel_id ?? record.personal_channel_id ?? null;
+	if (opts?.skipPersonalChannelIfExists && existingChannelId) {
+		auditNotes.push(`Channel <#${existingChannelId}> (kept)`);
+	} else {
+		channelResult = await applyPersonalChannelForMember(
+			token,
+			config,
+			guildId,
+			discordUserId,
+			name,
+			existingChannelId,
+		);
+		if (channelResult) {
+			await upsertVerifiedPlayer(env.STFC_DB, {
+				guild_id: guildId,
+				discord_user_id: discordUserId,
+				personal_channel_id: channelResult.channelId,
+			});
+			auditNotes.push(`Channel <#${channelResult.channelId}>`);
+		}
 	}
 
 	if (allianceTag) {
@@ -606,15 +636,19 @@ export async function grantFullAccessForVerifiedPlayer(
 
 	const personalChannelId =
 		channelResult?.channelId ?? existing?.personal_channel_id ?? record.personal_channel_id ?? null;
-	const { sendWelcomeDmIfNeeded } = await import('./welcome-dm');
-	const welcome = await sendWelcomeDmIfNeeded(
-		env,
-		config,
-		guildId,
-		discordUserId,
-		personalChannelId,
-	);
-	if (welcome.note) auditNotes.push(welcome.note);
+	if (!opts?.skipWelcomeDm) {
+		const { sendWelcomeDmIfNeeded } = await import('./welcome-dm');
+		const welcome = await sendWelcomeDmIfNeeded(
+			env,
+			config,
+			guildId,
+			discordUserId,
+			personalChannelId,
+		);
+		if (welcome.note) auditNotes.push(welcome.note);
+	} else {
+		auditNotes.push('welcome DM skipped (bulk)');
+	}
 
 	return {
 		message: t(locale, 'agree.result.access_granted', { name }),

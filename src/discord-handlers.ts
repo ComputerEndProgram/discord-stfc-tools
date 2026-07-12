@@ -843,11 +843,13 @@ async function handleServerAgreementCommand(
 				const result = await runAgreementBackfill(env, configSnapshot, guildId, {
 					actorId,
 					userId: grantUserId,
-					onProgress: async (done, total, ok, failed) => {
+					onProgress: async (done, total, ok, failed, currentLabel) => {
 						await editInteractionResponse(
 							appId,
 							interaction.token!,
-							`⏳ Agreement backfill ${done}/${total} (ok ${ok}, failed ${failed})…`,
+							`⏳ Agreement backfill ${done}/${total} (ok ${ok}, failed ${failed})` +
+								(currentLabel ? ` — ${currentLabel}` : '') +
+								'…',
 							true,
 						);
 					},
@@ -877,11 +879,11 @@ async function handleServerAgreementCommand(
 					interaction.token!,
 					`✅ ${configNote}Agreement backfill complete.\n` +
 						`• Processed: **${result.total}**\n` +
-						`• Accepted + access restored: **${result.ok}**\n` +
-						`• Already accepted: **${result.skipped}**\n` +
+						`• Access restored: **${result.ok}**\n` +
+						`• Already stamped (roles re-applied): **${result.skipped}**\n` +
 						`• Failed: **${result.failed}**` +
 						(result.total === 0 && result.errors.length === 0
-							? '\n\nNo verified players were missing the current CoC version.'
+							? '\n\nNo verified players needed CoC backfill.'
 							: '') +
 						errBlock,
 					true,

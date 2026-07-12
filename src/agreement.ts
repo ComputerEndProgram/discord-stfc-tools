@@ -7,6 +7,7 @@ import {
 import {
 	getGuildConfig,
 	getVerifiedPlayer,
+	listActiveVerifiedPlayers,
 	listPlayersMissingAgreement,
 	upsertVerifiedPlayer,
 } from './guild-db';
@@ -153,38 +154,44 @@ export async function acceptAgreementAndGrantAccess(
 	},
 ): Promise<{ alreadyAccepted: boolean; accessNote: string; ok: boolean; error?: string }> {
 	const player = await getVerifiedPlayer(env.STFC_DB, guildId, userId);
-	if (hasMatchingAgreementVersion(config, player)) {
+	const alreadyAccepted = hasMatchingAgreementVersion(config, player);
+
+	// Member Agree button: no-op if already stamped. Admin backfill still re-applies roles
+	// (previous runs may have stamped accept then died mid-grant).
+	if (alreadyAccepted && opts.method !== 'admin_backfill') {
 		return { alreadyAccepted: true, accessNote: '', ok: true };
 	}
 
-	const now = new Date().toISOString();
-	const version = config.agreement_version ?? now.slice(0, 10);
-	await upsertVerifiedPlayer(env.STFC_DB, {
-		guild_id: guildId,
-		discord_user_id: userId,
-		agreement_accepted_at: now,
-		agreement_version: version,
-		agreement_method: opts.method,
-		verification_status: player?.verification_status ?? 'pending_screenshot',
-	});
-
-	if (!opts.skipAudit) {
-		await postAuditLog(env, config, {
-			title: 'Agreement accepted',
-			description:
-				`<@${userId}> accepted the Discord agreement` +
-				(config.agreement_version ? ` (v${config.agreement_version})` : '') +
-				(opts.method === 'admin_backfill'
-					? ` via admin backfill${opts.actorId ? ` by <@${opts.actorId}>` : ''}.`
-					: ' via DM button.'),
-			actorId: opts.method === 'admin_backfill' ? opts.actorId : userId,
-			source: opts.method === 'admin_backfill' ? 'admin' : 'member',
-			color: AuditColor.success,
-			fields: [
-				{ name: 'Method', value: opts.method, inline: true },
-				{ name: 'Timing', value: config.agreement_timing, inline: true },
-			],
+	if (!alreadyAccepted) {
+		const now = new Date().toISOString();
+		const version = config.agreement_version ?? now.slice(0, 10);
+		await upsertVerifiedPlayer(env.STFC_DB, {
+			guild_id: guildId,
+			discord_user_id: userId,
+			agreement_accepted_at: now,
+			agreement_version: version,
+			agreement_method: opts.method,
+			verification_status: player?.verification_status ?? 'pending_screenshot',
 		});
+
+		if (!opts.skipAudit) {
+			await postAuditLog(env, config, {
+				title: 'Agreement accepted',
+				description:
+					`<@${userId}> accepted the Discord agreement` +
+					(config.agreement_version ? ` (v${config.agreement_version})` : '') +
+					(opts.method === 'admin_backfill'
+						? ` via admin backfill${opts.actorId ? ` by <@${opts.actorId}>` : ''}.`
+						: ' via DM button.'),
+				actorId: opts.method === 'admin_backfill' ? opts.actorId : userId,
+				source: opts.method === 'admin_backfill' ? 'admin' : 'member',
+				color: AuditColor.success,
+				fields: [
+					{ name: 'Method', value: opts.method, inline: true },
+					{ name: 'Timing', value: config.agreement_timing, inline: true },
+				],
+			});
+		}
 	}
 
 	const refreshed = await getVerifiedPlayer(env.STFC_DB, guildId, userId);
@@ -205,6 +212,13 @@ export async function acceptAgreementAndGrantAccess(
 				guildId,
 				userId,
 				refreshed,
+				opts.method === 'admin_backfill'
+					? {
+							skipStfcLookup: true,
+							skipWelcomeDm: true,
+							skipPersonalChannelIfExists: true,
+						}
+					: undefined,
 			);
 			accessNote = result.message;
 			if (refreshed.player_id && refreshed.player_name && opts.method === 'dm_button') {
@@ -229,7 +243,7 @@ export async function acceptAgreementAndGrantAccess(
 			const locale = resolveLocale(refreshed?.preferred_locale);
 			accessNote = t(locale, 'agree.result.access_failed');
 			return {
-				alreadyAccepted: false,
+				alreadyAccepted,
 				accessNote,
 				ok: false,
 				error: err instanceof Error ? err.message : 'access grant failed',
@@ -237,7 +251,7 @@ export async function acceptAgreementAndGrantAccess(
 		}
 	}
 
-	return { alreadyAccepted: false, accessNote, ok: true };
+	return { alreadyAccepted, accessNote, ok: true };
 }
 
 /** Admin: mark agreement accepted + restore roles for one or many verified members. */
@@ -249,7 +263,13 @@ export async function runAgreementBackfill(
 		actorId?: string;
 		/** If set, only this Discord user; otherwise all missing agreement. */
 		userId?: string;
-		onProgress?: (done: number, total: number, ok: number, failed: number) => Promise<void>;
+		onProgress?: (
+			done: number,
+			total: number,
+			ok: number,
+			failed: number,
+			currentLabel?: string,
+		) => Promise<void>;
 	},
 ): Promise<{ total: number; ok: number; failed: number; skipped: number; errors: string[] }> {
 	let targets: VerifiedPlayer[];
@@ -264,12 +284,25 @@ export async function runAgreementBackfill(
 				errors: [`<@${opts.userId}> has no verified STFC player link.`],
 			};
 		}
-		targets = hasMatchingAgreementVersion(config, one) ? [] : [one];
-		if (targets.length === 0) {
-			return { total: 0, ok: 0, failed: 0, skipped: 1, errors: [] };
-		}
+		targets = [one];
 	} else {
-		targets = await listPlayersMissingAgreement(env.STFC_DB, guildId, config.agreement_version);
+		// Prefer people missing CoC; if a prior run stamped some and died, also include
+		// anyone already accepted via admin_backfill so roles can be re-applied.
+		const missing = await listPlayersMissingAgreement(
+			env.STFC_DB,
+			guildId,
+			config.agreement_version,
+		);
+		const all = await listActiveVerifiedPlayers(env.STFC_DB, guildId);
+		const missingIds = new Set(missing.map((p) => p.discord_user_id));
+		const repair = all.filter(
+			(p) =>
+				p.player_id != null &&
+				!missingIds.has(p.discord_user_id) &&
+				p.agreement_method === 'admin_backfill' &&
+				hasMatchingAgreementVersion(config, p),
+		);
+		targets = [...missing, ...repair];
 	}
 
 	let ok = 0;
@@ -279,8 +312,9 @@ export async function runAgreementBackfill(
 
 	for (let i = 0; i < targets.length; i++) {
 		const p = targets[i];
-		if (opts.onProgress && (i === 0 || (i + 1) % 10 === 0 || i + 1 === targets.length)) {
-			await opts.onProgress(i + 1, targets.length, ok, failed);
+		const label = p.player_name?.trim() || p.discord_user_id;
+		if (opts.onProgress) {
+			await opts.onProgress(i + 1, targets.length, ok, failed, label);
 		}
 		try {
 			const result = await acceptAgreementAndGrantAccess(env, config, guildId, p.discord_user_id, {
@@ -288,13 +322,16 @@ export async function runAgreementBackfill(
 				actorId: opts.actorId,
 				skipAudit: true,
 			});
-			if (result.alreadyAccepted) skipped++;
-			else if (result.ok) ok++;
-			else {
+			if (!result.ok) {
 				failed++;
 				if (errors.length < 8) {
 					errors.push(`<@${p.discord_user_id}>: ${result.error ?? 'failed'}`);
 				}
+			} else if (result.alreadyAccepted) {
+				ok++;
+				skipped++; // already stamped; roles re-applied
+			} else {
+				ok++;
 			}
 		} catch (err) {
 			failed++;
@@ -304,7 +341,7 @@ export async function runAgreementBackfill(
 				errors.push(`<@${p.discord_user_id}>: ${msg.slice(0, 180)}`);
 			}
 		}
-		await sleep(350);
+		await sleep(200);
 	}
 
 	return { total: targets.length, ok, failed, skipped, errors };
