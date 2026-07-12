@@ -23,6 +23,7 @@ import { formatReportTable, ReportCols } from './report-table';
 import {
 	parseRosterFormat,
 	parseRosterSort,
+	parseRosterVisibility,
 	startRosterListReply,
 } from './roster-list-view';
 import { isGuildAdministrator, resolveTargetUserId } from './discord-admin';
@@ -143,6 +144,7 @@ export async function handleRosterCommand(
 				'grade',
 			]);
 			const format = parseRosterFormat(getOptionValue(opts, 'format'));
+			const visibility = parseRosterVisibility(getOptionValue(opts, 'visibility'));
 			const pageRaw = Number(getOptionValue(opts, 'page'));
 			const page = Number.isFinite(pageRaw) && pageRaw >= 1 ? Math.floor(pageRaw) : 1;
 			return startRosterListReply(env, {
@@ -154,6 +156,7 @@ export async function handleRosterCommand(
 					filters: { grade },
 					sort,
 					format,
+					visibility,
 					page,
 				},
 			});
@@ -196,6 +199,7 @@ export async function handleRosterCommand(
 				'grade',
 			]);
 			const format = parseRosterFormat(getOptionValue(opts, 'format'));
+			const visibility = parseRosterVisibility(getOptionValue(opts, 'visibility'));
 			const pageRaw = Number(getOptionValue(opts, 'page'));
 			const page = Number.isFinite(pageRaw) && pageRaw >= 1 ? Math.floor(pageRaw) : 1;
 			return startRosterListReply(env, {
@@ -207,6 +211,7 @@ export async function handleRosterCommand(
 					filters: { allianceRank: rankRaw },
 					sort,
 					format,
+					visibility,
 					page,
 				},
 			});
@@ -256,6 +261,7 @@ export async function handleRosterCommand(
 				'rank',
 			]);
 			const format = parseRosterFormat(getOptionValue(opts, 'format'));
+			const visibility = parseRosterVisibility(getOptionValue(opts, 'visibility'));
 			const pageRaw = Number(getOptionValue(opts, 'page'));
 			const page = Number.isFinite(pageRaw) && pageRaw >= 1 ? Math.floor(pageRaw) : 1;
 			return startRosterListReply(env, {
@@ -267,6 +273,7 @@ export async function handleRosterCommand(
 					filters: {},
 					sort,
 					format,
+					visibility,
 					page,
 				},
 			});
@@ -302,6 +309,7 @@ export async function handleRosterCommand(
 				'grade',
 			]);
 			const format = parseRosterFormat(getOptionValue(opts, 'format'));
+			const visibility = parseRosterVisibility(getOptionValue(opts, 'visibility'));
 			const pageRaw = Number(getOptionValue(opts, 'page'));
 			const page = Number.isFinite(pageRaw) && pageRaw >= 1 ? Math.floor(pageRaw) : 1;
 			return startRosterListReply(env, {
@@ -313,6 +321,7 @@ export async function handleRosterCommand(
 					filters: { opsMin, opsMax },
 					sort,
 					format,
+					visibility,
 					page,
 				},
 			});
@@ -364,6 +373,7 @@ export async function handleRosterCommand(
 				'grade',
 			]);
 			const format = parseRosterFormat(getOptionValue(opts, 'format'));
+			const visibility = parseRosterVisibility(getOptionValue(opts, 'visibility'));
 			const pageRaw = Number(getOptionValue(opts, 'page'));
 			const page = Number.isFinite(pageRaw) && pageRaw >= 1 ? Math.floor(pageRaw) : 1;
 			return startRosterListReply(env, {
@@ -377,6 +387,7 @@ export async function handleRosterCommand(
 					filters: { daysInactiveMin: minDays },
 					sort,
 					format,
+					visibility,
 					page,
 				},
 			});

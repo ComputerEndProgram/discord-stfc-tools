@@ -777,7 +777,7 @@ Lists in-game name, player id, ops, and rank. Requires a cached alliance roster 
 | `/roster rank rank:Admiral` | Verified players with that alliance rank |
 | `/roster ops min:50` | Ops level range |
 
-Player list replies use ASCII **tables** by default with **Previous** / **Next** / **Full list** / **Table** buttons. Options: `sort:`, `format:list` (dense one-liners — more per page), `page:`. Mentions still on `/roster unverified` / `activity`. Activity streak comes from the **alliance page** field `consecutive_days_active` (not per-player scrapes).
+Player list replies use ASCII **tables** by default with **Previous** / **Next** / **Full list** / **Table** buttons. Options: `sort:`, `format:list`, `visibility:public` (default **private**), `page:`. Private replies also get **Post to channel** (publishes a public copy anyone can paginate). Mentions still on `/roster unverified` / `activity`. Activity streak comes from the **alliance page** field `consecutive_days_active` (not per-player scrapes).
 
 On **multi-alliance**, alliance tag/rank changes on daily sync update nick + rank roles; they are **not** auto-set to guest (use `/roster set-guest` if needed).
 

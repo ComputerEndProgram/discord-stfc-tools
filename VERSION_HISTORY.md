@@ -8,7 +8,7 @@ Release log for the STFC Discord bot (Cloudflare Worker). Versions use **MAJOR.M
 | **MINOR** | New user-facing capability (new slash area, cron product, admin workflow) |
 | **INCREMENTAL** | Fixes, polish, docs, refactors, small command option tweaks |
 
-**Current version:** **1.8.2**
+**Current version:** **1.8.3**
 
 **Sources of truth**
 
@@ -25,6 +25,14 @@ Bump all three together when cutting a release. Prefer a short entry under the n
 ## How versions map to history
 
 Versions below **1.0.0** are retrospective labels for the Aug 2025 utility era. **1.0.0** marks the alliance-management product that was prepared for public use. Later **1.x** minors track feature areas shipped in Jul 2026 (git history + migrations `001`–`027`).
+
+---
+
+## 1.8.3 — Roster visibility public / Post to channel (2026-07-12)
+
+- `visibility:private|public` on list `/roster` commands (default private)
+- Public reports: anyone can use Prev/Next / Full list / Table
+- Private reports: **Post to channel** button publishes a public copy (buttons intact)
 
 ---
 

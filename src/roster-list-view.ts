@@ -5,6 +5,7 @@
 import {
 	interactionResponse,
 	interactionResponseWithComponents,
+	sendMessageWithComponents,
 	updateMessageResponse,
 	type DiscordActionRow,
 } from './discord-api';
@@ -33,6 +34,7 @@ const LIST_PAGE_SIZE = 80;
 const CONTENT_BUDGET = 1850;
 
 export type RosterListFormat = 'table' | 'list';
+export type RosterListVisibility = 'private' | 'public';
 
 function sortLabel(sort: RosterListSessionPayload['sort']): string {
 	switch (sort) {
@@ -54,6 +56,10 @@ function sortLabel(sort: RosterListSessionPayload['sort']): string {
 
 function pageSizeFor(format: RosterListFormat): number {
 	return format === 'list' ? LIST_PAGE_SIZE : TABLE_PAGE_SIZE;
+}
+
+function visibilityOf(payload: RosterListSessionPayload): RosterListVisibility {
+	return payload.visibility === 'public' ? 'public' : 'private';
 }
 
 function verifiedDenseLine(p: VerifiedPlayer): string {
@@ -134,15 +140,21 @@ function packLines(lines: string[], maxChars: number): { text: string; shown: nu
 	return { text: out.join('\n'), shown: out.length };
 }
 
+/**
+ * Discord button styles: Primary=1, Secondary=2, Success=3, Danger=4.
+ * There is no yellow style — "Post to channel" uses Primary (blurple) as the CTA.
+ */
 function buildComponents(
 	token: string,
 	page: number,
 	totalPages: number,
 	format: RosterListFormat,
+	visibility: RosterListVisibility,
+	opts?: { publishDisabled?: boolean },
 ): DiscordActionRow[] {
 	const prevDisabled = page <= 1;
 	const nextDisabled = page >= totalPages;
-	return [
+	const rows: DiscordActionRow[] = [
 		{
 			type: 1,
 			components: [
@@ -177,6 +189,23 @@ function buildComponents(
 			],
 		},
 	];
+	if (visibility === 'private') {
+		rows.push({
+			type: 1,
+			components: [
+				{
+					type: 2,
+					// Discord has no yellow button style; Primary (blurple) is the CTA.
+					// Label uses 🟡 so the control reads as the “yellow” publish action.
+					style: 1,
+					label: '🟡 Post to channel',
+					custom_id: `rst:${token}:publish`,
+					disabled: opts?.publishDisabled === true,
+				},
+			],
+		});
+	}
+	return rows;
 }
 
 async function loadPage(
@@ -239,9 +268,13 @@ export async function renderRosterListContent(
 	db: D1Database,
 	guildId: string,
 	payload: RosterListSessionPayload,
-): Promise<{ content: string; components: DiscordActionRow[]; payload: RosterListSessionPayload }> {
+): Promise<{ content: string; payload: RosterListSessionPayload; totalPages: number }> {
 	let page = Math.max(1, Math.floor(payload.page || 1));
-	let working = { ...payload, page };
+	let working: RosterListSessionPayload = {
+		...payload,
+		visibility: visibilityOf(payload),
+		page,
+	};
 
 	let loaded = await loadPage(db, guildId, working);
 	const totalPages = Math.max(1, Math.ceil(loaded.total / loaded.pageSize) || 1);
@@ -253,17 +286,19 @@ export async function renderRosterListContent(
 
 	const from = loaded.total === 0 ? 0 : (page - 1) * loaded.pageSize + 1;
 	const to = loaded.total === 0 ? 0 : Math.min(loaded.total, from + loaded.shown - 1);
+	const vis = visibilityOf(working);
 	const footer =
 		`Showing **${from}–${to}** of **${loaded.total}**` +
 		` · sorted by ${sortLabel(working.sort)}` +
 		` · format **${working.format}**` +
+		` · **${vis}**` +
 		(totalPages > 1 ? ` · page **${page}/${totalPages}**` : '');
 
 	const content = `${working.title}\n${loaded.body}\n\n_${footer}_`;
 	return {
 		content: content.length > 2000 ? content.slice(0, 1990) + '\n_…_' : content,
-		components: [], // filled by caller with token
 		payload: working,
+		totalPages,
 	};
 }
 
@@ -272,11 +307,15 @@ export async function startRosterListReply(
 	opts: {
 		guildId: string;
 		userId: string;
-		payload: Omit<RosterListSessionPayload, 'page'> & { page?: number };
+		payload: Omit<RosterListSessionPayload, 'page' | 'visibility'> & {
+			page?: number;
+			visibility?: RosterListVisibility;
+		};
 	},
 ): Promise<Response> {
 	const initial: RosterListSessionPayload = {
 		...opts.payload,
+		visibility: opts.payload.visibility === 'public' ? 'public' : 'private',
 		page: Math.max(1, opts.payload.page ?? 1),
 	};
 	const total = await (initial.kind === 'missing-verify'
@@ -292,16 +331,16 @@ export async function startRosterListReply(
 		userId: opts.userId,
 		payload: rendered.payload,
 	});
-	const pageSize = pageSizeFor(rendered.payload.format);
-	const totalPages = Math.max(1, Math.ceil(total / pageSize) || 1);
+	const vis = visibilityOf(rendered.payload);
 
 	return interactionResponseWithComponents(rendered.content, {
-		ephemeral: true,
+		ephemeral: vis === 'private',
 		components: buildComponents(
 			session.token,
 			rendered.payload.page,
-			totalPages,
+			rendered.totalPages,
 			rendered.payload.format,
+			vis,
 		),
 	});
 }
@@ -310,18 +349,19 @@ export async function handleRosterListComponent(
 	env: Env,
 	interaction: {
 		guild_id?: string;
+		channel_id?: string;
 		member?: { user?: { id: string } };
 		user?: { id: string };
 		data?: { custom_id?: string };
 	},
 ): Promise<Response> {
 	const customId = interaction.data?.custom_id ?? '';
-	const m = /^rst:([a-f0-9]+):(prev|next|list|table)$/i.exec(customId);
+	const m = /^rst:([a-f0-9]+):(prev|next|list|table|publish)$/i.exec(customId);
 	if (!m) {
 		return interactionResponse('❌ Unknown roster button.', true);
 	}
 	const token = m[1]!;
-	const action = m[2]!.toLowerCase() as 'prev' | 'next' | 'list' | 'table';
+	const action = m[2]!.toLowerCase() as 'prev' | 'next' | 'list' | 'table' | 'publish';
 	const userId = interaction.member?.user?.id ?? interaction.user?.id;
 	const guildId = interaction.guild_id;
 
@@ -329,11 +369,75 @@ export async function handleRosterListComponent(
 	if (!session || !guildId || session.guild_id !== guildId) {
 		return interactionResponse('❌ This roster list expired. Run the `/roster` command again.', true);
 	}
-	if (!userId || session.user_id !== userId) {
-		return interactionResponse('❌ Only the person who ran the command can use these buttons.', true);
+
+	const vis = visibilityOf(session.payload);
+	const isOwner = !!userId && session.user_id === userId;
+
+	if (action === 'publish') {
+		if (!isOwner) {
+			return interactionResponse('❌ Only the person who ran the command can post this to the channel.', true);
+		}
+		if (vis !== 'private') {
+			return interactionResponse('❌ This report is already public.', true);
+		}
+		const channelId = interaction.channel_id;
+		if (!channelId || !env.DISCORD_BOT_TOKEN) {
+			return interactionResponse('❌ Cannot post to channel (missing channel or bot token).', true);
+		}
+
+		const publicPayload: RosterListSessionPayload = {
+			...session.payload,
+			visibility: 'public',
+		};
+		const rendered = await renderRosterListContent(env.STFC_DB, guildId, publicPayload);
+		const publicSession = await createRosterListSession(env.STFC_DB, {
+			guildId,
+			userId: session.user_id,
+			payload: rendered.payload,
+		});
+
+		try {
+			await sendMessageWithComponents(env.DISCORD_BOT_TOKEN, channelId, {
+				content: rendered.content,
+				components: buildComponents(
+					publicSession.token,
+					rendered.payload.page,
+					rendered.totalPages,
+					rendered.payload.format,
+					'public',
+				),
+			});
+		} catch (err) {
+			console.error('Roster post to channel failed:', err);
+			return interactionResponse(
+				'❌ Failed to post to channel (check bot Send Messages permission here).',
+				true,
+			);
+		}
+
+		const privateRendered = await renderRosterListContent(env.STFC_DB, guildId, session.payload);
+		return updateMessageResponse(
+			`${privateRendered.content}\n\n✅ **Posted to channel** (public copy — anyone can use Prev/Next there).`,
+			{
+				components: buildComponents(
+					token,
+					privateRendered.payload.page,
+					privateRendered.totalPages,
+					privateRendered.payload.format,
+					'private',
+					{ publishDisabled: true },
+				),
+			},
+		);
 	}
 
-	const payload = { ...session.payload };
+	// prev / next / list / table
+	if (vis === 'private' && !isOwner) {
+		return interactionResponse('❌ Only the person who ran the command can use these buttons.', true);
+	}
+	// public: anyone in the channel may paginate
+
+	const payload = { ...session.payload, visibility: vis };
 	if (action === 'prev') payload.page = Math.max(1, payload.page - 1);
 	else if (action === 'next') payload.page = payload.page + 1;
 	else if (action === 'list') {
@@ -347,19 +451,13 @@ export async function handleRosterListComponent(
 	const rendered = await renderRosterListContent(env.STFC_DB, guildId, payload);
 	await updateRosterListSessionPayload(env.STFC_DB, token, rendered.payload);
 
-	const pageSize = pageSizeFor(rendered.payload.format);
-	const total =
-		rendered.payload.kind === 'missing-verify'
-			? await countAllianceMembersMissingVerify(env.STFC_DB, guildId)
-			: await countRosterPlayers(env.STFC_DB, guildId, rendered.payload.filters);
-	const totalPages = Math.max(1, Math.ceil(total / pageSize) || 1);
-
 	return updateMessageResponse(rendered.content, {
 		components: buildComponents(
 			token,
 			rendered.payload.page,
-			totalPages,
+			rendered.totalPages,
 			rendered.payload.format,
+			visibilityOf(rendered.payload),
 		),
 	});
 }
@@ -376,4 +474,8 @@ export function parseRosterSort(
 
 export function parseRosterFormat(raw: unknown): RosterListFormat {
 	return String(raw ?? '').trim().toLowerCase() === 'list' ? 'list' : 'table';
+}
+
+export function parseRosterVisibility(raw: unknown): RosterListVisibility {
+	return String(raw ?? '').trim().toLowerCase() === 'public' ? 'public' : 'private';
 }

@@ -36,6 +36,16 @@ const rosterListCommonOptions = [
 		],
 	},
 	{
+		type: 3,
+		name: 'visibility',
+		description: 'private (default, only you) or public (channel + anyone can paginate)',
+		required: false,
+		choices: [
+			{ name: 'Private', value: 'private' },
+			{ name: 'Public', value: 'public' },
+		],
+	},
+	{
 		type: 4,
 		name: 'page',
 		description: 'Page number (default 1; or use Previous/Next buttons)',
@@ -260,6 +270,16 @@ const commands = [
 						choices: [
 							{ name: 'Table', value: 'table' },
 							{ name: 'Full list', value: 'list' },
+						],
+					},
+					{
+						type: 3,
+						name: 'visibility',
+						description: 'private (default, only you) or public (channel + anyone can paginate)',
+						required: false,
+						choices: [
+							{ name: 'Private', value: 'private' },
+							{ name: 'Public', value: 'public' },
 						],
 					},
 					{

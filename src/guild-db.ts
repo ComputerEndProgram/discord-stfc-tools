@@ -2219,6 +2219,8 @@ export type RosterListSessionPayload = {
 	};
 	sort: RosterPlayerSort | 'rank';
 	format: 'table' | 'list';
+	/** private = ephemeral (default); public = channel-visible, anyone can paginate */
+	visibility: 'private' | 'public';
 	page: number;
 };
 

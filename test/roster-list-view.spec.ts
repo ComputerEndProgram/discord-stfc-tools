@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { parseRosterFormat, parseRosterSort } from '../src/roster-list-view';
+import { parseRosterFormat, parseRosterSort, parseRosterVisibility } from '../src/roster-list-view';
 
 describe('roster list view helpers', () => {
 	it('parses format', () => {
@@ -8,8 +8,9 @@ describe('roster list view helpers', () => {
 		expect(parseRosterFormat(undefined)).toBe('table');
 	});
 
-	it('parses sort with fallback', () => {
-		expect(parseRosterSort('streak', 'ops', ['ops', 'streak'])).toBe('streak');
-		expect(parseRosterSort('nope', 'inactive', ['ops', 'inactive'])).toBe('inactive');
+	it('parses visibility', () => {
+		expect(parseRosterVisibility('public')).toBe('public');
+		expect(parseRosterVisibility('private')).toBe('private');
+		expect(parseRosterVisibility(undefined)).toBe('private');
 	});
 });

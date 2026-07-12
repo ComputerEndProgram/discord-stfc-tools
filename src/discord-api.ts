@@ -724,6 +724,31 @@ export async function editChannelMessage(
 	});
 }
 
+/** Create a public follow-up message for an interaction (visible in channel). */
+export async function createInteractionFollowup(
+	applicationId: string,
+	interactionToken: string,
+	content: string,
+	opts?: {
+		ephemeral?: boolean;
+		components?: DiscordActionRow[];
+		embeds?: DiscordEmbed[];
+		config?: Pick<GuildConfig, 'deploy_mode'> | null;
+	},
+): Promise<void> {
+	const url = `${DISCORD_API}/webhooks/${applicationId}/${interactionToken}`;
+	await fetch(url, {
+		method: 'POST',
+		headers: { 'Content-Type': 'application/json' },
+		body: JSON.stringify({
+			content: applyTestingPrefix(content, opts?.config),
+			...(opts?.ephemeral ? { flags: 64 } : {}),
+			...(opts?.components !== undefined ? { components: opts.components } : {}),
+			...(opts?.embeds !== undefined ? { embeds: opts.embeds } : {}),
+		}),
+	});
+}
+
 /** Deferred interaction follow-up (for slow stfc.pro lookups). */
 export async function editInteractionResponse(
 	applicationId: string,
