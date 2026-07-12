@@ -180,12 +180,18 @@ const commands = [
 			{
 				type: 1,
 				name: 'activity',
-				description: 'Show streak + days inactive for a verified player',
+				description: 'Show streak + days inactive for a player',
 				options: [
 					{
 						type: 6,
 						name: 'user',
 						description: 'Discord member (defaults to you)',
+						required: false,
+					},
+					{
+						type: 3,
+						name: 'player',
+						description: 'In-game name or STFC player id',
 						required: false,
 					},
 				],
@@ -196,18 +202,24 @@ const commands = [
 				description: 'Admin: manually set activity streak (stfc.pro consecutive days)',
 				options: [
 					{
-						type: 6,
-						name: 'user',
-						description: 'Verified Discord member',
-						required: true,
-					},
-					{
 						type: 4,
 						name: 'value',
 						description: 'Streak days (≥0). Setting >0 clears days inactive.',
 						required: true,
 						min_value: 0,
 						max_value: 3650,
+					},
+					{
+						type: 6,
+						name: 'user',
+						description: 'Verified Discord member (use this or player:)',
+						required: false,
+					},
+					{
+						type: 3,
+						name: 'player',
+						description: 'In-game name or STFC player id (typos get Did you mean?)',
+						required: false,
 					},
 				],
 			},
@@ -217,18 +229,24 @@ const commands = [
 				description: 'Admin: manually set days inactive',
 				options: [
 					{
-						type: 6,
-						name: 'user',
-						description: 'Verified Discord member',
-						required: true,
-					},
-					{
 						type: 4,
 						name: 'value',
 						description: 'Days inactive (≥0). Setting >0 clears streak.',
 						required: true,
 						min_value: 0,
 						max_value: 3650,
+					},
+					{
+						type: 6,
+						name: 'user',
+						description: 'Verified Discord member (use this or player:)',
+						required: false,
+					},
+					{
+						type: 3,
+						name: 'player',
+						description: 'In-game name or STFC player id (typos get Did you mean?)',
+						required: false,
 					},
 				],
 			},

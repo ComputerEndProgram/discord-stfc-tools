@@ -912,6 +912,111 @@ export async function setVerifiedPlayerActivity(
 		.run();
 }
 
+/** Set activity on alliance roster cache (unlinked + linked morning scrape rows). */
+export async function setAllianceRosterMemberActivity(
+	db: D1Database,
+	guildId: string,
+	playerId: number,
+	opts: {
+		activity_streak?: number | null;
+		days_inactive?: number;
+	},
+): Promise<void> {
+	const streakProvided = Object.prototype.hasOwnProperty.call(opts, 'activity_streak');
+	const inactiveProvided = Object.prototype.hasOwnProperty.call(opts, 'days_inactive');
+	if (!streakProvided && !inactiveProvided) return;
+
+	await db
+		.prepare(
+			`UPDATE alliance_roster_members SET
+			 activity_streak = CASE WHEN ? = 1 THEN ? ELSE activity_streak END,
+			 days_inactive = CASE WHEN ? = 1 THEN ? ELSE days_inactive END
+			 WHERE guild_id = ? AND player_id = ?`,
+		)
+		.bind(
+			streakProvided ? 1 : 0,
+			streakProvided
+				? opts.activity_streak == null
+					? null
+					: Math.max(0, Math.floor(Number(opts.activity_streak) || 0))
+				: null,
+			inactiveProvided ? 1 : 0,
+			inactiveProvided ? Math.max(0, Math.floor(Number(opts.days_inactive) || 0)) : null,
+			guildId,
+			playerId,
+		)
+		.run();
+}
+
+/** Union of verified + alliance-cache players for name/id activity lookups. */
+export type PlayerActivityCandidate = {
+	player_id: number | null;
+	discord_user_id: string | null;
+	player_name: string | null;
+	alliance_tag: string | null;
+	activity_streak: number | null;
+	days_inactive: number;
+};
+
+export async function listPlayerActivityCandidates(
+	db: D1Database,
+	guildId: string,
+): Promise<PlayerActivityCandidate[]> {
+	const { results } = await db
+		.prepare(
+			`SELECT
+				player_id,
+				discord_user_id,
+				player_name,
+				alliance_tag,
+				activity_streak,
+				days_inactive
+			 FROM (
+				SELECT
+					vp.player_id AS player_id,
+					vp.discord_user_id AS discord_user_id,
+					vp.player_name AS player_name,
+					vp.alliance_tag AS alliance_tag,
+					vp.activity_streak AS activity_streak,
+					vp.days_inactive AS days_inactive
+				FROM verified_players vp
+				WHERE vp.guild_id = ?
+				  AND vp.verification_status IN ('verified', 'active', 'guest')
+				  AND (vp.player_name IS NOT NULL OR vp.player_id IS NOT NULL)
+				UNION ALL
+				SELECT
+					arm.player_id AS player_id,
+					NULL AS discord_user_id,
+					arm.player_name AS player_name,
+					arm.alliance_tag AS alliance_tag,
+					arm.activity_streak AS activity_streak,
+					arm.days_inactive AS days_inactive
+				FROM alliance_roster_members arm
+				WHERE arm.guild_id = ?
+				  AND NOT EXISTS (
+				    SELECT 1 FROM verified_players vp2
+				    WHERE vp2.guild_id = arm.guild_id
+				      AND vp2.player_id = arm.player_id
+				      AND vp2.verification_status IN ('verified', 'active', 'guest')
+				  )
+			 )`,
+		)
+		.bind(guildId, guildId)
+		.all();
+
+	return (results ?? []).map((row) => {
+		const r = row as Record<string, unknown>;
+		return {
+			player_id: r.player_id != null ? Number(r.player_id) : null,
+			discord_user_id: r.discord_user_id != null ? String(r.discord_user_id) : null,
+			player_name: r.player_name != null ? String(r.player_name) : null,
+			alliance_tag: r.alliance_tag != null ? String(r.alliance_tag) : null,
+			activity_streak: r.activity_streak != null ? Number(r.activity_streak) : null,
+			days_inactive: Number(r.days_inactive ?? 0) || 0,
+		};
+	});
+}
+
 export async function resetVerification(
 	db: D1Database,
 	guildId: string,

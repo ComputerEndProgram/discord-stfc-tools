@@ -3080,6 +3080,10 @@ async function dispatchDiscordInteraction(
 			const { handleRosterListComponent } = await import('./roster-list-view');
 			return handleRosterListComponent(env, interaction);
 		}
+		if (customId?.startsWith('actc:')) {
+			const { handleActivityConfirmComponent } = await import('./activity-adjust');
+			return handleActivityConfirmComponent(env, interaction);
+		}
 		return interactionResponse('❌ Unknown button.', true);
 	}
 

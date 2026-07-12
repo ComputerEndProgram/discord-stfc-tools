@@ -364,9 +364,14 @@ We **do not** change counters when a scrape/lookup fails or omits the field. Str
 ```
 /roster inactive min_days:3     # inactive ≥ N days (linked + unlinked; default 1)
 /roster activity user:@Name     # show streak + days inactive
+/roster activity player:Name    # same for alliance / unlinked (name or STFC id)
 /roster set-streak user:@Name value:12   # admin: set streak (value>0 clears inactive)
+/roster set-streak player:Name value:12  # admin: unlinked OK; typos → Did you mean? buttons
 /roster set-inactive user:@Name value:5  # admin: set days inactive (value>0 clears streak)
+/roster set-inactive player:12345 value:5
 ```
+
+Use either `user:` or `player:` (not both). Exact name/id applies immediately. A near miss shows **Did you mean?** with **Yes, use this player** / **No**.
 
 Roster list lines (ops/grade/rank/inactive) also show `streak N` / `inactive Nd` when known.
 

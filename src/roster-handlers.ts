@@ -13,12 +13,14 @@ import {
 	getExcludedUserIds,
 	getGuildConfig,
 	getVerifiedDiscordUserIds,
-	getVerifiedPlayer,
 	listAllianceRosterMeta,
-	setVerifiedPlayerActivity,
 } from './guild-db';
 import { shouldUseAllianceRoster, isMultiAllianceGuild } from './alliance-roster-sync';
-import { formatActivityBits } from './activity-utils';
+import {
+	formatActivityTargetSummary,
+	handleSetActivityCommand,
+	resolveActivityTarget,
+} from './activity-adjust';
 import { formatReportTable, ReportCols } from './report-table';
 import {
 	parseRosterFormat,
@@ -27,7 +29,11 @@ import {
 	parseRosterVisibility,
 	startRosterListReply,
 } from './roster-list-view';
-import { isGuildAdministrator, resolveTargetUserId } from './discord-admin';
+import {
+	isGuildAdministrator,
+	resolveRequiredUserOption,
+	resolveTargetUserId,
+} from './discord-admin';
 import { demotePlayerToGuest } from './verification-access';
 import { AuditColor, postAuditLog } from './audit-log';
 import type { GuildConfig } from './types';
@@ -404,106 +410,75 @@ export async function handleRosterCommand(
 			});
 		}
 		case 'activity': {
-			const userId = resolveTargetUserId(interaction as any, opts);
-			if (!userId) {
-				return interactionResponse('❌ Provide `user:` (or run without user to see yourself).', true);
+			const userIdOpt = resolveRequiredUserOption(opts);
+			const playerQuery = (getOptionValue(opts, 'player') as string | undefined)?.trim();
+			if (userIdOpt && playerQuery) {
+				return interactionResponse('❌ Provide either `user:` or `player:`, not both.', true);
 			}
-			const player = await getVerifiedPlayer(env.STFC_DB, guildId, userId);
-			if (!player) {
-				return interactionResponse(`❌ <@${userId}> is not on the verified roster.`, true);
+			const discordUserId = userIdOpt ?? (playerQuery ? undefined : resolveTargetUserId(interaction as any, opts));
+			if (!discordUserId && !playerQuery) {
+				return interactionResponse('❌ Provide `user:` or `player:` (or run without either to see yourself).', true);
 			}
-			const bits = formatActivityBits({
-				activityStreak: player.activity_streak,
-				daysInactive: player.days_inactive,
+			const resolved = await resolveActivityTarget(env.STFC_DB, guildId, {
+				discordUserId,
+				playerQuery,
 			});
-			const updated = player.activity_updated_at
-				? ` · updated <t:${Math.floor(Date.parse(player.activity_updated_at) / 1000)}:R>`
-				: '';
+			if (resolved.status === 'none') {
+				return interactionResponse(
+					`❌ No match for ${playerQuery ? `\`${playerQuery}\`` : `<@${discordUserId}>`}.`,
+					true,
+				);
+			}
+			if (resolved.status === 'suggest') {
+				return interactionResponse(
+					`❓ No exact match for \`${resolved.query}\`.\n` +
+						`Did you mean **${resolved.target.playerName ?? '—'}**` +
+						(resolved.target.playerId != null ? ` (id ${resolved.target.playerId})` : '') +
+						`?\nRe-run with the exact name or id, or use \`/roster set-streak\` / \`set-inactive\` to confirm via buttons.`,
+					true,
+				);
+			}
 			return interactionResponse(
-				`📈 **Activity** — <@${userId}> **${player.player_name ?? '—'}**` +
-					(player.alliance_tag ? ` [${player.alliance_tag}]` : '') +
-					`\n• Streak: **${player.activity_streak ?? '—'}** (stfc.pro consecutive days active)` +
-					`\n• Days inactive: **${player.days_inactive}**` +
-					(bits ? `\n• Summary: ${bits}` : '') +
-					updated +
+				`📈 **Activity** — ${formatActivityTargetSummary(resolved.target)}` +
 					`\n\nAdjust: \`/roster set-streak\` · \`/roster set-inactive\``,
 				true,
 			);
 		}
-		case 'set-streak': {
-			if (!isGuildAdministrator(interaction.member?.permissions)) {
-				return interactionResponse('❌ `/roster set-streak` requires Administrator.', true);
-			}
-			const userId = resolveTargetUserId(interaction as any, opts);
-			if (!userId) {
-				return interactionResponse('❌ Provide `user:`.', true);
-			}
-			const valueRaw = getOptionValue(opts, 'value');
-			const value = Number(valueRaw);
-			if (!Number.isFinite(value) || value < 0) {
-				return interactionResponse('❌ Provide `value:` ≥ 0 (stfc.pro consecutive days active).', true);
-			}
-			const player = await getVerifiedPlayer(env.STFC_DB, guildId, userId);
-			if (!player) {
-				return interactionResponse(`❌ <@${userId}> is not on the verified roster.`, true);
-			}
-			const streak = Math.floor(value);
-			const daysInactive = streak > 0 ? 0 : player.days_inactive;
-			await setVerifiedPlayerActivity(env.STFC_DB, guildId, userId, {
-				activity_streak: streak,
-				days_inactive: daysInactive,
-			});
-			await postAuditLog(env, config, {
-				title: 'Activity streak adjusted',
-				description:
-					`<@${userId}> **${player.player_name ?? '—'}** streak **${player.activity_streak ?? '—'}** → **${streak}**` +
-					(streak > 0 ? ' (days inactive cleared)' : ''),
-				actorId,
-				source: 'admin',
-				color: AuditColor.info,
-			});
-			return interactionResponse(
-				`✅ <@${userId}> streak set to **${streak}**` +
-					(streak > 0 ? ' · days inactive reset to **0**' : ` · days inactive left at **${daysInactive}**`),
-				true,
-			);
-		}
+		case 'set-streak':
 		case 'set-inactive': {
 			if (!isGuildAdministrator(interaction.member?.permissions)) {
-				return interactionResponse('❌ `/roster set-inactive` requires Administrator.', true);
+				return interactionResponse(
+					`❌ \`/roster ${sub.name}\` requires Administrator.`,
+					true,
+				);
 			}
-			const userId = resolveTargetUserId(interaction as any, opts);
-			if (!userId) {
-				return interactionResponse('❌ Provide `user:`.', true);
+			const userIdOpt = resolveRequiredUserOption(opts);
+			const playerQuery = (getOptionValue(opts, 'player') as string | undefined)?.trim();
+			if (userIdOpt && playerQuery) {
+				return interactionResponse('❌ Provide either `user:` or `player:`, not both.', true);
+			}
+			if (!userIdOpt && !playerQuery) {
+				return interactionResponse('❌ Provide `user:` (Discord) or `player:` (name or STFC id).', true);
 			}
 			const valueRaw = getOptionValue(opts, 'value');
 			const value = Number(valueRaw);
 			if (!Number.isFinite(value) || value < 0) {
-				return interactionResponse('❌ Provide `value:` ≥ 0 (days inactive).', true);
+				return interactionResponse(
+					sub.name === 'set-streak'
+						? '❌ Provide `value:` ≥ 0 (stfc.pro consecutive days active).'
+						: '❌ Provide `value:` ≥ 0 (days inactive).',
+					true,
+				);
 			}
-			const player = await getVerifiedPlayer(env.STFC_DB, guildId, userId);
-			if (!player) {
-				return interactionResponse(`❌ <@${userId}> is not on the verified roster.`, true);
-			}
-			const days = Math.floor(value);
-			await setVerifiedPlayerActivity(env.STFC_DB, guildId, userId, {
-				days_inactive: days,
-				activity_streak: days > 0 ? 0 : player.activity_streak,
-			});
-			await postAuditLog(env, config, {
-				title: 'Days inactive adjusted',
-				description:
-					`<@${userId}> **${player.player_name ?? '—'}** days inactive **${player.days_inactive}** → **${days}**` +
-					(days > 0 ? ' (streak set to 0)' : ''),
+			return handleSetActivityCommand({
+				env,
+				guildId,
 				actorId,
-				source: 'admin',
-				color: AuditColor.info,
+				field: sub.name === 'set-streak' ? 'streak' : 'inactive',
+				value: Math.floor(value),
+				discordUserId: userIdOpt,
+				playerQuery,
 			});
-			return interactionResponse(
-				`✅ <@${userId}> days inactive set to **${days}**` +
-					(days > 0 ? ' · streak set to **0**' : ''),
-				true,
-			);
 		}
 		case 'set-guest': {
 			if (!isGuildAdministrator(interaction.member?.permissions)) {
