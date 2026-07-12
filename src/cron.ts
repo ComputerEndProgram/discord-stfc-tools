@@ -27,6 +27,10 @@ import {
 	allianceRosterDiffHasChanges,
 	formatAllianceRosterChangeReport,
 } from './alliance-roster-diff';
+import {
+	formatWouldHaveDemotionLine,
+	isDeployTesting,
+} from './deploy-mode';
 import type { PlayerData } from './types';
 
 export async function runMemberPoll(env: Env): Promise<void> {
@@ -118,6 +122,8 @@ export async function runDailyPlayerSync(env: Env): Promise<void> {
 		let failed = 0;
 		let demoted = 0;
 		let queued = 0;
+		let wouldDemote = 0;
+		let wouldQueue = 0;
 		let unavailable = 0;
 		let missing = 0;
 		let tagChanges = 0;
@@ -125,6 +131,9 @@ export async function runDailyPlayerSync(env: Env): Promise<void> {
 		let liveLookups = 0;
 		const verifiedAllianceMoves: string[] = [];
 		const verifiedRoleNotes: string[] = [];
+		const wouldHaveActions: string[] = [];
+		const testing = isDeployTesting(config);
+		const testingTitle = (title: string) => (testing ? `[TESTING] ${title}` : title);
 
 		let rosterMap: Map<number, PlayerData> | null = null;
 		let rosterOk = false;
@@ -140,7 +149,7 @@ export async function runDailyPlayerSync(env: Env): Promise<void> {
 					mode: 'single',
 				});
 				await postAuditLog(env, config, {
-					title: report.title,
+					title: testingTitle(report.title),
 					description: report.description,
 					source: 'cron',
 					color: allianceRosterDiffHasChanges(rosterResult.diff)
@@ -170,7 +179,7 @@ export async function runDailyPlayerSync(env: Env): Promise<void> {
 					extra += `\n⏭ Skipped (not on server list / over batch cap): ${multiResult.skippedTags.slice(0, 15).join(', ')}`;
 				}
 				await postAuditLog(env, config, {
-					title: report.title,
+					title: testingTitle(report.title),
 					description:
 						report.description +
 						`\n_Directory **${multiResult.directoryCount}** · tracked tags **${multiResult.trackedTags}**_` +
@@ -227,15 +236,28 @@ export async function runDailyPlayerSync(env: Env): Promise<void> {
 				if (notFound || !player) {
 					missing++;
 					if (config.mode === 'single_alliance') {
+						const kind = rosterOk ? 'alliance_mismatch' : 'player_missing';
 						const result = await handleAutomatedDemotionCandidate(
 							env,
 							config,
 							record,
-							rosterOk ? 'alliance_mismatch' : 'player_missing',
+							kind,
 							null,
 						);
 						if (result === 'demoted') demoted++;
 						else if (result === 'queued') queued++;
+						else if (result === 'would_demote' || result === 'would_queue') {
+							if (result === 'would_demote') wouldDemote++;
+							else wouldQueue++;
+							wouldHaveActions.push(
+								formatWouldHaveDemotionLine({
+									discordUserId: record.discord_user_id,
+									playerName: record.player_name,
+									kind,
+									policy: config.demotion_policy,
+								}),
+							);
+						}
 					}
 					continue;
 				}
@@ -254,6 +276,18 @@ export async function runDailyPlayerSync(env: Env): Promise<void> {
 					);
 					if (result === 'demoted') demoted++;
 					else if (result === 'queued') queued++;
+					else if (result === 'would_demote' || result === 'would_queue') {
+						if (result === 'would_demote') wouldDemote++;
+						else wouldQueue++;
+						wouldHaveActions.push(
+							formatWouldHaveDemotionLine({
+								discordUserId: record.discord_user_id,
+								playerName: player.name || record.player_name,
+								kind: 'alliance_mismatch',
+								policy: config.demotion_policy,
+							}),
+						);
+					}
 					if (tagChanged) tagChanges++;
 					continue;
 				}
@@ -314,6 +348,26 @@ export async function runDailyPlayerSync(env: Env): Promise<void> {
 
 		await postDemotionApprovalDigest(env, config);
 
+		if (testing && wouldHaveActions.length > 0) {
+			let description =
+				`Deploy mode is **testing** — no demotions or leave queues were applied.\n\n` +
+				`**Would have acted (${wouldHaveActions.length})**\n` +
+				wouldHaveActions.slice(0, 30).join('\n') +
+				(wouldHaveActions.length > 30
+					? `\n_…and ${wouldHaveActions.length - 30} more_`
+					: '') +
+				`\n\n_Policy **${config.demotion_policy}** · go live: \`/server deploy mode:live\`_`;
+			if (description.length > 3900) {
+				description = description.slice(0, 3890) + '\n_…truncated_';
+			}
+			await postAuditLog(env, config, {
+				title: '[TESTING] Daily sync — dry-run demotion actions',
+				description,
+				source: 'cron',
+				color: AuditColor.warn,
+			});
+		}
+
 		if (isMultiAllianceGuild(config) && (verifiedAllianceMoves.length || verifiedRoleNotes.length)) {
 			const sections: string[] = [];
 			if (verifiedAllianceMoves.length) {
@@ -339,7 +393,7 @@ export async function runDailyPlayerSync(env: Env): Promise<void> {
 				description = description.slice(0, 3890) + '\n_…truncated_';
 			}
 			await postAuditLog(env, config, {
-				title: 'Verified players — daily alliance / role changes',
+				title: testingTitle('Verified players — daily alliance / role changes'),
 				description,
 				source: 'cron',
 				color: AuditColor.warn,
@@ -351,12 +405,14 @@ export async function runDailyPlayerSync(env: Env): Promise<void> {
 			failed > 0 ||
 			demoted > 0 ||
 			queued > 0 ||
+			wouldDemote > 0 ||
+			wouldQueue > 0 ||
 			unavailable > 0 ||
 			missing > 0 ||
 			rosterHits > 0
 		) {
 			await postAuditLog(env, config, {
-				title: 'Daily player sync complete',
+				title: testingTitle('Daily player sync complete'),
 				description:
 					`Synced **${synced}**` +
 					(rosterHits ? ` · **${rosterHits}** from alliance roster` : '') +
@@ -364,10 +420,14 @@ export async function runDailyPlayerSync(env: Env): Promise<void> {
 					(failed ? ` · **${failed}** failed` : '') +
 					(demoted ? ` · **${demoted}** set to guest` : '') +
 					(queued ? ` · **${queued}** queued for leave review` : '') +
+					(wouldDemote || wouldQueue
+						? ` · **${wouldDemote + wouldQueue}** would-have demotion action(s) (testing)`
+						: '') +
 					(missing ? ` · **${missing}** missing / left alliance` : '') +
 					(unavailable ? ` · **${unavailable}** stfc.pro unavailable (skipped)` : '') +
 					(tagChanges ? ` · **${tagChanges}** alliance change(s)` : '') +
-					` · policy **${config.demotion_policy}**`,
+					` · policy **${config.demotion_policy}**` +
+					(testing ? ' · deploy **testing**' : ''),
 				source: 'cron',
 				color: failed || demoted || unavailable ? AuditColor.warn : AuditColor.info,
 			});

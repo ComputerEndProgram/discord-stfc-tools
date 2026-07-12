@@ -340,6 +340,25 @@ Urgent posts use a short Badgey-style message so they stand out from routine aud
 
 ---
 
+## Deploy mode (testing → live)
+
+New guilds start in **testing** after `/server setup`. Existing guilds stay **live** unless you switch.
+
+| Mode | Behavior |
+|------|----------|
+| **testing** | Slash replies prefixed `[TESTING]`. Automated demotions / leave queues are **dry-run** (morning cron still posts roster + sync reports, plus a list of actions it *would* have taken). Manual `/roster set-guest` is blocked. |
+| **live** | Full automation (demotions follow `/server demotion` policy). |
+
+```
+/server deploy                 # show current mode
+/server deploy mode:testing    # safe setup
+/server deploy mode:live       # go live when happy (usually after a morning cron dry-run)
+```
+
+Shown on `/server status`.
+
+---
+
 ## 4d. Daily alliance roster
 
 Each morning (`~06:00 UTC`, cron `0 6 * * *`) the bot refreshes alliance member lists from stfc.pro HTML pages, posts a day-over-day report to the **audit** channel, then syncs verified Discord players from that cache (with live player-page fallbacks when needed).

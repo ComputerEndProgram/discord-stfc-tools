@@ -15,6 +15,7 @@ import {
 	upsertVerifiedPlayer,
 } from './guild-db';
 import { lookupPlayerFromAllianceRoster } from './alliance-roster-sync';
+import { isDeployTesting } from './deploy-mode';
 import { parseStfcProUrl, resolveSearchTerm } from './stfc-url';
 import { findPlayerByIdOrName } from './stfc-utils';
 import { postVerificationLog } from './verification-log';
@@ -563,7 +564,7 @@ export async function syncVerifiedPlayer(
 	const nextStatus = tagMatches ? 'active' : 'guest';
 
 	if (!tagMatches) {
-		if (!autoDemote) {
+		if (!autoDemote || isDeployTesting(config)) {
 			await upsertVerifiedPlayer(env.STFC_DB, {
 				guild_id: guildId,
 				discord_user_id: discordUserId,

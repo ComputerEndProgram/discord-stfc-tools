@@ -26,6 +26,7 @@ import { AuditColor, postAuditLog } from './audit-log';
 import { opsLevelToGrade } from './grade-utils';
 import type { GuildConfig, PlayerData, VerifiedPlayer } from './types';
 import { findPlayerByIdOrName } from './stfc-utils';
+import { isDeployTesting } from './deploy-mode';
 
 export type DemoteReason = 'alliance_mismatch' | 'player_missing' | 'admin' | 'unverified_bulk';
 
@@ -120,6 +121,17 @@ export async function demotePlayerToGuest(
 			channelArchived: false,
 			hadVerifiedRow: false,
 			notes,
+		};
+	}
+
+	if (isDeployTesting(config)) {
+		return {
+			ok: false,
+			error:
+				'Deploy mode is **testing** — demotions are blocked. Switch with `/server deploy mode:live` when ready.',
+			channelArchived: false,
+			hadVerifiedRow: false,
+			notes: ['skipped: deploy_mode=testing'],
 		};
 	}
 

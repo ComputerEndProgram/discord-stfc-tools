@@ -1,6 +1,8 @@
 import type { PersonalChannelPermTemplate } from './personal-channel-perm-template';
 
 export type GuildMode = 'single_alliance' | 'multi_alliance';
+/** testing = safe setup (no automated demotions); live = full automation. */
+export type DeployMode = 'testing' | 'live';
 export type StfcRegion = 'US' | 'EU';
 /** When agreement must be accepted relative to stfc.pro verification. */
 export type AgreementTiming = 'before_verify' | 'after_verify';
@@ -148,6 +150,11 @@ export interface GuildConfig {
 	 * approval = urgent buttons; yolo = auto after recheck for not-found.
 	 */
 	demotion_policy: DemotionPolicy;
+	/**
+	 * testing = setup / dry-run (prefix slash replies; no automated demotions).
+	 * live = full automation. New guilds start in testing.
+	 */
+	deploy_mode: DeployMode;
 	/** Post-onboarding welcome DM (source message + personal-channel append). */
 	welcome_dm_enabled: boolean;
 	welcome_dm_channel_id: string | null;

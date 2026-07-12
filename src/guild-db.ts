@@ -14,6 +14,7 @@ import type {
 	VerificationStatus,
 	VerifiedPlayer,
 } from './types';
+import { parseDeployMode } from './deploy-mode';
 import { parsePersonalChannelPermTemplate } from './personal-channel-perm-template';
 
 function parseDemotionPolicy(value: string | null | undefined): DemotionPolicy {
@@ -127,6 +128,7 @@ function mapGuildConfig(row: any): GuildConfig {
 		agreement_message_id: row.agreement_message_id ?? null,
 		agreement_version: row.agreement_version ?? null,
 		demotion_policy: parseDemotionPolicy(row.demotion_policy),
+		deploy_mode: parseDeployMode(row.deploy_mode),
 		welcome_dm_enabled: Boolean(row.welcome_dm_enabled ?? 0),
 		welcome_dm_channel_id: row.welcome_dm_channel_id ?? null,
 		welcome_dm_message_id: row.welcome_dm_message_id ?? null,
@@ -236,6 +238,11 @@ export async function upsertGuildConfig(
 		await upsertDmAssistantConfigFields(db, config);
 		await upsertAgreementConfigFields(db, config);
 		await upsertDemotionPolicyField(db, config);
+		// Brand-new guilds start in testing unless explicitly set.
+		await upsertDeployModeField(db, {
+			guild_id: config.guild_id,
+			deploy_mode: config.deploy_mode ?? 'testing',
+		});
 		return;
 	}
 
@@ -491,6 +498,7 @@ async function upsertDiplomacyConfigFields(
 	await upsertDataConsentConfigFields(db, config);
 	await upsertAgreementConfigFields(db, config);
 	await upsertDemotionPolicyField(db, config);
+	await upsertDeployModeField(db, config);
 	await upsertWelcomeDmConfigFields(db, config);
 }
 
@@ -573,6 +581,23 @@ async function upsertDemotionPolicyField(
 			 WHERE guild_id = ?`,
 		)
 		.bind(policy, config.guild_id)
+		.run();
+}
+
+async function upsertDeployModeField(
+	db: D1Database,
+	config: Partial<GuildConfig> & { guild_id: string },
+): Promise<void> {
+	if (!Object.prototype.hasOwnProperty.call(config, 'deploy_mode')) return;
+	const mode = config.deploy_mode === 'testing' ? 'testing' : 'live';
+	await db
+		.prepare(
+			`UPDATE guild_configs SET
+			 deploy_mode = ?,
+			 updated_at = datetime('now')
+			 WHERE guild_id = ?`,
+		)
+		.bind(mode, config.guild_id)
 		.run();
 }
 

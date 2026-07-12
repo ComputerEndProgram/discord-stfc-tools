@@ -1,3 +1,6 @@
+import { applyTestingPrefix } from './deploy-mode';
+import type { GuildConfig } from './types';
+
 const DISCORD_API = 'https://discord.com/api/v10';
 
 export class DiscordApiError extends Error {
@@ -546,7 +549,7 @@ export function interactionResponseWithComponents(
 	return Response.json({
 		type: 4,
 		data: {
-			content,
+			content: applyTestingPrefix(content),
 			embeds: opts?.embeds,
 			components: opts?.components,
 			...(opts?.ephemeral !== false ? { flags: 64 } : {}),
@@ -567,7 +570,7 @@ export function updateMessageResponse(
 	return Response.json({
 		type: 7,
 		data: {
-			content,
+			content: applyTestingPrefix(content),
 			embeds: opts?.embeds,
 			components: opts?.components ?? [],
 		},
@@ -727,14 +730,19 @@ export async function editInteractionResponse(
 	interactionToken: string,
 	content: string,
 	ephemeral = false,
-	opts?: { components?: DiscordActionRow[]; embeds?: DiscordEmbed[] },
+	opts?: {
+		components?: DiscordActionRow[];
+		embeds?: DiscordEmbed[];
+		/** Pass guild config when editing outside request deploy-mode context (e.g. waitUntil). */
+		config?: Pick<GuildConfig, 'deploy_mode'> | null;
+	},
 ): Promise<void> {
 	const url = `${DISCORD_API}/webhooks/${applicationId}/${interactionToken}/messages/@original`;
 	await fetch(url, {
 		method: 'PATCH',
 		headers: { 'Content-Type': 'application/json' },
 		body: JSON.stringify({
-			content,
+			content: applyTestingPrefix(content, opts?.config),
 			...(ephemeral ? { flags: 64 } : {}),
 			...(opts?.components !== undefined ? { components: opts.components } : {}),
 			...(opts?.embeds !== undefined ? { embeds: opts.embeds } : {}),
@@ -749,7 +757,7 @@ export function interactionResponse(
 	return Response.json({
 		type: 4,
 		data: {
-			content,
+			content: applyTestingPrefix(content),
 			...(ephemeral ? { flags: 64 } : {}),
 		},
 	});

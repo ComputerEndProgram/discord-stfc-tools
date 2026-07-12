@@ -32,6 +32,8 @@ import { inviteNewMember, processVerification } from './verification';
 import { handleRosterCommand } from './roster-handlers';
 import { requireGuildAdmin, resolveTargetUserId, resolveRequiredUserOption } from './discord-admin';
 import { AuditColor, createAuditLogChannel, postAuditLog } from './audit-log';
+import { withDeployModeContext } from './deploy-mode';
+import type { DeployMode, GuildConfig, GuildMode, StfcRegion } from './types';
 import { createUrgentNotifyChannel, postUrgentNotify } from './urgent-notify';
 import { getDiscordGatewayStatus } from './discord-gateway/wake';
 import { parseCSV, autoGenerateColumns, generateAsciiTable } from './tableUtils';
@@ -40,7 +42,6 @@ import {
 	parseCoordinateLink,
 	parseMultipleCoordinates,
 } from './systemUtils';
-import type { GuildMode, StfcRegion, GuildConfig } from './types';
 import { parseCategoryMapInput, formatCategoryMap, personalChannelsEnabled, slugPersonalChannelName } from './channel-utils';
 import {
 	linkExistingPersonalChannel,
@@ -503,6 +504,10 @@ async function handleServerSetupCommand(
 		return interactionResponse(
 			`✅ Server configured!\n` +
 				`• Mode: **${mode}**\n` +
+				`• Deploy mode: **${refreshed?.deploy_mode ?? 'testing'}**` +
+				((refreshed?.deploy_mode ?? 'testing') === 'testing'
+					? ` — safe setup; go live with \`/server deploy mode:live\`\n`
+					: `\n`) +
 				`• STFC: server **${server}** (${region})\n` +
 				(mode === 'single_alliance' ? `• Alliance tag: **${allianceTag}**\n` : '') +
 				`• Nickname template: \`${effectiveNick}\`\n` +
@@ -535,6 +540,62 @@ async function handleServerStatusCommand(env: Env, guildId: string | undefined):
 
 	const { formatServerStatus } = await import('./format-server-status');
 	return interactionResponse(formatServerStatus(config), true);
+}
+
+async function handleServerDeployCommand(
+	env: Env,
+	interaction: { guild_id?: string; member?: { permissions?: string; user?: { id: string } } },
+	sub: { options?: Array<{ name: string; value?: unknown }> },
+): Promise<Response> {
+	const adminError = requireGuildAdmin(interaction);
+	if (adminError) return adminError;
+
+	const guildId = interaction.guild_id!;
+	const config = await getGuildConfig(env.STFC_DB, guildId);
+	if (!config) {
+		return interactionResponse('❌ Server not configured. Run `/server setup` first.', true);
+	}
+
+	const modeRaw = getOptionValue(sub.options, 'mode') as string | undefined;
+	if (modeRaw === 'testing' || modeRaw === 'live') {
+		const mode = modeRaw as DeployMode;
+		await upsertGuildConfig(env.STFC_DB, { guild_id: guildId, deploy_mode: mode });
+		await postAuditLog(env, { ...config, deploy_mode: mode }, {
+			title: 'Deploy mode updated',
+			description: `Deploy mode set to **${mode}**.`,
+			actorId: interaction.member?.user?.id,
+			source: 'admin',
+			color: mode === 'live' ? AuditColor.success : AuditColor.warn,
+		});
+		// Reply under the *new* mode so going live isn't still prefixed [TESTING].
+		return withDeployModeContext({ deploy_mode: mode }, async () => {
+			if (mode === 'testing') {
+				return interactionResponse(
+					`✅ Deploy mode: **testing**\n` +
+						`• Slash command replies are prefixed with \`[TESTING]\`\n` +
+						`• Automated demotions / leave queues are dry-run only (morning cron still reports + lists would-have actions)\n` +
+						`• Manual \`/roster set-guest\` is blocked until you go live\n\n` +
+						`When ready: \`/server deploy mode:live\``,
+					true,
+				);
+			}
+			return interactionResponse(
+				`✅ Deploy mode: **live**\n` +
+					`Full automation is on (demotions follow your leave-detection policy).`,
+				true,
+			);
+		});
+	}
+
+	return interactionResponse(
+		`🚀 **Deploy mode:** **${config.deploy_mode}**\n` +
+			(config.deploy_mode === 'testing'
+				? `• Safe setup: no automated demotions; replies prefixed \`[TESTING]\`\n` +
+					`• Morning cron still syncs/reports and lists actions it **would** take\n`
+				: `• Full automation enabled\n`) +
+			`\nSet: \`/server deploy mode:testing\` or \`mode:live\``,
+		true,
+	);
 }
 
 async function handleServerDemotionCommand(
@@ -2939,6 +3000,19 @@ export async function handleDiscordInteraction(
 		return Response.json({ type: 1 });
 	}
 
+	const guildId = interaction.guild_id as string | undefined;
+	const guildConfig = guildId ? await getGuildConfig(env.STFC_DB, guildId) : null;
+
+	return withDeployModeContext(guildConfig, async () => {
+		return dispatchDiscordInteraction(env, ctx, interaction);
+	});
+}
+
+async function dispatchDiscordInteraction(
+	env: Env,
+	ctx: ExecutionContext,
+	interaction: any,
+): Promise<Response> {
 	if (interaction.type === 3) {
 		const customId = interaction.data?.custom_id as string | undefined;
 		if (customId?.startsWith('locale:')) {
@@ -3053,6 +3127,9 @@ export async function handleDiscordInteraction(
 			}
 			if (sub?.name === 'status') {
 				return handleServerStatusCommand(env, interaction.guild_id);
+			}
+			if (sub?.name === 'deploy') {
+				return handleServerDeployCommand(env, interaction as any, sub);
 			}
 			if (sub?.name === 'demotion') {
 				return handleServerDemotionCommand(env, interaction as any, sub);

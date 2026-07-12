@@ -298,6 +298,23 @@ const commands = [
 			},
 			{
 				type: 1,
+				name: 'deploy',
+				description: 'Admin: testing vs live mode (block automated demotions while setting up)',
+				options: [
+					{
+						type: 3,
+						name: 'mode',
+						description: 'testing = dry-run demotions + [TESTING] slash replies; live = full automation',
+						required: false,
+						choices: [
+							{ name: 'Testing (safe setup / dry-run)', value: 'testing' },
+							{ name: 'Live (full automation)', value: 'live' },
+						],
+					},
+				],
+			},
+			{
+				type: 1,
 				name: 'demotion',
 				description: 'Admin: leave-detection policy (approval vs auto) and pending queue',
 				options: [

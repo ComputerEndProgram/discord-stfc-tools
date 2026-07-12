@@ -196,7 +196,7 @@ migrations/
   018_guild_excluded_users.sql
   019_personal_channel_perm_template.sql
   024_alliance_roster.sql  # stfc_alliance_id + alliance_roster_meta/members
-  025_multi_alliance_roster.sql  # server_alliance_directory + composite roster meta PK
+  026_deploy_mode.sql  # testing | live (new guilds start testing)
 
 archive/officers/          # REMOVED officer feature (scripts, SQL, assets, docs)
 

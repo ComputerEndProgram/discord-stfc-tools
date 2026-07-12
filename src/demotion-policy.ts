@@ -32,6 +32,7 @@ import type {
 	VerifiedPlayer,
 } from './types';
 import { syncVerifiedPlayer } from './verification';
+import { isDeployTesting } from './deploy-mode';
 
 export const DEMOTION_RECHECK_HOURS = 1;
 
@@ -117,11 +118,15 @@ export async function handleAutomatedDemotionCandidate(
 	record: VerifiedPlayer,
 	kind: 'alliance_mismatch' | 'player_missing',
 	player: PlayerData | null,
-): Promise<'demoted' | 'queued' | 'skipped'> {
+): Promise<'demoted' | 'queued' | 'skipped' | 'would_demote' | 'would_queue'> {
 	if (config.mode !== 'single_alliance') return 'skipped';
 
 	const decision = decideDemotionCandidateAction(config.demotion_policy, kind);
 	if (decision.action === 'skip') return 'skipped';
+
+	if (isDeployTesting(config)) {
+		return decision.action === 'demote_now' ? 'would_demote' : 'would_queue';
+	}
 
 	if (decision.action === 'demote_now') {
 		await demotePlayerToGuest(env, config, config.guild_id, record.discord_user_id, {
@@ -167,6 +172,8 @@ export async function postDemotionApprovalDigest(
 	env: Env,
 	config: GuildConfig,
 ): Promise<void> {
+	if (isDeployTesting(config)) return;
+
 	const pending = await listPendingApprovalDemotions(env.STFC_DB, config.guild_id);
 	if (pending.length === 0) return;
 
@@ -239,6 +246,13 @@ export async function runDemotionRecheck(env: Env): Promise<void> {
 			for (const row of rows) {
 				await cancelDemotionQueueEntry(env.STFC_DB, guildId, row.discord_user_id);
 			}
+			continue;
+		}
+
+		if (isDeployTesting(config)) {
+			console.log(
+				`Demotion recheck skipped for guild ${guildId} (deploy_mode=testing, ${rows.length} due)`,
+			);
 			continue;
 		}
 
@@ -382,6 +396,14 @@ export async function handleDemoteComponent(
 	const config = await getGuildConfig(env.STFC_DB, guildId);
 	if (!config) {
 		return interactionResponse('❌ Server not configured.', true);
+	}
+
+	if (isDeployTesting(config)) {
+		return updateMessageResponse(
+			'[TESTING] Demotion approve/reject is disabled while deploy mode is **testing**. ' +
+				'Use `/server deploy mode:live` when ready.',
+			{ components: [] },
+		);
 	}
 
 	const pending = await listPendingApprovalDemotions(env.STFC_DB, guildId);

@@ -2,6 +2,7 @@ import type { GuildConfig } from './types';
 import { formatCategoryMap, personalChannelsEnabled } from './channel-utils';
 import { diplomacyChannelsEnabled, formatDiplomacyChannelMap } from './diplomacy-channels';
 import { defaultNicknameTemplate } from './nickname-utils';
+import { formatDeployModeLine } from './deploy-mode';
 
 /** Shared server config summary for `/server status` and DM wizard. */
 export function formatServerStatus(config: GuildConfig): string {
@@ -17,6 +18,7 @@ export function formatServerStatus(config: GuildConfig): string {
 		`• Verification log: ${config.verification_log_channel_id ? `<#${config.verification_log_channel_id}>` : 'not set'}\n` +
 		`• Audit log: ${config.audit_log_channel_id ? `<#${config.audit_log_channel_id}>` : 'not set'}\n` +
 		`• Urgent alerts: ${config.urgent_notify_channel_id ? `<#${config.urgent_notify_channel_id}>` : 'not set'}\n` +
+		`${formatDeployModeLine(config)}\n` +
 		`• Demotion policy: **${config.demotion_policy}**` +
 		(config.demotion_policy === 'approval'
 			? ' (confirm leaves in urgent channel)'
