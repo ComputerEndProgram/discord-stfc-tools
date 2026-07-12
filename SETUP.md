@@ -3,6 +3,7 @@
 How to deploy **discord-stfc-tools** — a Cloudflare Worker Discord bot for STFC alliance verification, coordinate lookup, and tables.
 
 - **Discord admins (configure the bot in-server):** see **[docs/ADMIN_GUIDE.md](./docs/ADMIN_GUIDE.md)** — nicknames, roles, personal channels, verification log, linking existing channels.
+- **Command list (single vs multi-alliance):** **[docs/COMMANDS.md](./docs/COMMANDS.md)**
 - **Architecture / development:** see [AGENTS.md](./AGENTS.md).
 
 ---

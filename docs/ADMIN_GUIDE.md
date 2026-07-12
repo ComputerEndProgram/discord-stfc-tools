@@ -2,6 +2,8 @@
 
 How to configure the bot **inside Discord** after it is deployed. For Cloudflare/Worker install steps, see [SETUP.md](../SETUP.md).
 
+**Slash command catalogue (single vs multi-alliance):** [COMMANDS.md](./COMMANDS.md)
+
 Release versions (MAJOR.MINOR.INCREMENTAL) are listed in [VERSION_HISTORY.md](../VERSION_HISTORY.md). `/server status` shows the running bot version.
 
 You need the **Administrator** permission in the Discord server for `/server` commands.
@@ -763,15 +765,18 @@ Urgent digest buttons: **Approve all** / **Reject all**. Individuals: `/roster s
 
 Bulk set-guest requires `guest_role` from `/server setup`. Never-verified users are roles-only (no new `verified_players` row). Excluded users and bots are skipped.
 
-### Alliance members missing Discord verify (single-alliance)
+### Alliance members missing Discord verify
 
-Opposite direction: players on the **morning alliance roster** who are **not** linked as active/guest on this Discord server.
+Opposite direction: players on the **morning alliance roster cache** who are **not** linked as active/guest on this Discord server.
 
 ```
 /roster missing-verify
 ```
 
 Lists in-game name, player id, ops, and rank. Requires a cached alliance roster (after morning sync). Guests count as linked.
+
+- **single_alliance:** everyone on the configured alliance page.
+- **multi_alliance:** everyone on successfully scraped **tracked** alliances (verified tags ∪ diplomacy map). See [COMMANDS.md](./COMMANDS.md).
 
 ### Reports by ops grade vs in-game rank
 
