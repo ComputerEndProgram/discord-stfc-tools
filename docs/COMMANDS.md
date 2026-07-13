@@ -152,7 +152,7 @@ Designed for **multi_alliance** (works if enabled on single, but less common).
 
 | Area | Mode notes |
 |------|------------|
-| `/survey create` … `list` `results` `close` `creators` | Verified Discord players only. Optional `alliance_tags:` filter (handy on multi). Delivery: DM or personal channel. |
+| `/survey create` … `list` `results` `close` `creators` | Verified Discord players only. Optional `title:`, `closes_in:` (e.g. `48h`), `alliance_tags:`. Delivery: DM or personal channel. Log channels default `{id}-{title}`. |
 | `/exchange setup` / `resource` / `donate` / `undonate` / `need` | Cross-alliance matching; **same-alliance donors never notified**. Natural fit for multi. |
 
 ---

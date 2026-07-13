@@ -2,8 +2,10 @@ import { describe, expect, it } from 'vitest';
 import { canCreateSurvey, canViewSurveyResults } from '../src/survey-handlers';
 import {
 	buildSurveyVoteComponents,
+	formatSurveyCloseAfter,
 	formatSurveyDeliveryTitle,
 	formatSurveyResultsTable,
+	parseSurveyClosesIn,
 	parseSurveyOptions,
 	resolveSurveyLogChannelName,
 } from '../src/survey-service';
@@ -98,6 +100,8 @@ function sampleSurvey(overrides: Partial<SurveyRecord> = {}): SurveyRecord {
 		log_channel_id: null,
 		log_category_id: null,
 		target_count: 3,
+		close_after_seconds: null,
+		closes_at: null,
 		sent_at: null,
 		closed_at: null,
 		created_at: '',
@@ -112,10 +116,30 @@ describe('survey helpers', () => {
 	});
 
 	it('resolveSurveyLogChannelName applies template and slugs', () => {
-		expect(resolveSurveyLogChannelName(null, 1)).toBe('survey-1');
+		expect(resolveSurveyLogChannelName(null, 1)).toBe('1-survey');
+		expect(resolveSurveyLogChannelName(null, 3, 'Ops readiness')).toBe('3-ops-readiness');
 		expect(resolveSurveyLogChannelName('poll-{id}', 12)).toBe('poll-12');
-		expect(resolveSurveyLogChannelName('Event Feedback', 3)).toBe('event-feedback-3');
-		expect(resolveSurveyLogChannelName('  ', 7)).toBe('survey-7');
+		expect(resolveSurveyLogChannelName('{id}-{title}', 3, 'Ops readiness')).toBe(
+			'3-ops-readiness',
+		);
+		expect(resolveSurveyLogChannelName('Event Feedback', 3)).toBe('3-event-feedback');
+		expect(resolveSurveyLogChannelName('  ', 7)).toBe('7-survey');
+	});
+
+	it('parseSurveyClosesIn accepts m/h/d and rejects bad input', () => {
+		expect(parseSurveyClosesIn('48h')).toEqual({ ok: true, seconds: 48 * 3600 });
+		expect(parseSurveyClosesIn('7d')).toEqual({ ok: true, seconds: 7 * 86400 });
+		expect(parseSurveyClosesIn('30m')).toEqual({ ok: true, seconds: 1800 });
+		expect(parseSurveyClosesIn('2 hours')).toEqual({ ok: true, seconds: 7200 });
+		expect(parseSurveyClosesIn('0h').ok).toBe(false);
+		expect(parseSurveyClosesIn('tomorrow').ok).toBe(false);
+		expect(parseSurveyClosesIn('100d').ok).toBe(false);
+	});
+
+	it('formatSurveyCloseAfter formats whole units', () => {
+		expect(formatSurveyCloseAfter(3600)).toBe('1 hour');
+		expect(formatSurveyCloseAfter(12 * 3600)).toBe('12 hours');
+		expect(formatSurveyCloseAfter(86400)).toBe('1 day');
 	});
 
 	it('formatSurveyDeliveryTitle uses custom title or default', () => {

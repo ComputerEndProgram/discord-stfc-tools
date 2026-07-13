@@ -32,30 +32,90 @@ const DENY_VIEW = String(VIEW);
 
 const BUTTON_STYLES = [1, 3, 2, 4, 1] as const;
 
-/** Default Discord channel name for a survey vote log. */
-export const DEFAULT_SURVEY_LOG_NAME_TEMPLATE = 'survey-{id}';
+/** Default Discord channel name for a survey vote log (id first for chronological sort). */
+export const DEFAULT_SURVEY_LOG_NAME_TEMPLATE = '{id}-{title}';
+
+/** Max auto-close duration: 90 days. */
+export const MAX_SURVEY_CLOSE_AFTER_SECONDS = 90 * 24 * 60 * 60;
+
+/**
+ * Parse `closes_in` values like `30m`, `2h`, `48h`, `7d`.
+ * Returns seconds, or an error message.
+ */
+export function parseSurveyClosesIn(
+	raw: string,
+): { ok: true; seconds: number } | { ok: false; error: string } {
+	const trimmed = raw.trim().toLowerCase();
+	const match = /^(\d+)\s*(m|min|mins|minute|minutes|h|hr|hrs|hour|hours|d|day|days)$/.exec(
+		trimmed,
+	);
+	if (!match) {
+		return { ok: false, error: 'Use a duration like `30m`, `12h`, or `7d`.' };
+	}
+	const amount = Number(match[1]);
+	if (!Number.isFinite(amount) || amount < 1) {
+		return { ok: false, error: 'Duration must be at least 1.' };
+	}
+	const unit = match[2][0];
+	const seconds =
+		unit === 'm' ? amount * 60 : unit === 'h' ? amount * 3600 : amount * 86400;
+	if (seconds > MAX_SURVEY_CLOSE_AFTER_SECONDS) {
+		return { ok: false, error: 'Maximum closes_in is 90 days.' };
+	}
+	return { ok: true, seconds };
+}
+
+/** Human-readable duration for draft / log messages. */
+export function formatSurveyCloseAfter(seconds: number): string {
+	if (seconds % 86400 === 0) {
+		const d = seconds / 86400;
+		return `${d} day${d === 1 ? '' : 's'}`;
+	}
+	if (seconds % 3600 === 0) {
+		const h = seconds / 3600;
+		return `${h} hour${h === 1 ? '' : 's'}`;
+	}
+	if (seconds % 60 === 0) {
+		const m = seconds / 60;
+		return `${m} minute${m === 1 ? '' : 's'}`;
+	}
+	return `${seconds}s`;
+}
+
+function slugifySurveyTitle(title: string | null | undefined): string {
+	return (title?.trim() || '')
+		.toLowerCase()
+		.replace(/[^a-z0-9-_]+/g, '-')
+		.replace(/-+/g, '-')
+		.replace(/^-|-$/g, '')
+		.slice(0, 80);
+}
 
 /**
  * Resolve a Discord channel name from a template.
- * Placeholders: `{id}` / `{n}` → survey id. Always includes the id to avoid collisions.
+ * Placeholders: `{id}` / `{n}` → survey id; `{title}` → slugified title (or `survey` if empty).
+ * Always includes the id to avoid collisions.
  */
 export function resolveSurveyLogChannelName(
 	template: string | null | undefined,
 	surveyId: number,
+	title?: string | null,
 ): string {
 	const id = String(surveyId);
+	const titleSlug = slugifySurveyTitle(title) || 'survey';
 	let name = (template?.trim() || DEFAULT_SURVEY_LOG_NAME_TEMPLATE)
 		.replace(/\{id\}/gi, id)
-		.replace(/\{n\}/gi, id);
+		.replace(/\{n\}/gi, id)
+		.replace(/\{title\}/gi, titleSlug);
 	name = name
 		.toLowerCase()
 		.replace(/[^a-z0-9-_]+/g, '-')
 		.replace(/-+/g, '-')
 		.replace(/^-|-$/g, '')
 		.slice(0, 100);
-	if (!name) return `survey-${id}`;
+	if (!name) return `${id}-survey`;
 	if (!name.includes(id)) {
-		name = `${name}-${id}`.slice(0, 100);
+		name = `${id}-${name}`.slice(0, 100);
 	}
 	return name;
 }
@@ -145,6 +205,15 @@ export function surveyPreviewEmbed(survey: SurveyRecord, targetCount: number): D
 			...(survey.title
 				? [{ name: 'Title', value: survey.title, inline: true }]
 				: [{ name: 'Title', value: `default (Survey #${survey.id})`, inline: true }]),
+			...(survey.close_after_seconds
+				? [
+						{
+							name: 'Auto-close',
+							value: `${formatSurveyCloseAfter(survey.close_after_seconds)} after send`,
+							inline: true,
+						},
+					]
+				: [{ name: 'Auto-close', value: 'manual only (`/survey close`)', inline: true }]),
 		],
 		footer: { text: 'Test to yourself first, then Approve & send' },
 	};
@@ -169,6 +238,7 @@ export async function createSurveyDraft(
 		targetOpsMax?: number | null;
 		targetUserIds?: string[];
 		logCategoryId?: string | null;
+		closeAfterSeconds?: number | null;
 	},
 ): Promise<{ survey: SurveyRecord; targetCount: number }> {
 	const options = parseSurveyOptions(opts.optionsRaw);
@@ -193,6 +263,7 @@ export async function createSurveyDraft(
 		target_user_ids: opts.targetUserIds,
 		viewer_role_ids: config.survey_results_role_ids,
 		log_category_id: opts.logCategoryId ?? null,
+		close_after_seconds: opts.closeAfterSeconds ?? null,
 	});
 
 	const targets = await resolveSurveyTargets(env, survey);
@@ -361,7 +432,11 @@ async function ensureSurveyLogChannel(
 		}
 	}
 
-	const channelName = resolveSurveyLogChannelName(config.survey_log_name_template, survey.id);
+	const channelName = resolveSurveyLogChannelName(
+		config.survey_log_name_template,
+		survey.id,
+		survey.title,
+	);
 	const parentId = survey.log_category_id || config.survey_log_category_id || undefined;
 	const channel = await createGuildTextChannel(token, guildId, channelName, {
 		parentId,
@@ -394,12 +469,22 @@ export async function sendSurveyBroadcast(
 		config,
 	);
 
+	const sentAt = new Date();
+	const closesAt =
+		survey.close_after_seconds != null && survey.close_after_seconds > 0
+			? new Date(sentAt.getTime() + survey.close_after_seconds * 1000).toISOString()
+			: null;
+	const closesLine = closesAt
+		? `\nCloses: <t:${Math.floor(Date.parse(closesAt) / 1000)}:F> (<t:${Math.floor(Date.parse(closesAt) / 1000)}:R>)`
+		: '';
+
 	await sendChannelMessage(
 		token,
 		logChannelId,
 		`📤 **Survey #${survey.id} sent** to ${targets.length} player(s)\n` +
 			`Target: ${describeSurveyTarget(survey)}\n` +
-			`Question: ${survey.question}`,
+			`Question: ${survey.question}` +
+			closesLine,
 	);
 
 	let sent = 0;
@@ -417,7 +502,8 @@ export async function sendSurveyBroadcast(
 
 	await updateSurvey(env.STFC_DB, surveyId, {
 		status: 'sent',
-		sent_at: new Date().toISOString(),
+		sent_at: sentAt.toISOString(),
+		closes_at: closesAt,
 		target_count: targets.length,
 		log_channel_id: logChannelId,
 	});
@@ -475,6 +561,22 @@ export function formatSurveyResultsTable(
 	);
 }
 
+/** Soft-close a survey if its deadline has passed. Returns true when closed (already or just now). */
+export async function closeSurveyIfExpired(
+	db: D1Database,
+	survey: SurveyRecord,
+): Promise<boolean> {
+	if (survey.status === 'closed') return true;
+	if (survey.status !== 'sent' || !survey.closes_at) return false;
+	const closesMs = Date.parse(survey.closes_at);
+	if (!Number.isFinite(closesMs) || closesMs > Date.now()) return false;
+	await updateSurvey(db, survey.id, {
+		status: 'closed',
+		closed_at: new Date().toISOString(),
+	});
+	return true;
+}
+
 export async function handleSurveyVote(
 	env: Env,
 	surveyId: number,
@@ -487,6 +589,9 @@ export async function handleSurveyVote(
 		return '✅ Test click received — votes are only counted after Approve & send.';
 	}
 	if (survey.status === 'closed') return '❌ This survey is closed.';
+	if (await closeSurveyIfExpired(env.STFC_DB, survey)) {
+		return '❌ This survey is closed.';
+	}
 	if (optionIndex < 0 || optionIndex >= survey.options.length) return '❌ Invalid option.';
 
 	const option = survey.options[optionIndex];

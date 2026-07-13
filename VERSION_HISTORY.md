@@ -8,7 +8,7 @@ Release log for the STFC Discord bot (Cloudflare Worker). Versions use **MAJOR.M
 | **MINOR** | New user-facing capability (new slash area, cron product, admin workflow) |
 | **INCREMENTAL** | Fixes, polish, docs, refactors, small command option tweaks |
 
-**Current version:** **1.8.12**
+**Current version:** **1.8.13**
 
 **Sources of truth**
 
@@ -25,6 +25,15 @@ Bump all three together when cutting a release. Prefer a short entry under the n
 ## How versions map to history
 
 Versions below **1.0.0** are retrospective labels for the Aug 2025 utility era. **1.0.0** marks the alliance-management product that was prepared for public use. Later **1.x** minors track feature areas shipped in Jul 2026 (git history + migrations `001`–`027`).
+
+---
+
+## 1.8.13 — Survey log title + auto-close (2026-07-13)
+
+**Migration:** `032_survey_closes_at.sql`
+
+- New survey log channels default to `{id}-{title}` (slugified); `{title}` supported in `/survey creators log_name`
+- Optional `/survey create closes_in:` (`30m` / `12h` / `7d`) soft-closes after Approve & send; null deadline = manual close only (existing surveys unchanged)
 
 ---
 

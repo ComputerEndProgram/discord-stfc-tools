@@ -15,6 +15,7 @@ import {
 	createSurveyDraft,
 	createSurveyLogCategory,
 	handleSurveyVote,
+	parseSurveyClosesIn,
 	sendSurveyBroadcast,
 	sendSurveyTest,
 	surveyPreviewEmbed,
@@ -31,7 +32,7 @@ function formatSurveySettings(config: GuildConfig): string {
 		`📋 **Survey settings**\n` +
 		`• Creators: ${config.survey_creator_role_ids.map((id) => `<@&${id}>`).join(', ') || 'Administrators only'}\n` +
 		`• Log / results viewers: ${config.survey_results_role_ids.map((id) => `<@&${id}>`).join(', ') || 'creator + admins (+ creator roles)'}\n` +
-		`• Log channel name: \`${config.survey_log_name_template || 'survey-{id}'}\`\n` +
+		`• Log channel name: \`${config.survey_log_name_template || '{id}-{title}'}\`\n` +
 		`• Log category: ${config.survey_log_category_id ? `<#${config.survey_log_category_id}>` : 'none (server root)'}`
 	);
 }
@@ -257,9 +258,19 @@ export async function handleSurveyCommand(
 		const opsMax = getOptionValue(sub.options, 'ops_max') as number | undefined;
 		const allianceTagsRaw = getOptionValue(sub.options, 'alliance_tags') as string | undefined;
 		const logCategoryOpt = getOptionValue(sub.options, 'log_category');
+		const closesInRaw = getOptionValue(sub.options, 'closes_in') as string | undefined;
 
 		if (!question?.trim() || !optionsRaw?.trim()) {
 			return interactionResponse('❌ `question` and `options` (A|B|C) are required.', true);
+		}
+
+		let closeAfterSeconds: number | null = null;
+		if (closesInRaw?.trim()) {
+			const parsed = parseSurveyClosesIn(closesInRaw);
+			if (!parsed.ok) {
+				return interactionResponse(`❌ Invalid \`closes_in\`: ${parsed.error}`, true);
+			}
+			closeAfterSeconds = parsed.seconds;
 		}
 
 		let logCategoryId: string | null = null;
@@ -307,6 +318,7 @@ export async function handleSurveyCommand(
 					? allianceTagsRaw.split(',').map((t) => t.trim()).filter(Boolean)
 					: undefined,
 				logCategoryId,
+				closeAfterSeconds,
 			});
 
 			return interactionResponseWithComponents(

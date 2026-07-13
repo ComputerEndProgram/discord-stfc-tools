@@ -26,6 +26,10 @@ export interface SurveyRecord {
 	/** Per-survey category override; null → guild survey_log_category_id. */
 	log_category_id: string | null;
 	target_count: number;
+	/** Seconds after send until auto-close; null = no auto-close. */
+	close_after_seconds: number | null;
+	/** Absolute ISO deadline; set at send when close_after_seconds is set. */
+	closes_at: string | null;
 	sent_at: string | null;
 	closed_at: string | null;
 	created_at: string;

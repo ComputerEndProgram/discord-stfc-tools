@@ -1377,6 +1377,12 @@ const commands = [
 					},
 					{
 						type: 3,
+						name: 'closes_in',
+						description: 'Auto-close after send — e.g. 48h, 7d, 30m (optional)',
+						required: false,
+					},
+					{
+						type: 3,
 						name: 'target',
 						description: 'Who receives it (default all verified)',
 						required: false,
@@ -1505,7 +1511,7 @@ const commands = [
 					{
 						type: 3,
 						name: 'log_name',
-						description: 'Log channel name template; use {id} (default survey-{id})',
+						description: 'Log channel template; {id} {title} (default {id}-{title})',
 						required: false,
 					},
 					{

@@ -40,6 +40,11 @@ function mapSurvey(row: any): SurveyRecord {
 		log_channel_id: row.log_channel_id ?? null,
 		log_category_id: row.log_category_id ?? null,
 		target_count: row.target_count ?? 0,
+		close_after_seconds:
+			row.close_after_seconds != null && Number.isFinite(Number(row.close_after_seconds))
+				? Number(row.close_after_seconds)
+				: null,
+		closes_at: row.closes_at ?? null,
 		sent_at: row.sent_at ?? null,
 		closed_at: row.closed_at ?? null,
 		created_at: row.created_at,
@@ -76,6 +81,7 @@ export async function createSurvey(
 		target_user_ids?: string[];
 		viewer_role_ids?: string[];
 		log_category_id?: string | null;
+		close_after_seconds?: number | null;
 	},
 ): Promise<SurveyRecord> {
 	const title = data.title?.trim() || null;
@@ -84,8 +90,9 @@ export async function createSurvey(
 			`INSERT INTO surveys
 			 (guild_id, created_by, title, question, button_type, options, status, delivery, target_type,
 			  target_grades, target_alliance_tags, target_role_ids, target_ranks,
-			  target_ops_min, target_ops_max, target_user_ids, viewer_role_ids, log_category_id)
-			 VALUES (?, ?, ?, ?, 'multi_choice', ?, 'draft', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+			  target_ops_min, target_ops_max, target_user_ids, viewer_role_ids, log_category_id,
+			  close_after_seconds)
+			 VALUES (?, ?, ?, ?, 'multi_choice', ?, 'draft', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 			 RETURNING *`,
 		)
 		.bind(
@@ -105,6 +112,7 @@ export async function createSurvey(
 			JSON.stringify(data.target_user_ids ?? []),
 			JSON.stringify(data.viewer_role_ids ?? []),
 			data.log_category_id ?? null,
+			data.close_after_seconds ?? null,
 		)
 		.first();
 	if (!result) throw new Error('Failed to create survey');
@@ -133,6 +141,7 @@ export async function updateSurvey(
 		target_count: number;
 		sent_at: string | null;
 		closed_at: string | null;
+		closes_at: string | null;
 	}>,
 ): Promise<void> {
 	await db
@@ -142,7 +151,8 @@ export async function updateSurvey(
 			 log_channel_id = COALESCE(?, log_channel_id),
 			 target_count = COALESCE(?, target_count),
 			 sent_at = COALESCE(?, sent_at),
-			 closed_at = COALESCE(?, closed_at)
+			 closed_at = COALESCE(?, closed_at),
+			 closes_at = COALESCE(?, closes_at)
 			 WHERE id = ?`,
 		)
 		.bind(
@@ -151,9 +161,29 @@ export async function updateSurvey(
 			patch.target_count ?? null,
 			patch.sent_at ?? null,
 			patch.closed_at ?? null,
+			patch.closes_at ?? null,
 			surveyId,
 		)
 		.run();
+}
+
+/** Sent surveys whose closes_at deadline has passed. */
+export async function listSurveysDueToClose(
+	db: D1Database,
+	nowIso = new Date().toISOString(),
+): Promise<SurveyRecord[]> {
+	const { results } = await db
+		.prepare(
+			`SELECT * FROM surveys
+			 WHERE status = 'sent'
+			   AND closes_at IS NOT NULL
+			   AND closes_at <= ?
+			 ORDER BY closes_at ASC
+			 LIMIT 100`,
+		)
+		.bind(nowIso)
+		.all();
+	return (results ?? []).map(mapSurvey);
 }
 
 export async function deleteSurvey(db: D1Database, surveyId: number): Promise<void> {

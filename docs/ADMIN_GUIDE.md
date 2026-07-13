@@ -849,7 +849,7 @@ Button surveys for verified players (DM or personal channel). Votes land in a **
 |---------|---------|
 | Creators | **Administrators** only |
 | Log / results viewers | Survey creator + creator roles + Administrators |
-| Log channel name | `survey-{id}` |
+| Log channel name | `{id}-{title}` |
 
 ```
 /survey creators                          # show current settings
@@ -867,21 +867,22 @@ Use role IDs or `<@&id>` mentions, comma-separated. Empty `roles` clears back to
 
 **Category:** New survey logs go under the configured **server default** category (if set). Override per survey with `/survey create … log_category:#Events`. `create_category:true` makes a private default category (name `Surveys` unless `category_name` is set). Does not move already-created channels.
 
-`log_name` uses `{id}` (or `{n}`) for the survey number — e.g. `event-feedback-{id}` → `#event-feedback-12`. Applies to **new** surveys only (rename `#survey-1` manually in Discord if you want).
+`log_name` placeholders: `{id}` / `{n}` (survey number), `{title}` (slugified survey title, or `survey` if unset). Default `{id}-{title}` → e.g. `#3-ops-readiness`. Applies to **new** surveys only (rename old `#survey-1` channels manually if you want).
 
-Empty `log_name` resets to `survey-{id}`.
+Empty `log_name` resets to `{id}-{title}`.
 
 ### Create → test → send
 
 ```
-/survey create title:"Ops readiness" question:"Ready for the event?" options:Yes|No|Maybe target:grade grades:5,6
+/survey create title:"Ops readiness" question:"Ready for the event?" options:Yes|No|Maybe closes_in:48h target:grade grades:5,6
 ```
 
 | Option | Purpose |
 |--------|---------|
 | `question` | Shown to players |
 | `options` | `A\|B\|C` — **2–5** answers (Discord button limit) |
-| `title` | Player-facing heading in DM / personal channel (default: localized `Survey #id`) |
+| `title` | Player-facing heading in DM / personal channel (default: localized `Survey #id`); also used in log channel name |
+| `closes_in` | Optional auto-close after **Approve & send** — e.g. `30m`, `12h`, `7d` (max 90 days). Omit = manual `/survey close` only |
 | `target` | `all` · `role` · `rank` · `level` · `grade` · `users` |
 | `delivery` | `dm` (default) or `personal_channel` (falls back to DM) |
 | `grades` / `ranks` / `roles` / `users` / `ops_min` / `ops_max` | Filters for the chosen `target` |
@@ -891,7 +892,7 @@ Empty `log_name` resets to `survey-{id}`.
 After create you get an ephemeral draft with buttons:
 
 1. **Test to me** — delivers using the survey’s `delivery` setting (`dm` → your DMs; `personal_channel` → your linked personal channel). Draft clicks are **not** counted.
-2. **Approve & send** — creates private log channel (name from `log_name` template), DMs/posts buttons to matched players, logs each vote
+2. **Approve & send** — creates private log channel (name from `log_name` template), DMs/posts buttons to matched players, logs each vote; starts the `closes_in` clock if set
 3. **Cancel** — deletes the draft
 
 ### Results & close
@@ -903,6 +904,8 @@ After create you get an ephemeral draft with buttons:
 ```
 
 `/survey results` shows a **Summary** vote table and a **Who voted** table.
+
+**Auto-close:** When `closes_in` was set, the bot soft-closes the survey at the deadline (votes stop counting; Discord buttons may still appear). Cron checks about every 5 minutes; a late click also triggers close. Existing surveys without a deadline are unchanged.
 
 ---
 

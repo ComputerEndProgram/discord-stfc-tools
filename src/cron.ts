@@ -4,6 +4,7 @@ import {
 	recordPlayerStats,
 	cancelDemotionQueueEntry,
 	setVerifiedPlayerActivity,
+	getGuildConfig,
 } from './guild-db';
 import { lookupPlayerByIdOrName } from './stfc-utils';
 import { syncVerifiedPlayer } from './verification';
@@ -16,6 +17,9 @@ import {
 import { syncGuildMembers } from './member-sync';
 import { wakeDiscordGateway } from './discord-gateway/wake';
 import { AuditColor, postAuditLog } from './audit-log';
+import { listSurveysDueToClose, updateSurvey } from './survey-db';
+import { sendChannelMessage } from './discord-api';
+import { formatSurveyDeliveryTitle } from './survey-service';
 import {
 	isMultiAllianceGuild,
 	loadRosterPlayerMap,
@@ -634,12 +638,50 @@ export async function runDailyPlayerSync(env: Env): Promise<void> {
 	console.log('Cron: daily player sync complete');
 }
 
+export async function runCloseExpiredSurveys(env: Env): Promise<void> {
+	const due = await listSurveysDueToClose(env.STFC_DB);
+	if (!due.length) return;
+
+	const closedAt = new Date().toISOString();
+	for (const survey of due) {
+		await updateSurvey(env.STFC_DB, survey.id, {
+			status: 'closed',
+			closed_at: closedAt,
+		});
+
+		const config = await getGuildConfig(env.STFC_DB, survey.guild_id);
+		const title = formatSurveyDeliveryTitle(survey, 'en');
+		if (env.DISCORD_BOT_TOKEN && survey.log_channel_id) {
+			try {
+				await sendChannelMessage(
+					env.DISCORD_BOT_TOKEN,
+					survey.log_channel_id,
+					`🔒 **Survey #${survey.id} closed** (auto) — ${title}`,
+				);
+			} catch (err) {
+				console.error(`Survey ${survey.id} close log failed:`, err);
+			}
+		}
+		if (config) {
+			await postAuditLog(env, config, {
+				title: 'Survey auto-closed',
+				description: `Survey #${survey.id} — ${title}`,
+				source: 'cron',
+				color: AuditColor.warn,
+			});
+		}
+	}
+
+	console.log(`Cron: auto-closed ${due.length} survey(s)`);
+}
+
 export async function handleScheduledEvent(env: Env, cron: string): Promise<void> {
 	await wakeDiscordGateway(env);
 
 	switch (cron) {
 		case '*/5 * * * *':
 			await runMemberPoll(env);
+			await runCloseExpiredSurveys(env);
 			break;
 		case '0 */6 * * *':
 			await runPendingVerificationPoll(env);

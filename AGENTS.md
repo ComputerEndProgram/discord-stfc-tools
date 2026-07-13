@@ -207,6 +207,7 @@ migrations/
   029_alliance_roster_days_inactive.sql  # days_inactive on alliance cache
   030_welcome_dm_attempts.sql  # welcome DM auto-retry cap
   031_survey_title.sql  # optional survey delivery title
+  032_survey_closes_at.sql  # optional closes_in / closes_at auto-close
 
 archive/officers/          # REMOVED officer feature (scripts, SQL, assets, docs)
 
