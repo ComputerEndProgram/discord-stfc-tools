@@ -377,7 +377,13 @@ export async function handleSurveyComponent(
 
 	if (action === 'test') {
 		try {
-			await sendSurveyTest(env, survey, userId);
+			const result = await sendSurveyTest(env, survey, userId);
+			if (result.delivery === 'personal_channel' && result.channelId) {
+				return interactionResponse(
+					`🧪 Test survey posted in your personal channel: <#${result.channelId}>.`,
+					true,
+				);
+			}
 			return interactionResponse('🧪 Test survey sent to your DMs.', true);
 		} catch (err) {
 			return interactionResponse(

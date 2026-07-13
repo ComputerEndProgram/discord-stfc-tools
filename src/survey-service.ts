@@ -16,9 +16,10 @@ import {
 	recordSurveyResponse,
 	updateSurvey,
 } from './survey-db';
-import { describeSurveyTarget, resolveSurveyTargets } from './survey-targeting';
+import { resolveSurveyTargets, describeSurveyTarget } from './survey-targeting';
 import type { SurveyDelivery, SurveyRecord, SurveyTargetType } from './survey-types';
 import type { GuildConfig, VerifiedPlayer } from './types';
+import { getVerifiedPlayer } from './guild-db';
 import { resolveLocale, t } from './i18n';
 
 const VIEW = 0x400;
@@ -222,9 +223,11 @@ export async function sendSurveyTest(
 	env: Env,
 	survey: SurveyRecord,
 	testerUserId: string,
-): Promise<void> {
+): Promise<{ delivery: SurveyDelivery; channelId?: string }> {
 	if (!env.DISCORD_BOT_TOKEN) throw new Error('DISCORD_BOT_TOKEN not configured');
-	const fakePlayer: VerifiedPlayer = {
+
+	const linked = await getVerifiedPlayer(env.STFC_DB, survey.guild_id, testerUserId);
+	const player: VerifiedPlayer = linked ?? {
 		id: 0,
 		guild_id: survey.guild_id,
 		discord_user_id: testerUserId,
@@ -254,13 +257,28 @@ export async function sendSurveyTest(
 		days_inactive: 0,
 		activity_updated_at: null,
 	};
-	await deliverSurveyMessage(
-		env.DISCORD_BOT_TOKEN,
-		fakePlayer,
-		survey,
-		'dm',
-		t(resolveLocale(fakePlayer.preferred_locale), 'survey.delivery.test_prefix').trim(),
-	);
+
+	const delivery: SurveyDelivery =
+		survey.delivery === 'personal_channel' ? 'personal_channel' : 'dm';
+
+	if (delivery === 'personal_channel' && !player.personal_channel_id) {
+		throw new Error(
+			'Survey delivery is **personal_channel**, but you have no linked personal channel. ' +
+				'Link one with `/channels link`, or create the survey with `delivery:dm` to test via DM.',
+		);
+	}
+
+	const prefix = t(
+		resolveLocale(player.preferred_locale),
+		'survey.delivery.test_prefix',
+	).trim();
+
+	await deliverSurveyMessage(env.DISCORD_BOT_TOKEN, player, survey, delivery, prefix);
+
+	return {
+		delivery,
+		channelId: delivery === 'personal_channel' ? player.personal_channel_id ?? undefined : undefined,
+	};
 }
 
 async function surveyLogPermissionOverwrites(

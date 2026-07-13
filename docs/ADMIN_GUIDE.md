@@ -889,7 +889,7 @@ Empty `log_name` resets to `survey-{id}`.
 
 After create you get an ephemeral draft with buttons:
 
-1. **Test to me** — DM yourself (draft clicks are **not** counted)
+1. **Test to me** — delivers using the survey’s `delivery` setting (`dm` → your DMs; `personal_channel` → your linked personal channel). Draft clicks are **not** counted.
 2. **Approve & send** — creates private log channel (name from `log_name` template), DMs/posts buttons to matched players, logs each vote
 3. **Cancel** — deletes the draft
 
