@@ -247,6 +247,7 @@ export async function sendSurveyTest(
 		agreement_version: null,
 		agreement_method: null,
 		welcome_dm_sent_at: null,
+		welcome_dm_attempts: 0,
 		verified_at: null,
 		last_synced_at: null,
 		activity_streak: null,

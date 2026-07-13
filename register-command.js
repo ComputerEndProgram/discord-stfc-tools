@@ -677,7 +677,24 @@ const commands = [
 						description: 'Fetch and show how the welcome DM would look (ephemeral)',
 						required: false,
 					},
+					{
+						type: 6,
+						name: 'send_user',
+						description: 'Manually send (or force-retry) welcome DM to this member',
+						required: false,
+					},
+					{
+						type: 5,
+						name: 'force',
+						description: 'With send_user: bypass the 2-attempt auto cap',
+						required: false,
+					},
 				],
+			},
+			{
+				type: 1,
+				name: 'onboarding',
+				description: 'Admin: show onboarding path (consent, CoC, welcome) and step order',
 			},
 			{
 				type: 1,
@@ -700,6 +717,12 @@ const commands = [
 						type: 11,
 						name: 'screenshot',
 						description: 'Optional screenshot of their in-game profile',
+						required: false,
+					},
+					{
+						type: 5,
+						name: 'send_welcome',
+						description: 'Send welcome DM after verify (default false for manual verify)',
 						required: false,
 					},
 				],

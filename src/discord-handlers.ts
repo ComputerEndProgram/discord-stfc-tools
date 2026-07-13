@@ -958,6 +958,8 @@ async function handleServerWelcomeCommand(
 	const messageIdRaw = getOptionValue(sub.options, 'message_id') as string | undefined;
 	const clear = getOptionValue(sub.options, 'clear') === true;
 	const preview = getOptionValue(sub.options, 'preview') === true;
+	const sendUserRaw = getOptionValue(sub.options, 'send_user');
+	const force = getOptionValue(sub.options, 'force') === true || getOptionValue(sub.options, 'force') === 'true';
 
 	const anyOpt =
 		enabledRaw !== undefined ||
@@ -965,7 +967,8 @@ async function handleServerWelcomeCommand(
 		channelRaw !== undefined ||
 		messageIdRaw !== undefined ||
 		clear ||
-		preview;
+		preview ||
+		sendUserRaw != null;
 
 	const statusBlock = (c: typeof config) =>
 		`📬 **Welcome DM**\n` +
@@ -976,13 +979,73 @@ async function handleServerWelcomeCommand(
 				: 'not set'
 		}\n` +
 		`• Channel: ${c.welcome_dm_channel_id ? `<#${c.welcome_dm_channel_id}>` : '—'}\n` +
-		`• Message ID: ${c.welcome_dm_message_id ?? '—'}\n\n` +
+		`• Message ID: ${c.welcome_dm_message_id ?? '—'}\n` +
+		`• Auto retries: max **2** attempts per player (then stops; use \`send_user\` + \`force:true\`)\n\n` +
 		`Edit the linked Discord post to change recommended channels (use \`<#…>\` mentions). ` +
 		`The bot appends the member’s personal channel after full access (and after agreement if required).\n\n` +
-		`Example:\n\`/server welcome enabled:true message_link:https://discord.com/channels/…/…/…\``;
+		`Example:\n\`/server welcome enabled:true message_link:https://discord.com/channels/…/…/…\`\n` +
+		`Manual send: \`/server welcome send_user:@Member force:true\``;
 
 	if (!anyOpt) {
 		return interactionResponse(statusBlock(config), true);
+	}
+
+	if (sendUserRaw != null && sendUserRaw !== '') {
+		const userId = String(sendUserRaw);
+		if (!/^\d{15,20}$/.test(userId)) {
+			return interactionResponse('❌ `send_user` must be a Discord member.', true);
+		}
+		if (!env.DISCORD_BOT_TOKEN) {
+			return interactionResponse('❌ DISCORD_BOT_TOKEN not configured.', true);
+		}
+		const player = await getVerifiedPlayer(env.STFC_DB, guildId, userId);
+		if (!player) {
+			return interactionResponse(`❌ <@${userId}> is not on the verified roster.`, true);
+		}
+		const { sendWelcomeDmIfNeeded, welcomeDmConfigured } = await import('./welcome-dm');
+		if (!welcomeDmConfigured(config)) {
+			return interactionResponse(
+				'❌ Welcome DM is not fully configured. Set `enabled:true` and a `message_link` first.',
+				true,
+			);
+		}
+		if (player.welcome_dm_sent_at && !force) {
+			return interactionResponse(
+				`ℹ️ <@${userId}> already has welcome DM stamped (<t:${Math.floor(Date.parse(player.welcome_dm_sent_at) / 1000)}:R>). ` +
+					`Force does not re-send after success.`,
+				true,
+			);
+		}
+		if (!force && (player.welcome_dm_attempts ?? 0) >= 2) {
+			return interactionResponse(
+				`⚠️ <@${userId}> already used **${player.welcome_dm_attempts}** auto attempts. ` +
+					`Re-run with \`force:true\` to try again.`,
+				true,
+			);
+		}
+		const welcome = await sendWelcomeDmIfNeeded(
+			env,
+			config,
+			guildId,
+			userId,
+			player.personal_channel_id,
+			{ force: true },
+		);
+		await postAuditLog(env, config, {
+			title: 'Welcome DM manual send',
+			description:
+				`<@${userId}> **${player.player_name ?? '—'}**` +
+				(welcome.note ? ` — ${welcome.note}` : welcome.sent ? ' — sent' : ' — not sent'),
+			actorId: interaction.member?.user?.id ?? interaction.user?.id,
+			source: 'admin',
+			color: welcome.sent ? AuditColor.success : AuditColor.warn,
+		});
+		return interactionResponse(
+			welcome.sent
+				? `✅ Welcome DM sent to <@${userId}>.`
+				: `❌ Welcome DM not sent${welcome.note ? `: ${welcome.note}` : '.'}`,
+			true,
+		);
 	}
 
 	const { parseDiscordMessageLink, previewWelcomeDm } = await import('./welcome-dm');
@@ -1077,6 +1140,23 @@ async function handleServerWelcomeCommand(
 		(configTouched ? '✅ Welcome DM settings updated.\n\n' : '') + statusBlock(refreshed),
 		true,
 	);
+}
+
+async function handleServerOnboardingCommand(
+	env: Env,
+	interaction: { guild_id?: string; member?: { permissions?: string } },
+): Promise<Response> {
+	const adminError = requireGuildAdmin(interaction);
+	if (adminError) return adminError;
+
+	const guildId = interaction.guild_id!;
+	const config = await getGuildConfig(env.STFC_DB, guildId);
+	if (!config) {
+		return interactionResponse('❌ Server not configured. Run `/server setup` first.', true);
+	}
+
+	const { formatOnboardingPath } = await import('./onboarding-path');
+	return interactionResponse(formatOnboardingPath(config), true);
 }
 
 async function handleServerRolesCommand(env: Env, interaction: { guild_id?: string; member?: { permissions?: string } }, sub: { options?: Array<{ name: string; value?: unknown }> }): Promise<Response> {
@@ -1258,6 +1338,9 @@ async function handleServerVerifyCommand(
 		return interactionResponse('❌ Provide `link:` — their stfc.pro profile URL.', true);
 	}
 
+	const sendWelcomeRaw = getOptionValue(sub.options, 'send_welcome');
+	const sendWelcomeDm = sendWelcomeRaw === true || sendWelcomeRaw === 'true';
+
 	let screenshotUrl: string | undefined;
 	const screenshotOption = sub.options?.find((opt) => opt.name === 'screenshot');
 	if (screenshotOption?.value && resolved?.attachments) {
@@ -1279,7 +1362,9 @@ async function handleServerVerifyCommand(
 				targetUserId,
 				link.trim(),
 				screenshotUrl,
-				adminId ? { manualByUserId: adminId } : undefined,
+				adminId
+					? { manualByUserId: adminId, sendWelcomeDm }
+					: undefined,
 			);
 			await editInteractionResponse(appId, interaction.token, result, true);
 		})(),
@@ -3168,6 +3253,9 @@ async function dispatchDiscordInteraction(
 			}
 			if (sub?.name === 'welcome') {
 				return handleServerWelcomeCommand(env, interaction as any, sub);
+			}
+			if (sub?.name === 'onboarding') {
+				return handleServerOnboardingCommand(env, interaction as any);
 			}
 			if (sub?.name === 'verify') {
 				return handleServerVerifyCommand(env, ctx, interaction, sub, data.resolved);

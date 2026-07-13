@@ -164,6 +164,7 @@ function mapVerifiedPlayer(row: any): VerifiedPlayer {
 		agreement_version: row.agreement_version ?? null,
 		agreement_method: row.agreement_method ?? null,
 		welcome_dm_sent_at: row.welcome_dm_sent_at ?? null,
+		welcome_dm_attempts: Number(row.welcome_dm_attempts ?? 0) || 0,
 		activity_streak: row.activity_streak != null ? Number(row.activity_streak) : null,
 		days_inactive: Number(row.days_inactive ?? 0) || 0,
 		activity_updated_at: row.activity_updated_at ?? null,
@@ -753,6 +754,7 @@ export async function upsertVerifiedPlayer(
 		agreement_version?: string | null;
 		agreement_method?: string | null;
 		welcome_dm_sent_at?: string | null;
+		welcome_dm_attempts?: number;
 		verified_at?: string | null;
 		last_synced_at?: string | null;
 	},
@@ -762,6 +764,7 @@ export async function upsertVerifiedPlayer(
 	const agreementProvided = Object.prototype.hasOwnProperty.call(data, 'agreement_accepted_at');
 	const consentProvided = Object.prototype.hasOwnProperty.call(data, 'data_consent_at');
 	const welcomeSentProvided = Object.prototype.hasOwnProperty.call(data, 'welcome_dm_sent_at');
+	const welcomeAttemptsProvided = Object.prototype.hasOwnProperty.call(data, 'welcome_dm_attempts');
 
 	if (!existing) {
 		await db
@@ -771,8 +774,8 @@ export async function upsertVerifiedPlayer(
 				 ops_level, power, grade, stfc_pro_url, verification_status, personal_channel_id,
 				 preferred_locale, data_consent_at, data_consent_version, data_consent_choice, data_consent_method,
 				 agreement_accepted_at, agreement_version, agreement_method,
-				 welcome_dm_sent_at, verified_at, last_synced_at, updated_at)
-				VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+				 welcome_dm_sent_at, welcome_dm_attempts, verified_at, last_synced_at, updated_at)
+				VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 			)
 			.bind(
 				data.guild_id,
@@ -796,6 +799,7 @@ export async function upsertVerifiedPlayer(
 				data.agreement_version ?? null,
 				data.agreement_method ?? null,
 				data.welcome_dm_sent_at ?? null,
+				Math.max(0, Math.floor(Number(data.welcome_dm_attempts) || 0)),
 				data.verified_at ?? null,
 				data.last_synced_at ?? null,
 				now,
@@ -828,6 +832,7 @@ export async function upsertVerifiedPlayer(
 			 agreement_version = CASE WHEN ? = 1 THEN ? ELSE agreement_version END,
 			 agreement_method = CASE WHEN ? = 1 THEN ? ELSE agreement_method END,
 			 welcome_dm_sent_at = CASE WHEN ? = 1 THEN ? ELSE welcome_dm_sent_at END,
+			 welcome_dm_attempts = CASE WHEN ? = 1 THEN ? ELSE welcome_dm_attempts END,
 			 verified_at = COALESCE(?, verified_at),
 			 last_synced_at = COALESCE(?, last_synced_at),
 			 updated_at = ?
@@ -862,6 +867,10 @@ export async function upsertVerifiedPlayer(
 			agreementProvided ? (data.agreement_method?.trim() || null) : null,
 			welcomeSentProvided ? 1 : 0,
 			welcomeSentProvided ? (data.welcome_dm_sent_at?.trim() || null) : null,
+			welcomeAttemptsProvided ? 1 : 0,
+			welcomeAttemptsProvided
+				? Math.max(0, Math.floor(Number(data.welcome_dm_attempts) || 0))
+				: null,
 			data.verified_at ?? null,
 			data.last_synced_at ?? null,
 			now,

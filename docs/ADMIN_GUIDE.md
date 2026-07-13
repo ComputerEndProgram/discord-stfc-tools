@@ -990,6 +990,10 @@ Bump `version` on either gate to re-prompt after policy changes.
 
 After a member reaches **full access** (verified, and agreement accepted if that gate is enabled), the bot can DM a welcome message once.
 
+**Retries:** each player gets at most **2** automatic send attempts (first failure + one retry on a later verify/sync/agreement). After that, auto-send stops (no more audit spam). Admins can force another try with `/server welcome send_user:@Them force:true`.
+
+**Manual verify:** `/server verify` does **not** send the welcome DM by default (avoids DMing already-onboarded members). Pass `send_welcome:true` when you want it.
+
 **Hybrid setup:**
 
 1. Post a welcome message in any channel the bot can read (include recommended channels as normal `#channel` mentions).
@@ -1001,6 +1005,9 @@ After a member reaches **full access** (verified, and agreement accepted if that
 /server welcome enabled:true message_link:https://discord.com/channels/<guild>/<channel>/<message>
 /server welcome preview:true
 /server welcome clear:true
+/server welcome send_user:@Member force:true   # manual / forced retry
+/server onboarding                            # show full path + order of gates
+/server verify user:@Them link:… send_welcome:true
 ```
 
 Optional: put `{personal_channel}` in the source post where you want the personal channel mention mid-text (the bot still appends the personal-channel line at the end).

@@ -10,9 +10,27 @@ import {
 import { getVerifiedPlayer, upsertVerifiedPlayer } from './guild-db';
 import { resolveLocale, t } from './i18n';
 import { shouldSkipOutboundDm } from './deploy-mode';
+import {
+	gateWelcomeDmAttempt,
+	WELCOME_DM_MAX_AUTO_ATTEMPTS,
+} from './welcome-dm-gate';
 import type { GuildConfig } from './types';
 
+export { WELCOME_DM_MAX_AUTO_ATTEMPTS, gateWelcomeDmAttempt } from './welcome-dm-gate';
+
 const DISCORD_MESSAGE_LIMIT = 2000;
+
+function formatWelcomeFailure(err: unknown): string {
+	if (err && typeof err === 'object' && 'status' in err && 'message' in err) {
+		const e = err as { status?: number; message?: string; body?: string };
+		const body =
+			typeof e.body === 'string' && e.body.trim()
+				? ` ${e.body.trim().slice(0, 120)}`
+				: '';
+		return `${e.message ?? 'error'}${e.status != null ? ` (HTTP ${e.status})` : ''}${body}`;
+	}
+	return err instanceof Error ? err.message : String(err);
+}
 
 export type ParsedDiscordMessageLink = {
 	guildId: string;
@@ -96,9 +114,17 @@ export async function previewWelcomeDm(
 	}
 }
 
+export type SendWelcomeDmOpts = {
+	/** Admin / manual: do not send. */
+	skip?: boolean;
+	/** Bypass attempt cap (failed sends only; already-sent still skipped). */
+	force?: boolean;
+};
+
 /**
  * Send once after full member access (agreement satisfied or disabled).
  * Soft-fails; stamps welcome_dm_sent_at only on success.
+ * Auto-retries at most once (2 attempts total) unless `force` is set.
  */
 export async function sendWelcomeDmIfNeeded(
 	env: Env,
@@ -106,6 +132,7 @@ export async function sendWelcomeDmIfNeeded(
 	guildId: string,
 	discordUserId: string,
 	personalChannelId: string | null | undefined,
+	opts?: SendWelcomeDmOpts,
 ): Promise<{ sent: boolean; note?: string }> {
 	if (!welcomeDmConfigured(config)) {
 		return { sent: false };
@@ -119,12 +146,30 @@ export async function sendWelcomeDmIfNeeded(
 	}
 
 	const player = await getVerifiedPlayer(env.STFC_DB, guildId, discordUserId);
-	if (player?.welcome_dm_sent_at) {
+	const gate = gateWelcomeDmAttempt({
+		sentAt: player?.welcome_dm_sent_at,
+		attempts: player?.welcome_dm_attempts ?? 0,
+		force: opts?.force,
+		skip: opts?.skip,
+	});
+	if (!gate.allow) {
+		if (gate.reason === 'skip') {
+			return { sent: false, note: 'welcome DM skipped (admin)' };
+		}
+		// already_sent / max_attempts: silent (avoid daily audit spam)
 		return { sent: false };
 	}
 
 	const locale = resolveLocale(player?.preferred_locale);
 	const channelId = personalChannelId ?? player?.personal_channel_id ?? null;
+	const nextAttempts = (player?.welcome_dm_attempts ?? 0) + 1;
+
+	// Count the attempt before the network call so crashes still consume a slot.
+	await upsertVerifiedPlayer(env.STFC_DB, {
+		guild_id: guildId,
+		discord_user_id: discordUserId,
+		welcome_dm_attempts: nextAttempts,
+	});
 
 	try {
 		const msg = await getChannelMessage(
@@ -139,7 +184,10 @@ export async function sendWelcomeDmIfNeeded(
 		});
 		const embeds = msg.embeds?.length ? msg.embeds.slice(0, 10) : undefined;
 		if (!content && !embeds?.length) {
-			return { sent: false, note: 'welcome DM skipped (empty source message)' };
+			return {
+				sent: false,
+				note: `welcome DM skipped (empty source message; attempt ${nextAttempts}/${WELCOME_DM_MAX_AUTO_ATTEMPTS})`,
+			};
 		}
 
 		const dmChannelId = await openUserDmChannel(token, discordUserId);
@@ -157,6 +205,14 @@ export async function sendWelcomeDmIfNeeded(
 		return { sent: true, note: 'welcome DM sent' };
 	} catch (err) {
 		console.error('Welcome DM failed:', err);
-		return { sent: false, note: 'welcome DM failed' };
+		const detail = formatWelcomeFailure(err);
+		const exhausted = nextAttempts >= WELCOME_DM_MAX_AUTO_ATTEMPTS;
+		return {
+			sent: false,
+			note:
+				`Failed to send Welcome DM (attempt ${nextAttempts}/${WELCOME_DM_MAX_AUTO_ATTEMPTS})` +
+				(exhausted ? '; no further auto-retries — use `/server welcome send_user:… force:true`' : '') +
+				` — ${detail}`,
+		};
 	}
 }

@@ -66,7 +66,7 @@ Switching **single → multi** clears the single-alliance roster cache.
 | Command | Single | Multi |
 |---------|--------|-------|
 | `/verify link:` `[screenshot:]` | Must match `alliance_tag` (else guest) or fail per config. Roles, nick, optional personal channel. | Any alliance → active member roles. Nick uses multi default template unless customized. Diplomacy channel may auto-update if enabled. |
-| `/server verify user: link:` | Same outcome as self-verify, admin-driven. | Same. |
+| `/server verify user: link:` `[send_welcome:]` | Same outcome as self-verify. Welcome DM **off** by default (`send_welcome:true` to send). | Same. |
 
 Also: Gateway DM flow (invite → language → consent → screenshot → link) follows the same mode rules as `/verify`.
 
@@ -83,8 +83,9 @@ Also: Gateway DM flow (invite → language → consent → screenshot → link) 
 | `assistant` | Roles that may use `/roster` + DM roster Q&A. | ✓ | ✓ |
 | `consent` | GDPR Yes/No before verify. | ✓ | ✓ |
 | `agreement` | CoC after verify (guest lounge until Agree). | ✓ | ✓ |
-| `welcome` | Post-onboarding welcome DM. | ✓ | ✓ |
-| `verify` | Manual verify. | ✓ | ✓ |
+| `welcome` | Post-onboarding welcome DM; `send_user` + `force` for manual retry (2-attempt auto cap). | ✓ | ✓ |
+| `onboarding` | Show consent / CoC / welcome path and step order. | ✓ | ✓ |
+| `verify` | Manual verify; `send_welcome` default **false**. | ✓ | ✓ |
 | `exclude-add` / `exclude-remove` / `exclude-list` | Skip bots/alts from invites + unverified stats. | ✓ | ✓ |
 | `roles` / `rank-roles` / `bucket` | Role discovery and overlay buckets. | ✓ | ✓ |
 | `categories` | List guild categories (helper). | ✓ | ✓ |

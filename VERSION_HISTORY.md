@@ -8,7 +8,7 @@ Release log for the STFC Discord bot (Cloudflare Worker). Versions use **MAJOR.M
 | **MINOR** | New user-facing capability (new slash area, cron product, admin workflow) |
 | **INCREMENTAL** | Fixes, polish, docs, refactors, small command option tweaks |
 
-**Current version:** **1.8.7**
+**Current version:** **1.8.8**
 
 **Sources of truth**
 
@@ -25,6 +25,16 @@ Bump all three together when cutting a release. Prefer a short entry under the n
 ## How versions map to history
 
 Versions below **1.0.0** are retrospective labels for the Aug 2025 utility era. **1.0.0** marks the alliance-management product that was prepared for public use. Later **1.x** minors track feature areas shipped in Jul 2026 (git history + migrations `001`–`027`).
+
+---
+
+## 1.8.8 — Welcome DM controls + onboarding path (2026-07-13)
+
+**Migration:** `030_welcome_dm_attempts.sql`
+
+- `/server verify send_welcome:` (default **false**) — opt-in welcome on manual verify
+- Welcome DM auto-retries capped at **2** attempts; admin force via `/server welcome send_user: force:true`
+- `/server onboarding` shows consent / CoC / welcome step order
 
 ---
 

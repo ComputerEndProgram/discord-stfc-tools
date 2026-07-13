@@ -205,6 +205,7 @@ migrations/
   027_player_activity.sql  # activity_streak + days_inactive
   028_roster_list_sessions.sql  # /roster Prev/Next button sessions
   029_alliance_roster_days_inactive.sql  # days_inactive on alliance cache
+  030_welcome_dm_attempts.sql  # welcome DM auto-retry cap
 
 archive/officers/          # REMOVED officer feature (scripts, SQL, assets, docs)
 

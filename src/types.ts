@@ -227,6 +227,8 @@ export interface VerifiedPlayer {
 	agreement_method: string | null;
 	/** When the hybrid welcome DM was successfully sent (once per member). */
 	welcome_dm_sent_at: string | null;
+	/** Auto send attempts (cap 2 unless admin forces). */
+	welcome_dm_attempts: number;
 	/** stfc.pro consecutive_days_active (0 = no streak). */
 	activity_streak: number | null;
 	/** Days observed with streak 0 since last active streak (morning sync). */

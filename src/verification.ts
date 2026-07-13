@@ -135,6 +135,11 @@ function discordPermissionHint(err: unknown, locale: string): string {
 export interface ProcessVerificationOpts {
 	/** When set, archive log notes include "Manual by <@id>" (admin verify). */
 	manualByUserId?: string;
+	/**
+	 * Manual verify only: send welcome DM when true (default false for `/server verify`).
+	 * Self-verify / DM verify always attempt welcome (subject to attempt cap).
+	 */
+	sendWelcomeDm?: boolean;
 }
 
 export async function processVerification(
@@ -349,12 +354,19 @@ export async function processVerification(
 			const personalChannelId =
 				channelResult?.channelId ?? verified?.personal_channel_id ?? null;
 			const { sendWelcomeDmIfNeeded } = await import('./welcome-dm');
+			const welcomeOpts =
+				opts?.manualByUserId != null
+					? opts.sendWelcomeDm === true
+						? { force: true as const }
+						: { skip: true as const }
+					: undefined;
 			const welcome = await sendWelcomeDmIfNeeded(
 				env,
 				config,
 				guildId,
 				discordUserId,
 				personalChannelId,
+				welcomeOpts,
 			);
 			if (welcome.note) auditNotes.push(welcome.note);
 
