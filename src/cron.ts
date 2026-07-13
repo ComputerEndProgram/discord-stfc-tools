@@ -99,7 +99,7 @@ export async function runPendingVerificationPoll(env: Env): Promise<void> {
 						config.guild_id,
 						record.discord_user_id,
 						player,
-						{ autoDemoteOnMismatch: false },
+						{ autoDemoteOnMismatch: false, deferSyncAudit: true },
 					);
 					await cancelDemotionQueueEntry(
 						env.STFC_DB,
@@ -150,6 +150,9 @@ export async function runDailyPlayerSync(env: Env): Promise<void> {
 		const becameInactiveRows: ActivityReportRow[] = [];
 		const returnedActiveRows: ActivityReportRow[] = [];
 		const stillInactiveRows: ActivityReportRow[] = [];
+		const welcomeSentRows: TableData[] = [];
+		const welcomeFailedRows: TableData[] = [];
+		const syncChangeRows: TableData[] = [];
 		const wouldHaveActions: string[] = [];
 
 		const pushActivityRow = (
@@ -355,7 +358,7 @@ export async function runDailyPlayerSync(env: Env): Promise<void> {
 					config.guild_id,
 					record.discord_user_id,
 					player,
-					{ autoDemoteOnMismatch: false },
+					{ autoDemoteOnMismatch: false, deferSyncAudit: true },
 				);
 				await recordPlayerStats(
 					env.STFC_DB,
@@ -401,6 +404,36 @@ export async function runDailyPlayerSync(env: Env): Promise<void> {
 				const act = syncResult.activity;
 				if (act) {
 					pushActivityRow(act, player.name, player.allianceTag);
+				}
+
+				if (syncResult.welcomeNote) {
+					const note = syncResult.welcomeNote;
+					const short =
+						note.length > 40 ? `${note.slice(0, 37)}…` : note;
+					const row = {
+						Player: playerCell(player.name),
+						Tag: tagCell(player.allianceTag),
+						Note: short.replace(/^Failed to send Welcome DM/i, 'failed').replace(/^welcome DM /i, ''),
+					};
+					if (syncResult.welcomeSent) welcomeSentRows.push(row);
+					else if (/failed/i.test(note)) welcomeFailedRows.push(row);
+					else if (/sent/i.test(note)) welcomeSentRows.push(row);
+					// skip silent admin/testing notes from the failed table
+					else if (!/skipped/i.test(note)) welcomeFailedRows.push(row);
+				}
+
+				const material = (syncResult.changeSummary ?? []).filter((c) => {
+					if (!c || c === 'Roles: no changes') return false;
+					// Activity is covered by the streak/inactive report.
+					if (/^(became inactive|returned active|still inactive)/i.test(c)) return false;
+					return true;
+				});
+				if (material.length) {
+					syncChangeRows.push({
+						Player: playerCell(player.name),
+						Tag: tagCell(player.allianceTag),
+						Changes: material.join('; ').slice(0, 48),
+					});
 				}
 			} catch (error) {
 				failed++;
@@ -479,6 +512,54 @@ export async function runDailyPlayerSync(env: Env): Promise<void> {
 				source: 'cron',
 				color:
 					becameInactiveRows.length || stillInactiveRows.length
+						? AuditColor.warn
+						: AuditColor.info,
+			});
+		}
+
+		if (welcomeSentRows.length || welcomeFailedRows.length || syncChangeRows.length) {
+			const tableOpts = { maxRows: 25, maxChars: 1100 };
+			const noteCols = [
+				ReportCols.player,
+				ReportCols.tag,
+				{ header: 'Note', width: 28 },
+			];
+			const changeCols = [
+				ReportCols.player,
+				ReportCols.tag,
+				{ header: 'Changes', width: 28 },
+			];
+			const sections: string[] = [];
+			if (welcomeSentRows.length) {
+				sections.push(
+					formatReportSection('Welcome DM sent', welcomeSentRows, noteCols, tableOpts),
+				);
+			}
+			if (welcomeFailedRows.length) {
+				sections.push(
+					formatReportSection('Welcome DM failed', welcomeFailedRows, noteCols, tableOpts),
+				);
+			}
+			if (syncChangeRows.length) {
+				sections.push(
+					formatReportSection(
+						'Other sync changes',
+						syncChangeRows,
+						changeCols,
+						tableOpts,
+					),
+				);
+			}
+			let description = sections.filter(Boolean).join('\n\n');
+			if (description.length > 3900) {
+				description = description.slice(0, 3890) + '\n_…truncated_';
+			}
+			await postAuditLog(env, config, {
+				title: testingTitle('Player sync — daily updates'),
+				description,
+				source: 'cron',
+				color:
+					welcomeFailedRows.length || syncChangeRows.length
 						? AuditColor.warn
 						: AuditColor.info,
 			});

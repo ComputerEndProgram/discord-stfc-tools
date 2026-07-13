@@ -312,7 +312,7 @@ Disable:
 
 Same private-channel permission pattern as the verification log (`@everyone` denied; bot + `/channels extra-roles` can view). Prefer setting **extra-roles** first so viewers are included on create.
 
-Logged events include (non-exhaustive): `/server setup`, verify (brief — screenshots stay on the verification log), guest invites, player sync changes, personal-channel map/rebalance/link, diplomacy config, surveys sent/closed, exchange setup, daily sync / guest re-check summaries, **morning alliance roster change report** (joins / leaves / ops / rank / renames).
+Logged events include (non-exhaustive): `/server setup`, verify (brief — screenshots stay on the verification log), guest invites, personal-channel map/rebalance/link, diplomacy config, surveys sent/closed, exchange setup, daily sync / guest re-check summaries, **morning alliance roster change report** (joins / leaves / ops / rank / renames), **batched** morning **Player activity** + **Player sync — daily updates** tables (welcome DM sent/failed, status/role/channel changes — not one embed per player).
 
 ---
 

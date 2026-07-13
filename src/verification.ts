@@ -4,7 +4,7 @@ import {
 	setGuildMemberNickname,
 } from './discord-api';
 import { opsLevelToGrade } from './grade-utils';
-import { applyActivityObservation, formatActivityBits } from './activity-utils';
+import { applyActivityObservation } from './activity-utils';
 import {
 	getGuildConfig,
 	getVerifiedPlayer,
@@ -589,11 +589,20 @@ export async function syncVerifiedPlayer(
 	guildId: string,
 	discordUserId: string,
 	player: PlayerData,
-	opts?: { autoDemoteOnMismatch?: boolean },
+	opts?: {
+		autoDemoteOnMismatch?: boolean;
+		/**
+		 * When true, do not post per-player "Player sync update" audits.
+		 * Caller (daily cron) batches activity / welcome / material changes.
+		 */
+		deferSyncAudit?: boolean;
+	},
 ): Promise<{
 	outcome: 'synced' | 'demoted' | 'mismatch_deferred';
 	changeSummary?: string[];
 	activity?: ReturnType<typeof applyActivityObservation>;
+	welcomeNote?: string;
+	welcomeSent?: boolean;
 }> {
 	if (!env.DISCORD_BOT_TOKEN) return { outcome: 'synced' };
 
@@ -602,6 +611,7 @@ export async function syncVerifiedPlayer(
 	const allianceTag = (player.allianceTag ?? '').trim();
 	const tagMatches = playerMatchesGuildAlliance(config, allianceTag);
 	const autoDemote = opts?.autoDemoteOnMismatch !== false;
+	const deferAudit = opts?.deferSyncAudit === true;
 
 	const grade = opsLevelToGrade(player.level);
 	const now = new Date().toISOString();
@@ -624,6 +634,21 @@ export async function syncVerifiedPlayer(
 			activity_updated_at: now,
 		});
 		return snap;
+	};
+
+	const maybePostSyncAudit = async (changes: string[]) => {
+		if (deferAudit || changes.length === 0) return;
+		await postAuditLog(env, config, {
+			title: 'Player sync update',
+			description: `<@${discordUserId}> **${player.name}**`,
+			source: 'cron',
+			color: changes.some(
+				(c) => c.startsWith('status') || c.startsWith('alliance') || c.includes('inactive'),
+			)
+				? AuditColor.warn
+				: AuditColor.info,
+			fields: [{ name: 'Changes', value: changes.join('\n').slice(0, 1000), inline: false }],
+		});
 	};
 
 	if (!tagMatches) {
@@ -654,23 +679,13 @@ export async function syncVerifiedPlayer(
 		if (previous?.verification_status && previous.verification_status !== 'guest') {
 			changes.unshift(`status ${previous.verification_status} → guest`);
 		}
-		if (activity) {
-			const bits = formatActivityBits({
-				activityStreak: activity.activityStreak,
-				daysInactive: activity.daysInactive,
-			});
-			if (bits) changes.push(bits);
-		}
-		if (changes.length > 0) {
-			await postAuditLog(env, config, {
-				title: 'Player sync update',
-				description: `<@${discordUserId}> **${player.name}**`,
-				source: 'cron',
-				color: AuditColor.warn,
-				fields: [{ name: 'Changes', value: changes.join('\n').slice(0, 1000), inline: false }],
-			});
-		}
-		return { outcome: 'demoted', activity };
+		// Notable inactivity only — routine streak bumps are batched by cron activity report.
+		if (activity?.becameInactive) changes.push('became inactive');
+		else if (activity?.returnedActive) changes.push('returned active');
+		else if (activity?.inactiveDayAdded) changes.push(`still inactive ${activity.daysInactive}d`);
+
+		await maybePostSyncAudit(changes);
+		return { outcome: 'demoted', changeSummary: changes, activity };
 	}
 
 	await upsertVerifiedPlayer(env.STFC_DB, {
@@ -698,6 +713,9 @@ export async function syncVerifiedPlayer(
 	if (previous?.alliance_rank && player.rank && previous.alliance_rank !== player.rank) {
 		changes.push(`rank ${previous.alliance_rank} → ${player.rank}`);
 	}
+
+	let welcomeNote: string | undefined;
+	let welcomeSent: boolean | undefined;
 
 	const current = await getVerifiedPlayer(env.STFC_DB, guildId, discordUserId);
 	if (needsAgreementBeforeFullAccess(config, current)) {
@@ -763,32 +781,26 @@ export async function syncVerifiedPlayer(
 			discordUserId,
 			personalChannelId,
 		);
-		if (welcome.note) changes.push(welcome.note);
-	}
-
-	if (activity) {
-		const bits = formatActivityBits({
-			activityStreak: activity.activityStreak,
-			daysInactive: activity.daysInactive,
-		});
-		if (activity.becameInactive) changes.push(`became inactive (${bits || 'streak 0'})`);
-		else if (activity.returnedActive) changes.push(`returned active (${bits || 'streak'})`);
-		else if (activity.inactiveDayAdded) changes.push(`still inactive (${bits})`);
-		else if (bits && previous?.activity_streak !== activity.activityStreak) {
-			changes.push(bits);
+		if (welcome.note) {
+			welcomeNote = welcome.note;
+			welcomeSent = welcome.sent;
+			if (!deferAudit) changes.push(welcome.note);
 		}
 	}
 
-	if (changes.length > 0) {
-		await postAuditLog(env, config, {
-			title: 'Player sync update',
-			description: `<@${discordUserId}> **${player.name}**`,
-			source: 'cron',
-			color: changes.some((c) => c.startsWith('status') || c.startsWith('alliance') || c.includes('inactive'))
-				? AuditColor.warn
-				: AuditColor.info,
-			fields: [{ name: 'Changes', value: changes.join('\n'), inline: false }],
-		});
+	// Notable inactivity only in change summary — cron already tables became/returned/still.
+	if (activity?.becameInactive) changes.push('became inactive');
+	else if (activity?.returnedActive) changes.push('returned active');
+	else if (activity?.inactiveDayAdded && activity.daysInactive >= 3) {
+		changes.push(`still inactive ${activity.daysInactive}d`);
 	}
-	return { outcome: 'synced', changeSummary: changes, activity };
+
+	await maybePostSyncAudit(changes);
+	return {
+		outcome: 'synced',
+		changeSummary: changes,
+		activity,
+		welcomeNote,
+		welcomeSent,
+	};
 }
