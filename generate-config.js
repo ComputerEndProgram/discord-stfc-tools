@@ -116,6 +116,14 @@ function generateWranglerConfig() {
   const outputPath = path.join(__dirname, 'wrangler.json');
   fs.writeFileSync(outputPath, JSON.stringify(configTemplate, null, 2));
 
+  // Wrangler prefers wrangler.jsonc over wrangler.json; a leftover empty
+  // jsonc (common from editors / old templates) causes ValueExpected parse errors.
+  const jsoncPath = path.join(__dirname, 'wrangler.jsonc');
+  if (fs.existsSync(jsoncPath)) {
+    fs.unlinkSync(jsoncPath);
+    console.log('🧹 Removed wrangler.jsonc so Wrangler uses generated wrangler.json');
+  }
+
   console.log('✅ Generated wrangler.json with environment-specific configuration');
   console.log(`📝 KV Namespace ID: ${process.env.KV_NAMESPACE_ID || 'Not set'}`);
   console.log(`📝 R2 Bucket: ${process.env.R2_BUCKET_NAME || 'Not set'}`);

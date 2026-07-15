@@ -11,8 +11,10 @@ yarn-error.log*
 .dev.vars
 .secrets.bulk.tmp
 
-# Generated configuration
+# Generated / local Wrangler config (generate-config.js writes wrangler.json).
+# An empty wrangler.jsonc shadows wrangler.json and breaks `wrangler login`/deploy.
 wrangler.json
+wrangler.jsonc
 
 # Build outputs
 dist/
