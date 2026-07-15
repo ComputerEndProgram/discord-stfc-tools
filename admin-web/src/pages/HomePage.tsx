@@ -51,12 +51,16 @@ export function HomePage() {
 			title="Your guilds"
 			eyebrow={`STFC Tools · v${me?.bot_version ?? '—'}`}
 			navTop={[
-				{ label: 'Guilds', to: '/app', color: 5, active: true },
-				{ label: 'Home', to: '/', color: 6 },
+				{ label: 'Guilds', short: '01', to: '/app', color: 5, active: true },
+				{ label: 'Home', short: '22', to: '/', color: 6 },
 			]}
 			navBottom={[
-				{ label: me?.user.global_name || me?.user.username || 'Operator', color: 2 },
-				{ label: 'Log out', onClick: () => void logout(), color: 'alert' },
+				{
+					label: me?.user.global_name || me?.user.username || 'Operator',
+					short: 'OP',
+					color: 2,
+				},
+				{ label: 'Log out', short: 'X', onClick: () => void logout(), color: 'alert' },
 			]}
 			actions={
 				<button type="button" className="lcars-pill lcars-pill--ghost lcars-pill--sm" onClick={() => void logout()}>

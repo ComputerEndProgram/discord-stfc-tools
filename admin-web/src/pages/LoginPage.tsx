@@ -1,15 +1,9 @@
-import { useMemo } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { LcarsFrame } from '../lcars/LcarsFrame';
 
 export function LoginPage() {
 	const [params] = useSearchParams();
 	const error = params.get('error');
-
-	const apiBase = useMemo(
-		() => (import.meta.env.VITE_API_BASE_URL || '').replace(/\/$/, '') || '(set VITE_API_BASE_URL)',
-		[],
-	);
 
 	function startLogin() {
 		const base = (import.meta.env.VITE_API_BASE_URL || '').replace(/\/$/, '');
@@ -25,12 +19,12 @@ export function LoginPage() {
 			title="Admin console"
 			eyebrow="STFC Tools · Access"
 			navTop={[
-				{ label: 'Home', to: '/', color: 6 },
-				{ label: 'Privacy', to: '/privacy', color: 8 },
+				{ label: 'Home', short: '01', to: '/', color: 5 },
+				{ label: 'Privacy', short: '22', to: '/privacy', color: 6 },
 			]}
 			navBottom={[
-				{ label: 'Terms', to: '/terms', color: 2 },
-				{ label: '02-4419', color: 3 },
+				{ label: 'Terms', short: '44', to: '/terms', color: 2 },
+				{ label: '02-4419', short: '02', color: 3 },
 			]}
 		>
 			<p className="muted">
@@ -44,9 +38,8 @@ export function LoginPage() {
 				</button>
 			</div>
 			<p className="tiny muted" style={{ marginTop: '1.25rem' }}>
-				API: {apiBase}
+				Slash commands still work in Discord — this UI is an addition.
 			</p>
-			<p className="tiny muted">Slash commands still work in Discord — this UI is an addition.</p>
 			<p className="landing-links" style={{ marginTop: '1rem' }}>
 				<Link to="/privacy">Privacy</Link>
 				<span className="muted">·</span>

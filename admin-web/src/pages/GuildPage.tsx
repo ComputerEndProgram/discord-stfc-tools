@@ -101,8 +101,8 @@ export function GuildPage() {
 			<LcarsFrame
 				title="Guild"
 				eyebrow="STFC Tools"
-				navTop={[{ label: 'Guilds', to: '/app', color: 5 }]}
-				navBottom={[{ label: error ? 'Fault' : 'Loading', color: error ? 'alert' : 3 }]}
+			navTop={[{ label: 'Guilds', short: '01', to: '/app', color: 5 }]}
+			navBottom={[{ label: error ? 'Fault' : 'Loading', short: '…', color: error ? 'alert' : 3 }]}
 			>
 				{error ? <p className="error">{error}</p> : <p className="lcars-status">Loading guild…</p>}
 			</LcarsFrame>
@@ -118,12 +118,12 @@ export function GuildPage() {
 			title={`${tag}Guild dashboard`}
 			eyebrow={`${String(cfg.mode)} · server ${String(cfg.stfc_server)} ${String(cfg.stfc_region)}`}
 			navTop={[
-				{ label: 'Guilds', to: '/app', color: 5 },
-				{ label: 'Home', to: '/', color: 6 },
+				{ label: 'Guilds', short: '01', to: '/app', color: 5 },
+				{ label: 'Home', short: '22', to: '/', color: 6 },
 			]}
 			navBottom={[
-				{ label: gatewayOk ? 'Gateway OK' : 'Gateway —', color: gatewayOk ? 5 : 3 },
-				{ label: `v${status.bot_version}`, color: 8 },
+				{ label: gatewayOk ? 'Gateway OK' : 'Gateway —', short: 'GW', color: gatewayOk ? 5 : 3 },
+				{ label: `v${status.bot_version}`, short: 'V', color: 8 },
 			]}
 			actions={
 				<span className={`lcars-status${gatewayOk ? ' lcars-status--ok' : ' lcars-status--warn'}`}>

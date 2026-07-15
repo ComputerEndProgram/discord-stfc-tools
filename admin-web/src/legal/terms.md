@@ -3,9 +3,7 @@
 **Effective date:** 15 July 2026  
 **Version:** 1.1
 
-> **Not legal advice.** These terms are a starting template for operators of the STFC Tools Discord bot (“the Bot”). Have them reviewed for your jurisdiction before relying on them. Set real operator details via Cloudflare Pages `VITE_LEGAL_*` env vars (see [ADMIN_WEB.md](./ADMIN_WEB.md)) — do not commit personal legal identity in the public repo.
-
-**Public URL (Cloudflare Pages):** `/terms` on the admin site — see [ADMIN_WEB.md](./ADMIN_WEB.md) and [BOT_MIGRATION.md](./BOT_MIGRATION.md).
+> **Not legal advice.** These terms govern use of the STFC Tools Discord bot (“the Bot”). If you do not agree, do not use the Bot.
 
 ---
 
@@ -135,7 +133,7 @@ Alliance tags, Discord server names, and similar labels belong to the relevant c
 
 ## 10. Suspension and termination
 
-- You may stop using the Bot at any time (leave the Guild, block the Bot, or ask admins to remove your data—see the Privacy Policy).
+- You may stop using the Bot at any time (leave the Guild, block the Bot, or ask admins to remove your data—see the [Privacy Policy](/privacy)).
 - Guild admins may remove the Bot from a Guild at any time.
 - We may suspend or discontinue the Bot or any feature with or without notice (including for abuse, cost, or legal reasons).
 

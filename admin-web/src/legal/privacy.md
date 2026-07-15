@@ -3,9 +3,7 @@
 **Effective date:** 15 July 2026  
 **Version:** 1.1
 
-> **Not legal advice.** This policy describes how the STFC Tools Discord bot (“the Bot”) processes personal data in practice. Set operator details via Cloudflare Pages `VITE_LEGAL_*` env vars (see [ADMIN_WEB.md](./ADMIN_WEB.md)), confirm controller/processor roles with counsel, and publish a stable URL before linking it from Discord consent flows.
-
-**Public URL (Cloudflare Pages):** `/privacy` on the admin site — see [ADMIN_WEB.md](./ADMIN_WEB.md) and [BOT_MIGRATION.md](./BOT_MIGRATION.md).
+> **Not legal advice.** This policy describes how the STFC Tools Discord bot (“the Bot”) processes personal data in practice. For questions about your data, contact the operator or the Discord server administrators where you use the Bot.
 
 ---
 
@@ -17,7 +15,7 @@ The Bot helps Discord servers for **Star Trek Fleet Command (STFC)** verify play
 - **[OPERATOR LEGAL NAME]** hosts the Bot (Cloudflare). Contact: **[CONTACT EMAIL OR FORM]**.
 - Where a Guild enables the data-consent gate (`/server consent`), you will be asked to agree **before** screenshot / stfc.pro verification proceeds.
 
-This Bot is an **unofficial, fan-made** tool. It is **not** affiliated with, endorsed by, sponsored by, or approved by Paramount Global / CBS Studios, Scopely, Discord Inc., Cloudflare, Inc., or the operators of **stfc.pro** (or similar sites). **Star Trek**, **Star Trek Fleet Command**, **Discord**, **Cloudflare**, **stfc.pro**, and related names and logos are trademarks of their respective owners and are used here only for identification. See the [Terms of Service](./TERMS_OF_SERVICE.md) §9 for more detail.
+This Bot is an **unofficial, fan-made** tool. It is **not** affiliated with, endorsed by, sponsored by, or approved by Paramount Global / CBS Studios, Scopely, Discord Inc., Cloudflare, Inc., or the operators of **stfc.pro** (or similar sites). **Star Trek**, **Star Trek Fleet Command**, **Discord**, **Cloudflare**, **stfc.pro**, and related names and logos are trademarks of their respective owners and are used here only for identification. See the [Terms of Service](/terms) §9 for more detail.
 
 ---
 
@@ -172,7 +170,7 @@ We use managed cloud infrastructure (Cloudflare), Discord-signed interactions, a
 
 We may update this policy by publishing a new version with a new effective date. When processing purposes change materially, Guilds should bump the `/server consent` version so members re-consent where that gate is used.
 
-**Related documents:** [Terms of Service](./TERMS_OF_SERVICE.md) · [Admin guide — consent](./ADMIN_GUIDE.md#data-processing-consent-gdpr--optional-coc)
+**Related documents:** [Terms of Service](/terms)
 
 ---
 
