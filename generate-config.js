@@ -4,9 +4,13 @@ const fs = require('fs');
 const path = require('path');
 
 function generateWranglerConfig() {
+  // Worker script name on Cloudflare. Changing this creates a new Worker on deploy;
+  // existing installs should set WORKER_NAME in .env to keep their current name.
+  const workerName = process.env.WORKER_NAME || 'stfc-tools';
+
   const configTemplate = {
     "$schema": "node_modules/wrangler/config-schema.json",
-    "name": "stfc-tools",
+    "name": workerName,
     "main": "src/index.ts",
     "compatibility_date": "2025-07-26",
     "compatibility_flags": [
@@ -125,6 +129,7 @@ function generateWranglerConfig() {
   }
 
   console.log('✅ Generated wrangler.json with environment-specific configuration');
+  console.log(`📝 Worker name: ${workerName}${process.env.WORKER_NAME ? '' : ' (default; set WORKER_NAME to override)'}`);
   console.log(`📝 KV Namespace ID: ${process.env.KV_NAMESPACE_ID || 'Not set'}`);
   console.log(`📝 R2 Bucket: ${process.env.R2_BUCKET_NAME || 'Not set'}`);
 }

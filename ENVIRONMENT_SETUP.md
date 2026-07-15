@@ -25,6 +25,7 @@ See [SETUP.md — Pushing .env to Cloudflare](./SETUP.md#pushing-env-to-cloudfla
 | `DISCORD_BOT_TOKEN` | Yes | Bot token (also set as Worker secret) |
 | `D1_DATABASE_NAME` | Yes | D1 database name (`stfc-db` or existing `stfc-officers`) |
 | `D1_DATABASE_ID` | Yes | D1 database UUID from `wrangler d1 create` |
+| `WORKER_NAME` | No | Cloudflare Worker script name (default `stfc-tools`). Set if you already deploy under another name — changing it creates a new Worker |
 | `WORKER_URL` | Recommended | Deployed Worker URL |
 | `KV_NAMESPACE_ID` | No | Optional; runtime uses bundled system data |
 | `R2_BUCKET_NAME` | No | Optional verification screenshot archive |

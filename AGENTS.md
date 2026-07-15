@@ -10,7 +10,7 @@ Context for AI agents and contributors working on this repository. Read this bef
 
 **Officer lookup was removed** (Jul 2026) and archived under `archive/officers/` — incomplete, ~14 MB assets, unrelated to verification.
 
-**Production URL:** set via `WORKER_URL` in `.env` (e.g. `https://stfc-tools.<your-subdomain>.workers.dev`)
+**Production URL:** set via `WORKER_URL` in `.env` (e.g. `https://stfc-tools.<your-subdomain>.workers.dev`). Worker script name defaults to `stfc-tools`; override with `WORKER_NAME` if you already deploy under a different name.
 
 **Sister project:** sibling repo `discord-stfc-tracker` — alliance snapshot tracker with stfc.pro integration. Reuse code from there; do not duplicate its full multi-tenant snapshot system unless explicitly needed.
 

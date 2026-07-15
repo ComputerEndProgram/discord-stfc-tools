@@ -83,6 +83,10 @@ DISCORD_BOT_TOKEN=your-bot-token
 D1_DATABASE_NAME=stfc-db
 D1_DATABASE_ID=your-d1-database-id-from-step-3
 
+# Optional: override Worker script name (default stfc-tools). Set this if you
+# already deployed under a different name — changing it creates a NEW worker.
+# WORKER_NAME=stfc-tools
+
 WORKER_URL=https://stfc-tools.your-subdomain.workers.dev
 ```
 
@@ -108,6 +112,7 @@ This script:
 |------|----------------|
 | `DISCORD_PUBLIC_KEY`, `DISCORD_BOT_TOKEN` | Encrypted Worker **secrets** (`wrangler secret bulk`) |
 | `DISCORD_APPLICATION_ID`, `WORKER_URL` | Worker **vars** in `wrangler.json` |
+| `WORKER_NAME` | Worker script `name` in `wrangler.json` (default `stfc-tools`) |
 | `D1_DATABASE_*`, `KV_*`, `R2_*` | **Bindings** in `wrangler.json` |
 | Same secrets | `.dev.vars` (for `wrangler dev` locally) |
 
@@ -281,6 +286,7 @@ DISCORD_BOT_TOKEN=...         # required for command registration AND runtime
 D1_DATABASE_NAME=stfc-officers   # keep your existing database name
 D1_DATABASE_ID=your-existing-id  # keep your existing ID
 
+# WORKER_NAME=stfc-tools         # set if your deployed Worker name differs from default
 WORKER_URL=https://stfc-tools.your-subdomain.workers.dev   # your deployed URL
 ```
 
@@ -463,6 +469,7 @@ npm run push-env && npm run deploy
 | `DISCORD_BOT_TOKEN` | Yes | Worker secret + `register-commands` |
 | `D1_DATABASE_NAME` | Yes (fresh) | Wrangler D1 database name |
 | `D1_DATABASE_ID` | Yes (fresh) | Wrangler D1 database UUID |
+| `WORKER_NAME` | No | Cloudflare Worker script name (default `stfc-tools`). Keep stable once deployed |
 | `WORKER_URL` | Recommended | Deployed Worker URL |
 | `KV_NAMESPACE_ID` | No | Optional KV binding |
 | `KV_NAMESPACE_PREVIEW_ID` | No | Optional KV preview binding |
