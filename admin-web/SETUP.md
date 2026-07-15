@@ -193,6 +193,16 @@ https://YOUR-WORKER-URL/api/admin/auth/callback
 
 3. The Worker was redeployed after changing environment variables.
 
+## After first deployment
+
+Initialize the production D1 schema:
+
+npm run db:migrate
+
+Then deploy the Worker:
+
+npm run deploy
+
 ## Deployment checklist
 
 * [ ] Worker deployed
