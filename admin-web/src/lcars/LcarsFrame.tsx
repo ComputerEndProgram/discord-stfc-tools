@@ -20,39 +20,32 @@ type Props = {
 	children: ReactNode;
 };
 
-function colorClass(color?: LcarsNavItem['color']) {
-	if (color === 'alert') return 'lcars-panel--alert';
-	if (color) return `lcars-panel--a${color}`;
-	return 'lcars-panel--a3';
+function colorClass(color: LcarsNavItem['color'], base: string) {
+	if (color === 'alert') return `${base}--alert`;
+	if (color) return `${base}--a${color}`;
+	return `${base}--a3`;
 }
 
-function Panel({ item }: { item: LcarsNavItem }) {
-	const className = `lcars-panel ${colorClass(item.color)}${
-		item.active ? ' lcars-panel--active' : ''
-	}${!(item.to || item.onClick) ? ' lcars-panel--deco' : ''}`;
-
-	const label = (
-		<>
-			<span className="lcars-panel__full">{item.label}</span>
-			<span className="lcars-panel__short">{item.short ?? item.label.slice(0, 3)}</span>
-		</>
-	);
+function NavButton({ item }: { item: LcarsNavItem }) {
+	const className = `lcars-nav-btn ${colorClass(item.color, 'lcars-nav-btn')}${
+		item.active ? ' lcars-nav-btn--active' : ''
+	}`;
 
 	if (item.to) {
 		return (
 			<Link className={className} to={item.to}>
-				{label}
+				{item.label}
 			</Link>
 		);
 	}
 	if (item.onClick) {
 		return (
 			<button type="button" className={className} onClick={item.onClick}>
-				{label}
+				{item.label}
 			</button>
 		);
 	}
-	return <div className={className}>{label}</div>;
+	return <div className={`${className} lcars-nav-btn--deco`}>{item.label}</div>;
 }
 
 function MobileNav({ items }: { items: LcarsNavItem[] }) {
@@ -61,10 +54,7 @@ function MobileNav({ items }: { items: LcarsNavItem[] }) {
 	return (
 		<nav className="lcars-mobile-nav" aria-label="Console navigation">
 			{interactive.map((item) => {
-				const pill = `lcars-pill lcars-pill--sm ${colorClass(item.color).replace(
-					'lcars-panel',
-					'lcars-pill',
-				)}`;
+				const pill = `lcars-pill lcars-pill--sm ${colorClass(item.color, 'lcars-pill')}`;
 				if (item.to) {
 					return (
 						<Link key={item.label} className={pill} to={item.to}>
@@ -83,9 +73,9 @@ function MobileNav({ items }: { items: LcarsNavItem[] }) {
 }
 
 /**
- * thelcars.com classic layout:
- *   wrap-top: left-frame-top + right-frame-top (banner + bars)
- *   wrap-bot: left-frame     + right-frame     (content)
+ * Single continuous LCARS pillar with one top elbow.
+ * Sidebar spans the full height; the horizontal bar sweeps out of it,
+ * and a concave scoop rounds the inner corner where they meet.
  */
 export function LcarsFrame({
 	title,
@@ -95,67 +85,49 @@ export function LcarsFrame({
 	navBottom = [],
 	children,
 }: Props) {
-	const top =
-		navTop.length > 0
-			? navTop
-			: [
-					{ label: 'STFC', short: '01', color: 5 as const },
-					{ label: 'Tools', short: '22', color: 6 as const },
-				];
-	const bot =
-		navBottom.length > 0
-			? navBottom
-			: [
-					{ label: '04-881', short: '04', color: 2 as const },
-					{ label: '44-019', short: '44', color: 1 as const },
-				];
+	const nav = [...navTop, ...navBottom];
+	const deco: LcarsNavItem[] =
+		nav.length > 0
+			? [{ label: '01-4409', color: 3 }, { label: 'LCARS 24', color: 3 }]
+			: [];
 
 	return (
 		<div className="lcars-screen">
-			{/* —— Top wrap: elbow + title + divider bars —— */}
-			<div className="lcars-wrap lcars-wrap--top">
-				<div className="lcars-left-top">
-					{top.map((item) => (
-						<Panel key={item.label} item={item} />
-					))}
-				</div>
-				<div className="lcars-right-top">
+			<div className="lcars-frame">
+				<aside className="lcars-sidebar" aria-label="Console navigation">
+					<div className="lcars-sidebar-nav">
+						{nav.map((item) => (
+							<NavButton key={item.label} item={item} />
+						))}
+					</div>
+					<div className="lcars-sidebar-fill" aria-hidden="true" />
+					<div className="lcars-sidebar-deco" aria-hidden="true">
+						{deco.map((item) => (
+							<NavButton key={item.label} item={item} />
+						))}
+					</div>
+				</aside>
+
+				<header className="lcars-header">
 					{eyebrow ? <p className="lcars-eyebrow">{eyebrow}</p> : null}
 					<div className="lcars-banner-row">
 						<h1 className="lcars-banner">{title}</h1>
 						{actions ? <div className="lcars-banner-actions">{actions}</div> : null}
 					</div>
-					<div className="lcars-bar-panel" aria-hidden="true">
-						<span className="lcars-bar lcars-bar--1" />
-						<span className="lcars-bar lcars-bar--2" />
-						<span className="lcars-bar lcars-bar--3" />
-						<span className="lcars-bar lcars-bar--4" />
-						<span className="lcars-bar lcars-bar--5" />
-					</div>
-				</div>
-			</div>
+				</header>
 
-			{/* —— Bottom wrap: lower trunk + content —— */}
-			<div className="lcars-wrap lcars-wrap--bot">
-				<div className="lcars-left-bot">
-					{bot.map((item) => (
-						<Panel key={item.label} item={item} />
-					))}
-					<div className="lcars-left-spacer" aria-hidden="true" />
+				<div className="lcars-topbar" aria-hidden="true">
+					<span className="lcars-bar lcars-bar--elbow" />
+					<span className="lcars-bar lcars-bar--gap1" />
+					<span className="lcars-bar lcars-bar--seg2" />
+					<span className="lcars-bar lcars-bar--seg3" />
+					<span className="lcars-bar lcars-bar--tail" />
 				</div>
-				<div className="lcars-right-bot">
-					<div className="lcars-bar-panel lcars-bar-panel--lower" aria-hidden="true">
-						<span className="lcars-bar lcars-bar--6" />
-						<span className="lcars-bar lcars-bar--7" />
-						<span className="lcars-bar lcars-bar--8" />
-						<span className="lcars-bar lcars-bar--9" />
-						<span className="lcars-bar lcars-bar--10" />
-					</div>
-					<main className="lcars-main">
-						<MobileNav items={[...top, ...bot]} />
-						{children}
-					</main>
-				</div>
+
+				<main className="lcars-main">
+					<MobileNav items={nav} />
+					{children}
+				</main>
 			</div>
 		</div>
 	);
