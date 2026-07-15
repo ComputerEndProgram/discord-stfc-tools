@@ -130,6 +130,7 @@ a:hover { color: var(--lcars-a2); }
 .lcars-sidebar-fill {
 	grid-row: 2 / 4;
 	background: var(--lcars-frame-color);
+	border-bottom-left-radius: var(--outer-r);
 	position: relative;
 	z-index: 0;
 }

@@ -1,5 +1,5 @@
-import { Link } from 'react-router-dom';
-import type { ReactNode } from 'react';
+import { Link, useLocation } from 'react-router-dom';
+import type { CSSProperties, ReactNode } from 'react';
 import './lcars.css';
 
 export type LcarsNavItem = {
@@ -24,6 +24,11 @@ function colorClass(color: LcarsNavItem['color'], base: string) {
 	if (color === 'alert') return `${base}--alert`;
 	if (color) return `${base}--a${color}`;
 	return `${base}--a3`;
+}
+
+function frameColorVar(color: LcarsNavItem['color']) {
+	if (color === 'alert') return 'var(--lcars-alert)';
+	return `var(--lcars-a${color ?? 6})`;
 }
 
 function NavButton({ item }: { item: LcarsNavItem }) {
@@ -85,7 +90,15 @@ export function LcarsFrame({
 	navBottom = [],
 	children,
 }: Props) {
-	const nav = [...navTop, ...navBottom];
+	const { pathname } = useLocation();
+	const nav: LcarsNavItem[] = [...navTop, ...navBottom].map((item) => ({
+		...item,
+		active: item.active ?? (item.to != null && item.to === pathname),
+	}));
+	const activeItem = nav.find((item) => item.active);
+	const frameStyle = {
+		'--lcars-frame-color': frameColorVar(activeItem?.color),
+	} as CSSProperties;
 	const deco: LcarsNavItem[] =
 		nav.length > 0
 			? [{ label: '01-4409', color: 3 }, { label: 'LCARS 24', color: 3 }]
@@ -93,7 +106,7 @@ export function LcarsFrame({
 
 	return (
 		<div className="lcars-screen">
-			<div className="lcars-frame">
+			<div className="lcars-frame" style={frameStyle}>
 				<aside className="lcars-sidebar" aria-label="Console navigation">
 					<div className="lcars-sidebar-nav">
 						{nav.map((item) => (
