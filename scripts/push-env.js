@@ -14,9 +14,15 @@ const path = require('path');
 const ROOT = path.join(__dirname, '..');
 
 /** Runtime secrets — never go in wrangler.json vars */
-const SECRET_KEYS = ['DISCORD_PUBLIC_KEY', 'DISCORD_BOT_TOKEN'];
+const SECRET_KEYS = [
+	'DISCORD_PUBLIC_KEY',
+	'DISCORD_BOT_TOKEN',
+	'DISCORD_CLIENT_SECRET',
+	'ADMIN_SESSION_SECRET',
+].filter((key) => process.env[key]?.trim());
 
-const missing = SECRET_KEYS.filter((key) => !process.env[key]?.trim());
+const REQUIRED = ['DISCORD_PUBLIC_KEY', 'DISCORD_BOT_TOKEN'];
+const missing = REQUIRED.filter((key) => !process.env[key]?.trim());
 if (missing.length > 0) {
 	console.error('❌ Missing required secrets in .env:');
 	for (const key of missing) {
@@ -26,9 +32,21 @@ if (missing.length > 0) {
 	process.exit(1);
 }
 
+if (!process.env.DISCORD_CLIENT_SECRET?.trim() || !process.env.ADMIN_SESSION_SECRET?.trim()) {
+	console.warn(
+		'⚠️  Admin web OAuth secrets missing (DISCORD_CLIENT_SECRET, ADMIN_SESSION_SECRET) — /api/admin will be unavailable until set.',
+	);
+}
+
 // .dev.vars — used automatically by `wrangler dev`
 const devVarsPath = path.join(ROOT, '.dev.vars');
-const devVarsContent = SECRET_KEYS.map((key) => `${key}=${process.env[key]}`).join('\n') + '\n';
+const allSecrets = [
+	'DISCORD_PUBLIC_KEY',
+	'DISCORD_BOT_TOKEN',
+	'DISCORD_CLIENT_SECRET',
+	'ADMIN_SESSION_SECRET',
+].filter((key) => process.env[key]?.trim());
+const devVarsContent = allSecrets.map((key) => `${key}=${process.env[key]}`).join('\n') + '\n';
 fs.writeFileSync(devVarsPath, devVarsContent);
 console.log('✅ Wrote .dev.vars (local wrangler dev secrets)');
 
@@ -37,13 +55,13 @@ execSync('node generate-config.js', { stdio: 'inherit', cwd: ROOT });
 
 // Push secrets to Cloudflare (production Worker)
 const tmpPath = path.join(ROOT, '.secrets.bulk.tmp');
-const bulkContent = SECRET_KEYS.map((key) => `${key}=${process.env[key]}`).join('\n') + '\n';
+const bulkContent = allSecrets.map((key) => `${key}=${process.env[key]}`).join('\n') + '\n';
 
 try {
 	fs.writeFileSync(tmpPath, bulkContent);
 	console.log('📤 Pushing secrets to Cloudflare...');
 	execSync(`npx wrangler secret bulk "${tmpPath}"`, { stdio: 'inherit', cwd: ROOT });
-	console.log('✅ Secrets pushed:', SECRET_KEYS.join(', '));
+	console.log('✅ Secrets pushed:', allSecrets.join(', '));
 } finally {
 	if (fs.existsSync(tmpPath)) {
 		fs.unlinkSync(tmpPath);

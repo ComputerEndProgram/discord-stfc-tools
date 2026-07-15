@@ -6,6 +6,14 @@ declare namespace Cloudflare {
 		DISCORD_PUBLIC_KEY?: string;
 		DISCORD_BOT_TOKEN?: string;
 		DISCORD_APPLICATION_ID?: string;
+		/** OAuth2 client id (defaults to DISCORD_APPLICATION_ID). */
+		DISCORD_CLIENT_ID?: string;
+		/** OAuth2 client secret for admin web login. */
+		DISCORD_CLIENT_SECRET?: string;
+		/** HMAC secret for admin session cookies. */
+		ADMIN_SESSION_SECRET?: string;
+		/** Comma-separated admin SPA origins (Cloudflare Pages + local). */
+		ADMIN_WEB_ORIGIN?: string;
 		WORKER_URL?: string;
 		ENVIRONMENT?: string;
 		/** Global kill-switch for DM Workers AI (default off). Set "true" to allow. */

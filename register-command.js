@@ -993,6 +993,68 @@ const commands = [
 					},
 					{
 						type: 1,
+						name: 'permissions-apply',
+						description:
+							'Bulk-add overwrites (bot/role/extra/template) across linked channels — dry-run by default',
+						options: [
+							{
+								type: 3,
+								name: 'target',
+								description: 'What to grant on each channel',
+								required: true,
+								choices: [
+									{ name: 'This bot (managed role)', value: 'bot' },
+									{ name: 'One Discord role', value: 'role' },
+									{ name: 'All /channels extra-roles', value: 'extra_roles' },
+									{ name: 'Roles from locked perm template', value: 'template_roles' },
+								],
+							},
+							{
+								type: 3,
+								name: 'scope',
+								description: 'Which channels (default personal)',
+								required: false,
+								choices: [
+									{ name: 'Personal member channels', value: 'personal' },
+									{ name: 'Diplomacy channels', value: 'diplomacy' },
+									{ name: 'Staff logs (verify/audit/urgent)', value: 'staff_logs' },
+									{ name: 'Survey log channels', value: 'survey_logs' },
+									{ name: 'All of the above', value: 'all' },
+								],
+							},
+							{
+								type: 8,
+								name: 'role',
+								description: 'Required when target is role',
+								required: false,
+							},
+							{
+								type: 3,
+								name: 'preset',
+								description: 'Permission bits (default: bot bits for bot, member bits for roles)',
+								required: false,
+								choices: [
+									{ name: 'Bot full (template bot slot)', value: 'bot' },
+									{ name: 'Member / staff view+send set', value: 'member' },
+									{ name: 'View + Send + Embed + Attach + History only', value: 'view_send' },
+								],
+							},
+							{
+								type: 5,
+								name: 'dry_run',
+								description: 'Preview only (default true). Set false to apply.',
+								required: false,
+							},
+							{
+								type: 5,
+								name: 'only_missing',
+								description: 'Skip targets that already have View (default true)',
+								required: false,
+							},
+						],
+					},
+					{
+						type: 1,
 						name: 'permissions-template-from',
 						description: 'Lock permission overwrites from a sample member channel',
 						options: [

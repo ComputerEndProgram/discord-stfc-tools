@@ -106,6 +106,12 @@ function generateWranglerConfig() {
   if (process.env.DM_AI_DAILY_LIMIT) {
     configTemplate.vars.DM_AI_DAILY_LIMIT = process.env.DM_AI_DAILY_LIMIT;
   }
+  if (process.env.ADMIN_WEB_ORIGIN) {
+    configTemplate.vars.ADMIN_WEB_ORIGIN = process.env.ADMIN_WEB_ORIGIN;
+  }
+  if (process.env.DISCORD_CLIENT_ID) {
+    configTemplate.vars.DISCORD_CLIENT_ID = process.env.DISCORD_CLIENT_ID;
+  }
 
   const outputPath = path.join(__dirname, 'wrangler.json');
   fs.writeFileSync(outputPath, JSON.stringify(configTemplate, null, 2));

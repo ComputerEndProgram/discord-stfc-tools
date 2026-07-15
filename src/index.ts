@@ -12,13 +12,25 @@ import {
 	syncMultiAllianceTrackedRosters,
 } from './alliance-roster-sync';
 import { handleAgreementBackfillContinue } from './agreement';
+import { handleAdminApi } from './admin-api';
 
 export { DiscordGateway } from './discord-gateway/DiscordGateway';
 export { StfcSession } from './stfc-session/StfcSession';
 
+function requireBotOrAdminSecret(request: Request, env: Env): boolean {
+	const auth = request.headers.get('Authorization') || '';
+	if (env.DISCORD_BOT_TOKEN && auth === `Bot ${env.DISCORD_BOT_TOKEN}`) return true;
+	if (env.ADMIN_SESSION_SECRET && auth === `Bearer ${env.ADMIN_SESSION_SECRET}`) return true;
+	return false;
+}
+
 export default {
 	async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
 		const url = new URL(request.url);
+
+		if (url.pathname.startsWith('/api/admin')) {
+			return handleAdminApi(request, env, ctx);
+		}
 
 		if (url.pathname === '/discord' && request.method === 'POST') {
 			// Keep Gateway WebSocket alive when Discord interaction traffic arrives.
@@ -72,6 +84,9 @@ export default {
 		}
 
 		if (url.pathname === '/gateway/wake' && request.method === 'POST') {
+			if (!requireBotOrAdminSecret(request, env)) {
+				return Response.json({ error: 'Unauthorized' }, { status: 401 });
+			}
 			const result = await wakeDiscordGateway(env);
 			return Response.json(result ?? { error: 'Gateway not configured' });
 		}
@@ -144,6 +159,9 @@ export default {
 			try {
 				const guildId = url.searchParams.get('guild_id') || undefined;
 				const persist = url.searchParams.get('persist') === '1';
+				if (persist && !requireBotOrAdminSecret(request, env)) {
+					return Response.json({ error: 'Unauthorized — persist requires Bot or Bearer ADMIN_SESSION_SECRET' }, { status: 401 });
+				}
 				const config = guildId ? await getGuildConfig(env.STFC_DB, guildId) : null;
 				const guilds = config ? [config] : await listConfiguredGuilds(env.STFC_DB);
 				const guild =

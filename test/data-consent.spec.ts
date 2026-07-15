@@ -52,6 +52,7 @@ function cfg(overrides: Partial<GuildConfig> = {}): GuildConfig {
 		exchange_category_id: null,
 		exchange_admin_role_ids: [],
 		dm_query_role_ids: [],
+		web_admin_role_ids: [],
 		dm_ai_enabled: false,
 		data_consent_enabled: true,
 		data_consent_version: '1',

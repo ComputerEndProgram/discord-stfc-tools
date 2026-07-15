@@ -1,6 +1,6 @@
 {
 	"name": "stfc-tools",
-	"version": "1.8.13",
+	"version": "1.8.16",
 	"description": "STFC Discord bot — verification, alliance management, coordinate lookup, and tables.",
 	"private": true,
 	"scripts": {
@@ -18,6 +18,8 @@
 		"register-commands": "node register-command.js",
 		"db:migrate": "node scripts/db-migrate.js",
 		"db:migrate-local": "node scripts/db-migrate.js --local",
+		"admin-web:dev": "npm run dev --prefix admin-web",
+		"admin-web:build": "npm run build --prefix admin-web",
 		"kv:create": "wrangler kv namespace create SYSTEM_DATA",
 		"kv:create-preview": "wrangler kv namespace create SYSTEM_DATA --preview",
 		"kv:upload": "wrangler kv bulk put --binding SYSTEM_DATA --preview false kv-bulk-upload.json",

@@ -129,6 +129,7 @@ List subcommands (`grade`, `ops`, `rank`, `inactive`, `missing-verify`) share op
 | `link` | Adopt existing channel → player (`player:` or `user:`). | Preferred way to attach member channels. |
 | `status` | Show map / template / diplomacy summary. | ✓ |
 | `permissions-audit` | Read-only overwrite dump. | ✓ |
+| `permissions-apply` | Bulk-add bot/role/extra/template overwrites (dry-run default). | ✓ |
 | `permissions-template-from` / `show` / `clear` | Lock sample perms for creates/links. | ✓ |
 | `log` / `audit` / `urgent` | Verification archive, bot audit, high-signal alerts. | ✓ (same) |
 

@@ -27,7 +27,7 @@ export interface AuditLogOpts {
 	/** Discord user who triggered the action (admin or member). */
 	actorId?: string | null;
 	/** automated | admin | member | cron */
-	source?: 'automated' | 'admin' | 'member' | 'cron' | 'system';
+	source?: 'automated' | 'admin' | 'member' | 'cron' | 'system' | 'web';
 	fields?: Array<{ name: string; value: string; inline?: boolean }>;
 	color?: AuditColorValue;
 }

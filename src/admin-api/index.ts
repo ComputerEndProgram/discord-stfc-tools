@@ -1,0 +1,369 @@
+import {
+	countPlayersByAlliance,
+	countPlayersByGrade,
+	countPlayersByStatus,
+	getGuildConfig,
+	listConfiguredGuilds,
+	upsertGuildConfig,
+} from '../guild-db';
+import { getDiscordGatewayStatus } from '../discord-gateway/wake';
+import { AuditColor, postAuditLog } from '../audit-log';
+import { BOT_VERSION } from '../version';
+import type { GuildConfig } from '../types';
+import { corsHeaders, jsonCors, withCors } from './cors';
+import {
+	exchangeOAuthCode,
+	fetchOAuthGuilds,
+	fetchOAuthUser,
+	oauthAuthorizeUrl,
+	oauthRedirectUri,
+	userCanAccessGuild,
+	type DiscordOAuthGuild,
+} from './discord-oauth';
+import {
+	clearSessionCookieHeader,
+	newSessionExpiry,
+	readSessionFromRequest,
+	sealSession,
+	sessionCookieHeader,
+	type AdminSession,
+} from './session';
+
+function b64url(s: string): string {
+	return btoa(s).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+}
+
+function requireAdminEnv(env: Env): string | null {
+	if (!env.ADMIN_SESSION_SECRET?.trim()) {
+		return 'ADMIN_SESSION_SECRET not configured';
+	}
+	if (!(env.DISCORD_CLIENT_ID || env.DISCORD_APPLICATION_ID) || !env.DISCORD_CLIENT_SECRET) {
+		return 'Discord OAuth not configured (DISCORD_CLIENT_ID/APPLICATION_ID + DISCORD_CLIENT_SECRET)';
+	}
+	return null;
+}
+
+async function requireSession(
+	request: Request,
+	env: Env,
+): Promise<AdminSession | Response> {
+	const missing = requireAdminEnv(env);
+	if (missing) {
+		return jsonCors(request, env, { error: missing }, { status: 503 });
+	}
+	const session = await readSessionFromRequest(request, env.ADMIN_SESSION_SECRET);
+	if (!session) {
+		return jsonCors(request, env, { error: 'Unauthorized' }, { status: 401 });
+	}
+	return session;
+}
+
+async function requireGuildAccess(
+	request: Request,
+	env: Env,
+	session: AdminSession,
+	guildId: string,
+): Promise<{ config: GuildConfig; oauthGuild?: DiscordOAuthGuild } | Response> {
+	const config = await getGuildConfig(env.STFC_DB, guildId);
+	if (!config) {
+		return jsonCors(request, env, { error: 'Guild not configured for this bot' }, { status: 404 });
+	}
+	const oauthGuilds = await fetchOAuthGuilds(session.accessToken);
+	const oauthGuild = oauthGuilds.find((g) => g.id === guildId);
+	const access = await userCanAccessGuild(env, session, config, oauthGuild);
+	if (!access.ok) {
+		return jsonCors(request, env, { error: access.reason }, { status: 403 });
+	}
+	return { config, oauthGuild };
+}
+
+function publicConfig(config: GuildConfig) {
+	return {
+		guild_id: config.guild_id,
+		mode: config.mode,
+		stfc_server: config.stfc_server,
+		stfc_region: config.stfc_region,
+		alliance_tag: config.alliance_tag,
+		stfc_alliance_id: config.stfc_alliance_id,
+		guest_role_id: config.guest_role_id,
+		member_role_ids: config.member_role_ids,
+		nickname_template: config.nickname_template,
+		verification_enabled: config.verification_enabled,
+		poll_interval_hours: config.poll_interval_hours,
+		deploy_mode: config.deploy_mode,
+		demotion_policy: config.demotion_policy,
+		data_consent_enabled: config.data_consent_enabled,
+		data_consent_version: config.data_consent_version,
+		agreement_enabled: config.agreement_enabled,
+		agreement_timing: config.agreement_timing,
+		agreement_version: config.agreement_version,
+		welcome_dm_enabled: config.welcome_dm_enabled,
+		verification_log_channel_id: config.verification_log_channel_id,
+		audit_log_channel_id: config.audit_log_channel_id,
+		urgent_notify_channel_id: config.urgent_notify_channel_id,
+		web_admin_role_ids: config.web_admin_role_ids,
+		dm_query_role_ids: config.dm_query_role_ids,
+	};
+}
+
+const CONFIG_PATCH_KEYS = [
+	'alliance_tag',
+	'nickname_template',
+	'verification_enabled',
+	'poll_interval_hours',
+	'deploy_mode',
+	'demotion_policy',
+	'data_consent_enabled',
+	'data_consent_version',
+	'agreement_enabled',
+	'agreement_timing',
+	'agreement_version',
+	'welcome_dm_enabled',
+	'web_admin_role_ids',
+] as const;
+
+export async function handleAdminApi(
+	request: Request,
+	env: Env,
+	ctx: ExecutionContext,
+): Promise<Response> {
+	const url = new URL(request.url);
+
+	if (request.method === 'OPTIONS') {
+		return withCors(request, env, new Response(null, { status: 204 }));
+	}
+
+	// GET /api/admin/auth/login
+	if (url.pathname === '/api/admin/auth/login' && request.method === 'GET') {
+		const missing = requireAdminEnv(env);
+		if (missing) {
+			return jsonCors(request, env, { error: missing }, { status: 503 });
+		}
+		const redirectUri = oauthRedirectUri(env, url);
+		const state = b64url(crypto.randomUUID());
+		const authorize = oauthAuthorizeUrl(env, redirectUri, state);
+		if (!authorize) {
+			return jsonCors(request, env, { error: 'Missing Discord client id' }, { status: 503 });
+		}
+		// Return URL for SPA, or redirect if ?redirect=1
+		if (url.searchParams.get('redirect') === '1') {
+			const headers = new Headers(corsHeadersFrom(request, env));
+			headers.set('Location', authorize);
+			headers.append(
+				'Set-Cookie',
+				`stfc_oauth_state=${encodeURIComponent(state)}; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=600`,
+			);
+			return new Response(null, { status: 302, headers });
+		}
+		const res = jsonCors(request, env, { url: authorize, state, redirect_uri: redirectUri });
+		const headers = new Headers(res.headers);
+		headers.append(
+			'Set-Cookie',
+			`stfc_oauth_state=${encodeURIComponent(state)}; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=600`,
+		);
+		return new Response(res.body, { status: res.status, headers });
+	}
+
+	// GET /api/admin/auth/callback
+	if (url.pathname === '/api/admin/auth/callback' && request.method === 'GET') {
+		const missing = requireAdminEnv(env);
+		const frontend = primaryFrontendOrigin(env);
+		if (missing) {
+			return Response.redirect(`${frontend}/login?error=${encodeURIComponent(missing)}`, 302);
+		}
+		const code = url.searchParams.get('code');
+		const state = url.searchParams.get('state');
+		const err = url.searchParams.get('error');
+		if (err) {
+			return Response.redirect(`${frontend}/login?error=${encodeURIComponent(err)}`, 302);
+		}
+		if (!code || !state) {
+			return Response.redirect(`${frontend}/login?error=missing_code`, 302);
+		}
+		const cookies = request.headers.get('Cookie') || '';
+		const stateMatch = /(?:^|;\s*)stfc_oauth_state=([^;]+)/.exec(cookies);
+		const expected = stateMatch ? decodeURIComponent(stateMatch[1]) : null;
+		if (!expected || expected !== state) {
+			return Response.redirect(`${frontend}/login?error=state_mismatch`, 302);
+		}
+
+		const redirectUri = oauthRedirectUri(env, url);
+		const token = await exchangeOAuthCode(env, code, redirectUri);
+		if ('error' in token) {
+			return Response.redirect(`${frontend}/login?error=${encodeURIComponent(token.error)}`, 302);
+		}
+		const user = await fetchOAuthUser(token.access_token);
+		if (!user) {
+			return Response.redirect(`${frontend}/login?error=user_fetch_failed`, 302);
+		}
+		const session: AdminSession = {
+			userId: user.id,
+			username: user.username,
+			globalName: user.global_name,
+			avatar: user.avatar,
+			accessToken: token.access_token,
+			exp: newSessionExpiry(),
+		};
+		const sealed = await sealSession(session, env.ADMIN_SESSION_SECRET!);
+		const headers = new Headers({ Location: `${frontend}/app` });
+		headers.append('Set-Cookie', sessionCookieHeader(sealed));
+		headers.append(
+			'Set-Cookie',
+			'stfc_oauth_state=; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=0',
+		);
+		return new Response(null, { status: 302, headers });
+	}
+
+	// POST /api/admin/auth/logout
+	if (url.pathname === '/api/admin/auth/logout' && request.method === 'POST') {
+		const headers = new Headers(corsHeadersFrom(request, env));
+		headers.set('Content-Type', 'application/json');
+		headers.append('Set-Cookie', clearSessionCookieHeader());
+		return new Response(JSON.stringify({ ok: true }), { status: 200, headers });
+	}
+
+	// GET /api/admin/me
+	if (url.pathname === '/api/admin/me' && request.method === 'GET') {
+		const sessionOrRes = await requireSession(request, env);
+		if (sessionOrRes instanceof Response) return sessionOrRes;
+		const s = sessionOrRes;
+		return jsonCors(request, env, {
+			user: {
+				id: s.userId,
+				username: s.username,
+				global_name: s.globalName,
+				avatar: s.avatar,
+			},
+			bot_version: BOT_VERSION,
+		});
+	}
+
+	// GET /api/admin/guilds
+	if (url.pathname === '/api/admin/guilds' && request.method === 'GET') {
+		const sessionOrRes = await requireSession(request, env);
+		if (sessionOrRes instanceof Response) return sessionOrRes;
+		const session = sessionOrRes;
+		const configured = await listConfiguredGuilds(env.STFC_DB);
+		const oauthGuilds = await fetchOAuthGuilds(session.accessToken);
+		const oauthById = new Map(oauthGuilds.map((g) => [g.id, g]));
+		const accessible: Array<{
+			id: string;
+			name: string;
+			icon: string | null;
+			alliance_tag: string | null;
+			mode: string;
+			via: string;
+		}> = [];
+		for (const config of configured) {
+			const og = oauthById.get(config.guild_id);
+			const access = await userCanAccessGuild(env, session, config, og);
+			if (!access.ok) continue;
+			accessible.push({
+				id: config.guild_id,
+				name: og?.name || config.alliance_tag || config.guild_id,
+				icon: og?.icon ?? null,
+				alliance_tag: config.alliance_tag,
+				mode: config.mode,
+				via: access.via,
+			});
+		}
+		return jsonCors(request, env, { guilds: accessible });
+	}
+
+	const guildMatch = /^\/api\/admin\/guilds\/(\d{15,20})(\/.*)?$/.exec(url.pathname);
+	if (guildMatch) {
+		const guildId = guildMatch[1];
+		const rest = guildMatch[2] || '';
+		const sessionOrRes = await requireSession(request, env);
+		if (sessionOrRes instanceof Response) return sessionOrRes;
+		const session = sessionOrRes;
+		const accessOrRes = await requireGuildAccess(request, env, session, guildId);
+		if (accessOrRes instanceof Response) return accessOrRes;
+		const { config } = accessOrRes;
+
+		// GET .../status
+		if ((rest === '' || rest === '/' || rest === '/status') && request.method === 'GET') {
+			const [byGrade, byStatus, byAlliance, gateway] = await Promise.all([
+				countPlayersByGrade(env.STFC_DB, guildId),
+				countPlayersByStatus(env.STFC_DB, guildId),
+				countPlayersByAlliance(env.STFC_DB, guildId),
+				getDiscordGatewayStatus(env),
+			]);
+			const verified = byStatus.reduce((n, r) => n + r.count, 0);
+			return jsonCors(request, env, {
+				guild_id: guildId,
+				bot_version: BOT_VERSION,
+				config: publicConfig(config),
+				stats: {
+					verified_total: verified,
+					by_grade: byGrade,
+					by_status: byStatus,
+					by_alliance: byAlliance,
+				},
+				gateway: gateway ?? null,
+			});
+		}
+
+		// GET/PATCH .../config
+		if (rest === '/config' && request.method === 'GET') {
+			return jsonCors(request, env, { config: publicConfig(config) });
+		}
+		if (rest === '/config' && request.method === 'PATCH') {
+			let body: Record<string, unknown>;
+			try {
+				body = (await request.json()) as Record<string, unknown>;
+			} catch {
+				return jsonCors(request, env, { error: 'Invalid JSON' }, { status: 400 });
+			}
+			const patch: Partial<GuildConfig> & { guild_id: string } = { guild_id: guildId };
+			for (const key of CONFIG_PATCH_KEYS) {
+				if (!Object.prototype.hasOwnProperty.call(body, key)) continue;
+				const val = body[key];
+				if (key === 'web_admin_role_ids') {
+					patch.web_admin_role_ids = Array.isArray(val)
+						? val.map(String).filter((id) => /^\d{15,20}$/.test(id))
+						: [];
+				} else if (key === 'verification_enabled' || key === 'data_consent_enabled' || key === 'agreement_enabled' || key === 'welcome_dm_enabled') {
+					(patch as Record<string, unknown>)[key] = Boolean(val);
+				} else if (key === 'poll_interval_hours') {
+					const n = Number(val);
+					if (Number.isFinite(n) && n >= 1 && n <= 168) patch.poll_interval_hours = n;
+				} else if (key === 'deploy_mode') {
+					if (val === 'testing' || val === 'live') patch.deploy_mode = val;
+				} else if (key === 'demotion_policy') {
+					if (val === 'approval' || val === 'yolo') patch.demotion_policy = val;
+				} else if (key === 'agreement_timing') {
+					if (val === 'after_verify' || val === 'before_verify') patch.agreement_timing = val;
+				} else if (typeof val === 'string' || val === null) {
+					(patch as Record<string, unknown>)[key] = val;
+				}
+			}
+			await upsertGuildConfig(env.STFC_DB, patch);
+			const refreshed = await getGuildConfig(env.STFC_DB, guildId);
+			ctx.waitUntil(
+				postAuditLog(env, refreshed, {
+					title: 'Admin web config update',
+					description: `Updated via web UI`,
+					actorId: session.userId,
+					source: 'web',
+					color: AuditColor.info,
+					fields: Object.keys(body)
+						.slice(0, 8)
+						.map((k) => ({ name: k, value: String(body[k]).slice(0, 100), inline: true })),
+				}),
+			);
+			return jsonCors(request, env, { config: publicConfig(refreshed!) });
+		}
+	}
+
+	return jsonCors(request, env, { error: 'Not found' }, { status: 404 });
+}
+
+function corsHeadersFrom(request: Request, env: Env): Record<string, string> {
+	return corsHeaders(request, env) as Record<string, string>;
+}
+
+function primaryFrontendOrigin(env: Env): string {
+	const raw = env.ADMIN_WEB_ORIGIN?.split(',')[0]?.trim().replace(/\/$/, '');
+	return raw || 'http://localhost:5173';
+}

@@ -117,6 +117,7 @@ function mapGuildConfig(row: any): GuildConfig {
 		exchange_category_id: row.exchange_category_id ?? null,
 		exchange_admin_role_ids: parseJsonArray(row.exchange_admin_role_ids),
 		dm_query_role_ids: parseJsonArray(row.dm_query_role_ids),
+		web_admin_role_ids: parseJsonArray(row.web_admin_role_ids),
 		dm_ai_enabled: Boolean(row.dm_ai_enabled ?? 0),
 		data_consent_enabled: Boolean(row.data_consent_enabled ?? 0),
 		data_consent_version: row.data_consent_version?.trim() || '1',
@@ -504,6 +505,23 @@ async function upsertDiplomacyConfigFields(
 	await upsertDemotionPolicyField(db, config);
 	await upsertDeployModeField(db, config);
 	await upsertWelcomeDmConfigFields(db, config);
+	await upsertWebAdminRoleIdsField(db, config);
+}
+
+async function upsertWebAdminRoleIdsField(
+	db: D1Database,
+	config: Partial<GuildConfig> & { guild_id: string },
+): Promise<void> {
+	if (!Object.prototype.hasOwnProperty.call(config, 'web_admin_role_ids')) return;
+	await db
+		.prepare(
+			`UPDATE guild_configs SET
+			 web_admin_role_ids = ?,
+			 updated_at = datetime('now')
+			 WHERE guild_id = ?`,
+		)
+		.bind(JSON.stringify(config.web_admin_role_ids ?? []), config.guild_id)
+		.run();
 }
 
 async function upsertDataConsentConfigFields(

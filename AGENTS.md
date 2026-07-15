@@ -208,6 +208,7 @@ migrations/
   030_welcome_dm_attempts.sql  # welcome DM auto-retry cap
   031_survey_title.sql  # optional survey delivery title
   032_survey_closes_at.sql  # optional closes_in / closes_at auto-close
+  033_web_admin_roles.sql  # web_admin_role_ids for admin SPA
 
 archive/officers/          # REMOVED officer feature (scripts, SQL, assets, docs)
 
@@ -677,6 +678,10 @@ Mock Discord REST and stfc.pro in Worker tests; use D1 local binding for integra
 | `SETUP.md` | **Fresh install and migration guide** (cron, diagnostic endpoints) |
 | `docs/ADMIN_GUIDE.md` | **Discord admin configuration** (roles, nicks, channels, log, **daily alliance roster**) |
 | `docs/COMMANDS.md` | **Slash commands** — single vs multi-alliance behaviour |
+| `docs/PRIVACY_POLICY.md` | Privacy policy template (customise before publishing) |
+| `docs/TERMS_OF_SERVICE.md` | Terms of service template (customise before publishing) |
+| `docs/ADMIN_WEB.md` | Admin web UI (Pages + Discord OAuth) |
+| `docs/BOT_MIGRATION.md` | New Discord app cutover + reuse D1 |
 | `AGENTS.md` | Architecture, alliance roster sync, roadmap, coding guidelines |
 | `ENVIRONMENT_SETUP.md` | `.env` and `generate-config.js` overview |
 | `FACTION_MAPPING.md` | System faction IDs (for `/lookup`) |

@@ -4,6 +4,8 @@ How to configure the bot **inside Discord** after it is deployed. For Cloudflare
 
 **Slash command catalogue (single vs multi-alliance):** [COMMANDS.md](./COMMANDS.md)
 
+**Admin web UI (optional):** [ADMIN_WEB.md](./ADMIN_WEB.md) — Discord OAuth dashboard on Cloudflare Pages (`admin-web/`). Public **Privacy** (`/privacy`) and **Terms** (`/terms`) for app verification. New-bot cutover: [BOT_MIGRATION.md](./BOT_MIGRATION.md).
+
 Release versions (MAJOR.MINOR.INCREMENTAL) are listed in [VERSION_HISTORY.md](../VERSION_HISTORY.md). `/server status` shows the running bot version.
 
 You need the **Administrator** permission in the Discord server for `/server` commands.
@@ -503,6 +505,28 @@ Before changing anything, dump what Discord currently has on linked channels + c
 - Ephemeral summary with flags (`bot_missing_view`, `linked_member_no_overwrite`, …)
 - Full text dump attached to `/channels audit` when that channel is set (keep this as your record)
 
+### Bulk-add overwrites (bot / roles / buckets)
+
+Add or refresh **one target’s** overwrite across many linked channels **without** wiping per-member allows (safe for new-bot migration and staff role rollouts).
+
+```
+/channels permissions-apply target:bot
+/channels permissions-apply target:bot scope:all dry_run:false
+/channels permissions-apply target:role role:@Leadership preset:member dry_run:false
+/channels permissions-apply target:extra_roles scope:personal dry_run:false
+/channels permissions-apply target:template_roles dry_run:false
+```
+
+| Option | Notes |
+|--------|--------|
+| `target` | `bot` · `role` (+ `role:`) · `extra_roles` · `template_roles` |
+| `scope` | `personal` (default) · `diplomacy` · `staff_logs` · `survey_logs` · `all` |
+| `preset` | `bot` (full bot bits) · `member` (view/send set) · `view_send` (lighter) |
+| `dry_run` | Default **true** — preview; set `false` to apply |
+| `only_missing` | Default **true** — skip if target already has View |
+
+Posts a detail file to the audit log channel when configured. See also [BOT_MIGRATION.md](./BOT_MIGRATION.md) § channel overwrites.
+
 ### Lock a permission template from a sample channel (optional)
 
 You do **not** need this if the built-in default + `/channels extra-roles` is enough.
@@ -968,6 +992,8 @@ Two separate gates:
 |------|---------|------|---------|
 | **Data consent** | `/server consent` | **Before** screenshot / stfc.pro lookup | Link Discord ↔ player identity; Yes/No buttons; logged to audit |
 | **Code of conduct** | `/server agreement` | **After** verify (guest lounge until accept) | Optional server rules; can still link a CoC channel |
+
+**Legal templates** (customise before publishing): [Privacy Policy](./PRIVACY_POLICY.md) · [Terms of Service](./TERMS_OF_SERVICE.md). Link stable hosted copies from your consent DM or CoC channel when you enable `/server consent`.
 
 ```
 /server consent

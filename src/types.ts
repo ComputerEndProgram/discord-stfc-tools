@@ -130,6 +130,8 @@ export interface GuildConfig {
 	exchange_admin_role_ids: string[];
 	/** Roles allowed to ask roster/analytics questions in DMs (empty = Administrators only). */
 	dm_query_role_ids: string[];
+	/** Roles allowed to use the admin web UI (in addition to Discord Administrator). */
+	web_admin_role_ids: string[];
 	/** When true and Workers AI is bound, allow optional NLP intent classification for DMs. */
 	dm_ai_enabled: boolean;
 	/**

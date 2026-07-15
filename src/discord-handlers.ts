@@ -54,6 +54,14 @@ import {
 	formatPermissionAuditSummaryMessage,
 } from './channel-permission-audit';
 import {
+	formatBulkPermReportText,
+	formatBulkPermSummary,
+	runBulkPermApply,
+	type BulkPermPreset,
+	type BulkPermScope,
+	type BulkPermTarget,
+} from './channel-permissions-bulk';
+import {
 	capturePersonalChannelPermTemplate,
 	formatEffectivePersonalChannelPermTemplate,
 	formatPersonalChannelPermTemplate,
@@ -2241,6 +2249,126 @@ async function handleServerChannelsCommand(
 						appId,
 						interaction.token,
 						`❌ Permission audit failed: ${error instanceof Error ? error.message : 'unknown error'}`,
+						true,
+					);
+				}
+			})(),
+		);
+		return deferred;
+	}
+
+	if (sub.name === 'permissions-apply') {
+		if (!env.DISCORD_BOT_TOKEN) {
+			return interactionResponse('❌ DISCORD_BOT_TOKEN not configured.', true);
+		}
+		const appId = interaction.application_id ?? env.DISCORD_APPLICATION_ID;
+		if (!appId) {
+			return interactionResponse('❌ DISCORD_APPLICATION_ID not configured.', true);
+		}
+
+		const targetRaw = (getOptionValue(sub.options, 'target') as string | undefined) || '';
+		const target = targetRaw as BulkPermTarget;
+		if (!['bot', 'role', 'extra_roles', 'template_roles'].includes(target)) {
+			return interactionResponse(
+				'❌ `target:` must be bot, role, extra_roles, or template_roles.',
+				true,
+			);
+		}
+
+		const scopeRaw = ((getOptionValue(sub.options, 'scope') as string) || 'personal') as BulkPermScope;
+		if (!['personal', 'diplomacy', 'staff_logs', 'survey_logs', 'all'].includes(scopeRaw)) {
+			return interactionResponse('❌ Invalid `scope:`.', true);
+		}
+
+		const presetRaw = getOptionValue(sub.options, 'preset') as string | undefined;
+		let preset: BulkPermPreset =
+			target === 'bot' ? 'bot' : 'member';
+		if (presetRaw === 'bot' || presetRaw === 'member' || presetRaw === 'view_send') {
+			preset = presetRaw;
+		}
+
+		const roleOpt = getOptionValue(sub.options, 'role');
+		const roleId = roleOpt != null ? String(roleOpt) : null;
+		if (target === 'role' && (!roleId || !/^\d{15,20}$/.test(roleId))) {
+			return interactionResponse('❌ Provide `role:` when target is role.', true);
+		}
+
+		const dryRaw = getOptionValue(sub.options, 'dry_run');
+		const dryRun =
+			dryRaw === undefined || dryRaw === null
+				? true
+				: !(dryRaw === false || dryRaw === 'false');
+
+		const missingRaw = getOptionValue(sub.options, 'only_missing');
+		const onlyMissing =
+			missingRaw === undefined || missingRaw === null
+				? true
+				: !(missingRaw === false || missingRaw === 'false');
+
+		const deferred = deferredResponse();
+		ctx.waitUntil(
+			(async () => {
+				try {
+					const players = await listPlayersForPersonalChannels(env.STFC_DB, guildId);
+					const report = await runBulkPermApply({
+						token: env.DISCORD_BOT_TOKEN!,
+						db: env.STFC_DB,
+						guildId,
+						config,
+						players,
+						scope: scopeRaw,
+						target,
+						preset,
+						roleId,
+						dryRun,
+						onlyMissing,
+					});
+
+					const summary = formatBulkPermSummary(report);
+					const fullText = formatBulkPermReportText(report);
+
+					if (config.audit_log_channel_id && env.DISCORD_BOT_TOKEN) {
+						try {
+							const bytes = new TextEncoder().encode(fullText);
+							await sendChannelMessageWithEmbed(env.DISCORD_BOT_TOKEN, config.audit_log_channel_id, {
+								content:
+									`🔧 Channel permissions ${dryRun ? 'dry-run' : 'apply'} — ` +
+									`${report.channelCount} channels`,
+								embeds: [
+									{
+										title: dryRun
+											? 'Permissions apply (dry-run)'
+											: 'Permissions apply (applied)',
+										description: report.summaryLines.join('\n').slice(0, 4000),
+										color: report.failed ? AuditColor.warn : AuditColor.success,
+										timestamp: new Date().toISOString(),
+									},
+								],
+								file: {
+									bytes,
+									filename: `perms-apply-${guildId}-${Date.now()}.txt`,
+									contentType: 'text/plain; charset=utf-8',
+								},
+							});
+						} catch (err) {
+							console.error('Permissions apply audit post failed:', err);
+						}
+					}
+
+					await postAuditLog(env, config, {
+						title: dryRun ? 'Permissions apply dry-run' : 'Permissions apply',
+						description: report.summaryLines.slice(0, 2).join('\n'),
+						actorId: interaction.member?.user?.id,
+						source: 'admin',
+						color: report.failed ? AuditColor.warn : AuditColor.info,
+					});
+
+					await editInteractionResponse(appId, interaction.token, summary, true);
+				} catch (error) {
+					await editInteractionResponse(
+						appId,
+						interaction.token,
+						`❌ Permissions apply failed: ${error instanceof Error ? error.message : 'unknown error'}`,
 						true,
 					);
 				}
